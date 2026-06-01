@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+mobile/node_modules/
+
+# Build output
+out/
+dist/
+build/
+.vite/
+.vite-temp/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+mobile/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# User uploads (keep folder structure only)
+uploads/**/*
+!uploads/EV/
+!uploads/EV/.gitkeep
+
+# TypeScript / tooling cache
+*.tsbuildinfo
+.eslintcache
+
+# Expo / React Native (mobile)
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Supabase local
+.branches/
+.temp/

@@ -1,0 +1,1 @@
+/** Charger module components */
