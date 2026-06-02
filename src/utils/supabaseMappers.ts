@@ -244,6 +244,6 @@ export function computeDashboardStats(
     totalRevenueToday: todayRevenue,
     totalSessionsToday: todaySessionCount,
     avgSessionDuration: "1h 45m",
-    peakPowerToday: peakPower || 58.2,
+    peakPowerToday: peakPower,
   };
 }

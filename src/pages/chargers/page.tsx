@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import * as chargerService from "@/services/chargerService";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type StatusFilter = "all" | "online" | "offline" | "faulted";
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
@@ -49,14 +50,25 @@ function getConnectorBadge(status: string): string {
 
 export default function ChargersPage() {
   const navigate = useNavigate();
-  const { data: chargersData } = useAsyncData(() => chargerService.getChargers(), []);
-  const { data: sessionsData } = useAsyncData(() => chargerService.getActiveSessionsForChargers(), []);
-  const mockChargers = chargersData ?? [];
-  const mockActiveSessions = sessionsData ?? [];
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [manufacturerFilter, setManufacturerFilter] = useState<string>("all");
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
+  const { data: chargersData } = useAsyncData(
+    () =>
+      chargerService.getChargers({
+        status: statusFilter,
+        type: typeFilter,
+        manufacturer: manufacturerFilter,
+        search: debouncedSearch,
+      }),
+    [statusFilter, typeFilter, manufacturerFilter, debouncedSearch]
+  );
+  const { data: sessionsData } = useAsyncData(() => chargerService.getActiveSessionsForChargers(), []);
+  const mockChargers = chargersData ?? [];
+  const mockActiveSessions = sessionsData ?? [];
 
   const stats = useMemo(() => {
     const online = mockChargers.filter((c) => c.status === "online").length;
@@ -69,22 +81,7 @@ export default function ChargersPage() {
     return { online, offline, faulted, chargingConnectors };
   }, [mockChargers]);
 
-  const filteredChargers = useMemo(() => {
-    return mockChargers.filter((charger) => {
-      if (statusFilter !== "all" && charger.status !== statusFilter) return false;
-      if (typeFilter !== "all" && charger.type !== typeFilter) return false;
-      if (manufacturerFilter !== "all" && charger.manufacturer !== manufacturerFilter) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          charger.name.toLowerCase().includes(q) ||
-          charger.chargePointId.toLowerCase().includes(q) ||
-          charger.location.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [mockChargers, searchQuery, statusFilter, typeFilter, manufacturerFilter]);
+  const filteredChargers = useMemo(() => mockChargers, [mockChargers]);
 
   return (
     <div className="space-y-5">

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import * as rfidService from "@/services/rfidService";
 import * as userService from "@/services/userService";
 import type { RFIDCard, User } from "@/types/ev";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { validateRfidUid, validateRequired } from "@/utils/validation";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 function formatTime(isoStr: string | null): string {
   if (!isoStr) return "—";
@@ -33,24 +34,23 @@ export default function RfidPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
   const loadCards = () =>
-    rfidService.getRfidCards().then(setCards).catch((e) => showToast(e instanceof Error ? e.message : "Failed to load RFID cards"));
+    rfidService
+      .getRfidCards({ status: statusFilter, search: debouncedSearch })
+      .then(setCards)
+      .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load RFID cards"));
 
   const loadUsers = () => userService.getUsers().then(setUsersList).catch(console.error);
 
   useEffect(() => {
     loadCards();
     loadUsers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, debouncedSearch]);
 
-  const filteredCards = cards.filter((c) => {
-    if (statusFilter !== "all" && c.status !== statusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return c.uid.toLowerCase().includes(q) || (c.boundUser && c.boundUser.toLowerCase().includes(q));
-    }
-    return true;
-  });
+  const filteredCards = useMemo(() => cards, [cards]);
 
   const handleAdd = async () => {
     const err = validateRfidUid(newCardUid);

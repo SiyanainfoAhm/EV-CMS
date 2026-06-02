@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import * as auditLogService from "@/services/auditLogService";
 import type { AuditLog } from "@/types/ev";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 function formatTime(isoStr: string): string {
   return new Date(isoStr).toLocaleString("en-IN", {
@@ -14,47 +15,50 @@ function formatTime(isoStr: string): string {
 
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [allLogsForFacets, setAllLogsForFacets] = useState<AuditLog[]>([]);
 
-  useEffect(() => {
-    auditLogService
-      .getAuditLogs()
-      .then((data) =>
-        setLogs([...data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
-      )
-      .catch(console.error);
-  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [userFilter, setUserFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
+  // Load facet options once (users/actions).
+  useEffect(() => {
+    auditLogService
+      .getAuditLogs({ limit: 500 })
+      .then((data) =>
+        setAllLogsForFacets([...data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
+      )
+      .catch(console.error);
+  }, []);
+
+  // Fetch filtered logs from server when filters/search change.
+  useEffect(() => {
+    auditLogService
+      .getAuditLogs({ action: actionFilter, search: debouncedSearch, limit: 500 })
+      .then((data) =>
+        setLogs([...data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
+      )
+      .catch(console.error);
+  }, [actionFilter, debouncedSearch]);
 
   const uniqueUsers = useMemo(() => {
-    const names = [...new Set(logs.map((l) => l.userName))];
+    const names = [...new Set(allLogsForFacets.map((l) => l.userName))];
     return names;
-  }, [logs]);
+  }, [allLogsForFacets]);
 
   const uniqueActions = useMemo(() => {
-    const actions = [...new Set(logs.map((l) => l.action))];
+    const actions = [...new Set(allLogsForFacets.map((l) => l.action))];
     return actions;
-  }, [logs]);
+  }, [allLogsForFacets]);
 
   const filteredLogs = useMemo(() => {
-    let result = logs;
-    if (actionFilter !== "all") result = result.filter((l) => l.action === actionFilter);
-    if (userFilter !== "all") result = result.filter((l) => l.userName === userFilter);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (l) =>
-          l.userName.toLowerCase().includes(q) ||
-          l.action.toLowerCase().includes(q) ||
-          l.details.toLowerCase().includes(q) ||
-          l.entityType.toLowerCase().includes(q),
-      );
-    }
-    return result;
-  }, [logs, actionFilter, userFilter, searchQuery]);
+    // `action` + `search` are applied server-side.
+    if (userFilter === "all") return logs;
+    return logs.filter((l) => l.userName === userFilter);
+  }, [logs, userFilter]);
 
   const totalPages = Math.ceil(filteredLogs.length / perPage);
   const paginatedLogs = filteredLogs.slice((currentPage - 1) * perPage, currentPage * perPage);

@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import * as userService from "@/services/userService";
 import type { User } from "@/types/ev";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { hasErrors, validateUserForm } from "@/utils/validation";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface UserFormData {
   name: string;
@@ -30,22 +31,20 @@ export default function UsersPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
   const loadUsers = () =>
-    userService.getUsers().then(setUsers).catch((e) => showToast(e instanceof Error ? e.message : "Failed to load users"));
+    userService
+      .getUsers({ role: roleFilter, status: statusFilter, search: debouncedSearch })
+      .then(setUsers)
+      .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load users"));
 
   useEffect(() => {
     loadUsers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleFilter, statusFilter, debouncedSearch]);
 
-  const filteredUsers = users.filter((u) => {
-    if (roleFilter !== "all" && u.role !== roleFilter) return false;
-    if (statusFilter !== "all" && u.status !== statusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.department.toLowerCase().includes(q);
-    }
-    return true;
-  });
+  const filteredUsers = useMemo(() => users, [users]);
 
   const handleAdd = async () => {
     const errors = validateUserForm(formData);

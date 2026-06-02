@@ -18,14 +18,17 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import * as sessionService from "@/services/sessionService";
 import * as reportService from "@/services/reportService";
+import type { TimeRange } from "@/types/ev";
 
 const COLORS = ["#059669", "#d97706", "#e11d48", "#7c3aed", "#0891b2", "#2563eb", "#9333ea"];
 
 export default function ReportsPage() {
-  const [timeRange, setTimeRange] = useState("week");
-  const { chargers, stats } = useDashboardData();
+  const [timeRange, setTimeRange] = useState<TimeRange>("week");
+  const { chargers, stats, activeSessions } = useDashboardData(timeRange);
+  const days = timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
+  const rangeSubtitle = timeRange === "week" ? "this week" : timeRange === "month" ? "this month" : "this quarter";
   const { data: historyData } = useAsyncData(() => sessionService.getSessionHistory(), []);
-  const { data: chartData } = useAsyncData(() => reportService.getDailyRevenueAndSessions(7), []);
+  const { data: chartData } = useAsyncData(() => reportService.getDailyRevenueAndSessions(days), [days]);
   const dailyRevenue = useMemo(
     () => (chartData ?? []).map((d) => ({ day: d.day, revenue: d.revenue })),
     [chartData]
@@ -44,10 +47,30 @@ export default function ReportsPage() {
     activeSessions: 0,
   };
 
+  const rangeStart = useMemo(() => {
+    const start = new Date();
+    start.setUTCHours(0, 0, 0, 0);
+    const dayCount = timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
+    start.setUTCDate(start.getUTCDate() - (dayCount - 1));
+    return start;
+  }, [timeRange]);
+
+  const filteredSessionHistory = useMemo(
+    () => mockSessionHistory.filter((s) => new Date(s.startTime).getTime() >= rangeStart.getTime()),
+    [mockSessionHistory, rangeStart],
+  );
+
+  const filteredActiveSessions = useMemo(
+    () => activeSessions.filter((s) => new Date(s.startTime).getTime() >= rangeStart.getTime()),
+    [activeSessions, rangeStart],
+  );
+
   const chargerUsage = useMemo(
     () =>
       mockChargers.map((c) => {
-        const sessions = mockSessionHistory.filter((s) => s.chargePointId === c.chargePointId);
+        const completed = filteredSessionHistory.filter((s) => s.chargePointId === c.chargePointId);
+        const active = filteredActiveSessions.filter((s) => s.chargePointId === c.chargePointId);
+        const sessions = [...active, ...completed];
         const totalEnergy = sessions.reduce((sum, s) => sum + (s.energyKwh || 0), 0);
         return {
           name: c.chargePointId,
@@ -55,16 +78,16 @@ export default function ReportsPage() {
           sessions: sessions.length,
         };
       }),
-    [mockChargers, mockSessionHistory]
+    [mockChargers, filteredSessionHistory, filteredActiveSessions],
   );
 
   const summaryStats = useMemo(() => {
     const totalEnergy = chargerUsage.reduce((sum, c) => sum + c.energy, 0);
-    const totalSessions = mockSessionHistory.length + (mockDashboardStats?.activeSessions ?? 0);
+    const totalSessions = filteredSessionHistory.length + filteredActiveSessions.length;
     const totalRevenue = dailyRevenue.reduce((sum, d) => sum + d.revenue, 0);
     const avgEnergyPerSession = totalSessions > 0 ? (totalEnergy / totalSessions).toFixed(1) : "0";
     return { totalEnergy, totalSessions, totalRevenue, avgEnergyPerSession };
-  }, [chargerUsage, mockSessionHistory, mockDashboardStats, dailyRevenue]);
+  }, [chargerUsage, filteredSessionHistory, filteredActiveSessions, dailyRevenue]);
 
   const totalChargers = mockDashboardStats.totalChargers || mockChargers.length || 1;
 
@@ -78,7 +101,7 @@ export default function ReportsPage() {
           <p className="text-sm text-gray-500 mt-1">Usage insights, energy trends, and revenue analysis</p>
         </div>
         <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
-          {["week", "month", "quarter"].map((range) => (
+          {(["week", "month", "quarter"] as TimeRange[]).map((range) => (
             <button
               key={range}
               onClick={() => setTimeRange(range)}
@@ -101,12 +124,12 @@ export default function ReportsPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500 mb-1">Total Sessions</p>
           <p className="text-2xl font-bold text-gray-900">{summaryStats.totalSessions}</p>
-          <p className="text-xs text-gray-400 mt-1">this week</p>
+          <p className="text-xs text-gray-400 mt-1">{rangeSubtitle}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500 mb-1">Total Revenue</p>
           <p className="text-2xl font-bold text-gray-900">&#8377;{summaryStats.totalRevenue.toLocaleString()}</p>
-          <p className="text-xs text-gray-400 mt-1">this week</p>
+          <p className="text-xs text-gray-400 mt-1">{rangeSubtitle}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500 mb-1">Avg Energy/Session</p>

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import * as chargerService from "@/services/chargerService";
 import * as sessionService from "@/services/sessionService";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type TabType = "active" | "history";
 
@@ -16,13 +17,18 @@ function formatTime(isoStr: string): string {
 
 export default function SessionsPage() {
   const { data: activeData } = useAsyncData(() => sessionService.getActiveSessions(), []);
-  const { data: historyData } = useAsyncData(() => sessionService.getSessionHistory(), []);
   useAsyncData(() => chargerService.getChargers(), []);
   const mockActiveSessions = activeData ?? [];
-  const mockSessionHistory = historyData ?? [];
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
+  const { data: historyData } = useAsyncData(
+    () => sessionService.getSessionHistory({ status: statusFilter, search: debouncedSearch }),
+    [statusFilter, debouncedSearch],
+  );
+  const mockSessionHistory = historyData ?? [];
   const [stopModal, setStopModal] = useState<string | null>(null);
   const [stopResult, setStopResult] = useState<string | null>(null);
 
@@ -34,23 +40,7 @@ export default function SessionsPage() {
     return { active, history };
   }, [mockActiveSessions, mockSessionHistory]);
 
-  const filteredHistory = useMemo(() => {
-    let result = allSessions.history;
-    if (statusFilter !== "all") {
-      result = result.filter((s) => s.status === statusFilter);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (s) =>
-          s.userName.toLowerCase().includes(q) ||
-          s.chargerName.toLowerCase().includes(q) ||
-          s.chargePointId.toLowerCase().includes(q) ||
-          s.rfidTag?.toLowerCase().includes(q),
-      );
-    }
-    return result;
-  }, [allSessions.history, statusFilter, searchQuery]);
+  const filteredHistory = useMemo(() => allSessions.history, [allSessions.history]);
 
   const stats = useMemo(() => {
     const todayStr = "2026-06-01";

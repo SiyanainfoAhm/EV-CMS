@@ -146,6 +146,8 @@ export interface DashboardStats {
   peakPowerToday: number;
 }
 
+export type TimeRange = "today" | "week" | "month" | "quarter";
+
 export interface Receipt {
   id: string;
   paymentId: string;

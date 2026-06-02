@@ -1,5 +1,5 @@
 import type { Plugin } from "vite";
-import { mkdir, writeFile, stat } from "node:fs/promises";
+import { mkdir, writeFile, stat, readdir, unlink } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { join, dirname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,12 +41,31 @@ export function evMediaUploadPlugin(): Plugin {
 
       server.middlewares.use(async (req, res, next) => {
         const match = req.url?.match(/^\/api\/ev-media\/([0-9a-f-]{36})$/i);
-        if (!match || req.method !== "POST") {
+        if (!match || (req.method !== "POST" && req.method !== "DELETE")) {
           next();
           return;
         }
 
         const userId = match[1];
+
+        if (req.method === "DELETE") {
+          try {
+            const userDir = join(uploadsRoot, "EV", userId);
+            const files = await readdir(userDir).catch(() => []);
+            await Promise.all(
+              files
+                .filter((f) => /^avatar\.(jpg|jpeg|png|webp|gif)$/i.test(f))
+                .map((f) => unlink(join(userDir, f)).catch(() => undefined))
+            );
+            res.statusCode = 204;
+            res.end();
+          } catch (err) {
+            res.statusCode = 500;
+            res.end(String(err));
+          }
+          return;
+        }
+
         const chunks: Buffer[] = [];
         req.on("data", (c) => chunks.push(c));
         req.on("end", async () => {

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import * as paymentService from "@/services/paymentService";
 import type { Payment } from "@/types/ev";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 function formatTime(isoStr: string): string {
   return new Date(isoStr).toLocaleString("en-IN", {
@@ -14,25 +15,17 @@ function formatTime(isoStr: string): string {
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
 
-  useEffect(() => {
-    paymentService.getPayments().then(setPayments).catch(console.error);
-  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
+  useEffect(() => {
+    paymentService.getPayments({ status: statusFilter, search: debouncedSearch }).then(setPayments).catch(console.error);
+  }, [statusFilter, debouncedSearch]);
 
   const filteredPayments = useMemo(() => {
-    let result = payments;
-    if (statusFilter !== "all") result = result.filter((p) => p.status === statusFilter);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.userName.toLowerCase().includes(q) ||
-          p.gatewayTxnId?.toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q),
-      );
-    }
-    return result;
+    // Data already filtered server-side; keep memo for rendering.
+    return payments;
   }, [payments, statusFilter, searchQuery]);
 
   const stats = useMemo(() => {

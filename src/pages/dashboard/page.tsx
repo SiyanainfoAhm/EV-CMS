@@ -10,9 +10,11 @@ import {
   AreaChart,
   Area,
 } from "recharts";
+import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import * as dashboardService from "@/services/dashboardService";
 import type { RecentActivityItem } from "@/services/dashboardService";
+import type { TimeRange } from "@/types/ev";
 
 const emptyStats = {
   totalChargers: 0,
@@ -29,15 +31,25 @@ const emptyStats = {
 };
 
 export default function DashboardPage() {
-  const [timeRange, setTimeRange] = useState("today");
-  const { stats, chargers, activeSessions } = useDashboardData();
+  const navigate = useNavigate();
+  // Default to week so the demo seed (mostly 2026-06-01) shows activity on 2026-06-02.
+  const [timeRange, setTimeRange] = useState<TimeRange>("week");
+  const { stats, chargers, activeSessions } = useDashboardData(timeRange);
   const [energyData, setEnergyData] = useState<{ hour: string; kwh: number }[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
 
+  const rangeLabel = timeRange === "today" ? "Today" : timeRange.charAt(0).toUpperCase() + timeRange.slice(1);
+
   useEffect(() => {
-    dashboardService.getEnergyChartData().then(setEnergyData).catch(console.error);
-    dashboardService.getRecentActivity(6).then(setRecentActivity).catch(console.error);
-  }, []);
+    dashboardService
+      .getEnergyChartData(timeRange)
+      .then(setEnergyData)
+      .catch(console.error);
+    dashboardService
+      .getRecentActivity(6, timeRange)
+      .then(setRecentActivity)
+      .catch(console.error);
+  }, [timeRange]);
 
   const dashboardStats = stats ?? emptyStats;
   const chargerList = chargers;
@@ -53,7 +65,7 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-500 mt-1">Real-time overview of your EV charging infrastructure</p>
         </div>
         <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
-          {["today", "week", "month"].map((range) => (
+          {(["today", "week", "month"] as TimeRange[]).map((range) => (
             <button
               key={range}
               onClick={() => setTimeRange(range)}
@@ -103,7 +115,7 @@ export default function DashboardPage() {
             <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-100">
               <i className="ri-flashlight-fill text-amber-600"></i>
             </div>
-            <span className="text-xs text-gray-500">Energy Today</span>
+            <span className="text-xs text-gray-500">Energy {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{dashboardStats.totalEnergyTodayKwh}</p>
           <p className="text-xs text-gray-400 mt-1">
@@ -116,13 +128,13 @@ export default function DashboardPage() {
             <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-rose-100">
               <i className="ri-money-rupee-circle-line text-rose-600"></i>
             </div>
-            <span className="text-xs text-gray-500">Revenue</span>
+            <span className="text-xs text-gray-500">Revenue {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">
             &#8377;{dashboardStats.totalRevenueToday.toLocaleString()}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            <span className="text-gray-500">{dashboardStats.totalSessionsToday} sessions today</span>
+            <span className="text-gray-500">{dashboardStats.totalSessionsToday} sessions in {rangeLabel}</span>
           </p>
         </div>
 
@@ -131,7 +143,7 @@ export default function DashboardPage() {
             <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-teal-100">
               <i className="ri-timer-flash-line text-teal-600"></i>
             </div>
-            <span className="text-xs text-gray-500">Avg Session</span>
+            <span className="text-xs text-gray-500">Avg Session {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{dashboardStats.avgSessionDuration}</p>
           <p className="text-xs text-gray-400 mt-1">
@@ -144,7 +156,7 @@ export default function DashboardPage() {
             <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-indigo-100">
               <i className="ri-bar-chart-grouped-line text-indigo-600"></i>
             </div>
-            <span className="text-xs text-gray-500">Peak Power</span>
+            <span className="text-xs text-gray-500">Peak Power {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{dashboardStats.peakPowerToday}</p>
           <p className="text-xs text-gray-400 mt-1">
@@ -193,7 +205,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent Activity</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent Charging Activity</h3>
           <div className="space-y-3">
             {recentActivity.map((activity) => (
               <div key={activity.id} className="flex items-start gap-3">
@@ -222,7 +234,10 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Charger Status</h3>
-            <button className="text-xs text-emerald-600 hover:text-emerald-700 font-medium whitespace-nowrap">
+            <button
+              onClick={() => navigate("/chargers")}
+              className="text-xs text-emerald-600 hover:text-emerald-700 font-medium whitespace-nowrap"
+            >
               View all &rarr;
             </button>
           </div>
@@ -266,7 +281,10 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Active Sessions</h3>
-            <button className="text-xs text-emerald-600 hover:text-emerald-700 font-medium whitespace-nowrap">
+            <button
+              onClick={() => navigate("/sessions")}
+              className="text-xs text-emerald-600 hover:text-emerald-700 font-medium whitespace-nowrap"
+            >
               View all &rarr;
             </button>
           </div>

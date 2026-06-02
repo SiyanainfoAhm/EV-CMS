@@ -137,7 +137,8 @@ export default function SettingsPage() {
     if (!file || !userId) return;
     setUploading(true);
     try {
-      const url = await mediaService.uploadUserAvatar(userId, file);
+      // Replace: delete previous avatar from storage + clear old files
+      const url = await mediaService.replaceUserAvatar(userId, file);
       setAvatarUrl(url);
       await profileService.updateProfile(userId, {
         name: profileForm.name || profile?.name || "",
@@ -153,6 +154,29 @@ export default function SettingsPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    if (!userId) return;
+    setUploading(true);
+    try {
+      await mediaService.deleteUserAvatar(userId);
+      setAvatarUrl(null);
+      await profileService.updateProfile(userId, {
+        name: profileForm.name || profile?.name || "",
+        email: profileForm.email || profile?.email || "",
+        phone: profileForm.phone,
+        department: profileForm.department,
+        avatarUrl: null,
+      });
+      await refreshUser();
+      await reloadProfile();
+      showToast("Photo removed");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to remove photo");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -331,6 +355,17 @@ export default function SettingsPage() {
               >
                 {uploading ? "Uploading…" : "Change Photo"}
               </button>
+
+              {avatarUrl && (
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={handleAvatarDelete}
+                  className="mt-2 w-full px-4 py-2 border border-red-200 rounded-lg text-sm text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap disabled:opacity-50"
+                >
+                  Remove Photo
+                </button>
+              )}
             </div>
           </div>
 

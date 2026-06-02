@@ -18,6 +18,12 @@ const sessionSelect = `
   EV_RFIDCards ( uid )
 `;
 
+export interface SessionsHistoryQuery {
+  status?: string; // completed | stopped | faulted | all
+  search?: string; // user/charger/chargePointId/rfid
+  limit?: number;
+}
+
 export async function getActiveSessions(): Promise<ChargingSession[]> {
   const { data, error } = await requireSupabase()
     .from("EV_ChargingSessions")
@@ -29,12 +35,26 @@ export async function getActiveSessions(): Promise<ChargingSession[]> {
   return mapSessionRows((data as Record<string, unknown>[]) ?? []);
 }
 
-export async function getSessionHistory(): Promise<ChargingSession[]> {
-  const { data, error } = await requireSupabase()
+export async function getSessionHistory(query: SessionsHistoryQuery = {}): Promise<ChargingSession[]> {
+  const { status = "all", search = "", limit = 500 } = query;
+
+  let q = requireSupabase()
     .from("EV_ChargingSessions")
     .select(sessionSelect)
-    .eq("status", "completed")
-    .order("start_time", { ascending: false });
+    // history = everything except active
+    .neq("status", "active")
+    .order("start_time", { ascending: false })
+    .limit(limit);
+
+  if (status !== "all") q = q.eq("status", status);
+
+  const s = search.trim();
+  if (s) {
+    // Robust filters on base columns. (Joined-table text search varies by PostgREST config.)
+    q = q.or(`id.ilike.%${s}%,transaction_id::text.ilike.%${s}%`);
+  }
+
+  const { data, error } = await q;
 
   if (error) throw error;
   return mapSessionRows((data as Record<string, unknown>[]) ?? []);

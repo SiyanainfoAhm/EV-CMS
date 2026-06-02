@@ -2,11 +2,29 @@ import type { RFIDCard } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapRfid } from "@/utils/supabaseMappers";
 
-export async function getRfidCards(): Promise<RFIDCard[]> {
-  const { data, error } = await requireSupabase()
+export interface RfidQuery {
+  status?: string; // active | inactive | blocked | all
+  search?: string; // uid / bound user name
+  limit?: number;
+}
+
+export async function getRfidCards(query: RfidQuery = {}): Promise<RFIDCard[]> {
+  const { status = "all", search = "", limit = 500 } = query;
+
+  let q = requireSupabase()
     .from("EV_RFIDCards")
-    .select("*, EV_Users ( full_name )")
-    .order("uid");
+    .select("*, EV_Users!left ( full_name )")
+    .order("uid")
+    .limit(limit);
+
+  if (status !== "all") q = q.eq("status", status);
+
+  const s = search.trim();
+  if (s) {
+    q = q.ilike("uid", `%${s}%`);
+  }
+
+  const { data, error } = await q;
 
   if (error) throw error;
   return (data ?? []).map((row) => {

@@ -9,8 +9,8 @@ export interface DailyChartPoint {
 function formatDayLabel(iso: string): string {
   const d = new Date(iso);
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${days[d.getDay()]} ${day}`;
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${days[d.getUTCDay()]} ${day}`;
 }
 
 function lastNDays(n: number): string[] {
@@ -27,17 +27,20 @@ export async function getDailyRevenueAndSessions(days = 7): Promise<DailyChartPo
   const supabase = requireSupabase();
   const since = new Date();
   since.setDate(since.getDate() - (days - 1));
-  since.setHours(0, 0, 0, 0);
+  // Use UTC boundaries so seeded UTC timestamps match day buckets.
+  since.setUTCHours(0, 0, 0, 0);
 
   const [paymentsRes, sessionsRes] = await Promise.all([
     supabase
       .from("EV_Payments")
       .select("total_amount, created_at, status")
       .gte("created_at", since.toISOString())
-      .eq("status", "completed"),
+      // Seed data uses `success`/`pending` (not `completed`) for EV_Payments.
+      .eq("status", "success"),
     supabase
       .from("EV_ChargingSessions")
       .select("id, start_time")
+      .eq("status", "completed")
       .gte("start_time", since.toISOString()),
   ]);
 
