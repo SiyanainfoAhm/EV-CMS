@@ -1,8 +1,15 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAsyncData } from "@/hooks/useAsyncData";
+import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import {
+  connectivityFromHeartbeat,
+  formatHeartbeatAgo,
+  isOfflineByHeartbeat,
+  isOnlineByHeartbeat,
+} from "@/utils/chargerConnectivity";
 
 type StatusFilter = "all" | "online" | "offline" | "faulted";
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
@@ -56,23 +63,34 @@ export default function ChargersPage() {
   const [manufacturerFilter, setManufacturerFilter] = useState<string>("all");
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
-  const { data: chargersData } = useAsyncData(
+  const apiStatus = statusFilter === "online" || statusFilter === "offline" ? "all" : statusFilter;
+
+  const { data: chargersData, reload: reloadChargers } = useAsyncData(
     () =>
       chargerService.getChargers({
-        status: statusFilter,
+        status: apiStatus,
         type: typeFilter,
         manufacturer: manufacturerFilter,
         search: debouncedSearch,
       }),
-    [statusFilter, typeFilter, manufacturerFilter, debouncedSearch]
+    [apiStatus, typeFilter, manufacturerFilter, debouncedSearch]
   );
-  const { data: sessionsData } = useAsyncData(() => chargerService.getActiveSessionsForChargers(), []);
+  const { data: sessionsData, reload: reloadSessions } = useAsyncData(
+    () => chargerService.getActiveSessionsForChargers(),
+    []
+  );
+
+  useSupabaseRealtime(() => {
+    reloadChargers();
+    reloadSessions();
+  });
+
   const mockChargers = chargersData ?? [];
   const mockActiveSessions = sessionsData ?? [];
 
   const stats = useMemo(() => {
-    const online = mockChargers.filter((c) => c.status === "online").length;
-    const offline = mockChargers.filter((c) => c.status === "offline").length;
+    const online = mockChargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length;
+    const offline = mockChargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length;
     const faulted = mockChargers.filter((c) => c.status === "faulted").length;
     const chargingConnectors = mockChargers.reduce(
       (acc, c) => acc + c.connectors.filter((conn) => conn.status === "Charging").length,
@@ -81,7 +99,14 @@ export default function ChargersPage() {
     return { online, offline, faulted, chargingConnectors };
   }, [mockChargers]);
 
-  const filteredChargers = useMemo(() => mockChargers, [mockChargers]);
+  const filteredChargers = useMemo(() => {
+    return mockChargers.filter((c) => {
+      if (statusFilter === "online") return isOnlineByHeartbeat(c.lastHeartbeat);
+      if (statusFilter === "offline") return isOfflineByHeartbeat(c.lastHeartbeat);
+      if (statusFilter === "faulted") return c.status === "faulted";
+      return true;
+    });
+  }, [mockChargers, statusFilter]);
 
   return (
     <div className="space-y-5">
@@ -229,17 +254,18 @@ export default function ChargersPage() {
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-1.5">
-                      <div className={`w-2 h-2 rounded-full ${getStatusColor(charger.status)}`}></div>
-                      <span
-                        className={`text-xs font-medium ${
-                          charger.status === "online"
-                            ? "text-emerald-600"
-                            : charger.status === "faulted"
-                            ? "text-red-500"
-                            : "text-gray-500"
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          connectivityFromHeartbeat(charger.lastHeartbeat) === "online"
+                            ? "bg-emerald-500"
+                            : connectivityFromHeartbeat(charger.lastHeartbeat) === "offline"
+                              ? "bg-gray-400"
+                              : "bg-amber-400"
                         }`}
-                      >
-                        {charger.status.charAt(0).toUpperCase() + charger.status.slice(1)}
+                      ></div>
+                      <span className="text-xs font-medium text-gray-700 capitalize">
+                        {connectivityFromHeartbeat(charger.lastHeartbeat)}
+                        {charger.status === "faulted" ? " · faulted" : ""}
                       </span>
                     </div>
                   </td>
@@ -256,7 +282,7 @@ export default function ChargersPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <p className="text-xs text-gray-500">{getRelativeTime(charger.lastHeartbeat)}</p>
+                    <p className="text-xs text-gray-500">{formatHeartbeatAgo(charger.lastHeartbeat)}</p>
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">

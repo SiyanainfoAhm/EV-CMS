@@ -28,6 +28,8 @@ export interface Charger {
   maxPowerKw: number;
   status: string;
   location: string;
+  lastHeartbeat?: string | null;
+  isSimulated?: boolean;
   connectors: ChargerConnector[];
   distanceKm?: number;
 }

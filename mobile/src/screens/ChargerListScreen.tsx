@@ -5,6 +5,8 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
 import ChargerCard from "../components/ChargerCard";
 import * as chargerService from "../services/chargerService";
+import SimulationModeBadge from "../components/SimulationModeBadge";
+import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import type { Charger } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -42,9 +44,12 @@ export default function ChargerListScreen({ navigation }: Props) {
     return () => clearTimeout(t);
   }, [load]);
 
+  useSupabaseRealtime(load);
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Header title="Chargers" subtitle="Live status from EV_Chargers" onBack={() => navigation.goBack()} />
+      <SimulationModeBadge compact />
       <TextInput
         style={styles.search}
         placeholder="Search name, ID, location..."

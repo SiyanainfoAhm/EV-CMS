@@ -93,6 +93,8 @@ export default function DashboardPage() {
           <p className="text-xs text-gray-400 mt-1">
             <span className="text-emerald-600 font-medium">{dashboardStats.onlineChargers} online</span>
             {" · "}
+            <span className="text-gray-500 font-medium">{dashboardStats.offlineChargers} offline</span>
+            {" · "}
             <span className="text-red-500 font-medium">{dashboardStats.faultedChargers} faulted</span>
           </p>
         </div>

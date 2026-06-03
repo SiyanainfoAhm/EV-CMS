@@ -2,6 +2,7 @@ import { Pressable, Text, View, StyleSheet } from "react-native";
 import type { Charger } from "../types";
 import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
+import { formatHeartbeatAgo, isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
@@ -12,6 +13,11 @@ interface Props {
 
 export default function ChargerCard({ charger, onPress }: Props) {
   const available = charger.connectors.filter((c) => c.status === "Available").length;
+  const connectivity = isOnlineByHeartbeat(charger.lastHeartbeat)
+    ? "Online"
+    : isOfflineByHeartbeat(charger.lastHeartbeat)
+      ? "Offline"
+      : "Unknown";
   return (
     <Pressable onPress={onPress}>
       <AppCard style={styles.card}>
@@ -29,7 +35,9 @@ export default function ChargerCard({ charger, onPress }: Props) {
           </View>
           <StatusBadge status={charger.status} />
         </View>
-        <Text style={styles.connectors}>{available} connector(s) available</Text>
+        <Text style={styles.connectors}>
+          {connectivity} · {formatHeartbeatAgo(charger.lastHeartbeat)} · {available} available
+        </Text>
       </AppCard>
     </Pressable>
   );

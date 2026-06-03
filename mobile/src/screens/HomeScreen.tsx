@@ -9,6 +9,9 @@ import UserAvatar from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 import * as chargerService from "../services/chargerService";
 import * as sessionService from "../services/sessionService";
+import SimulationModeBadge from "../components/SimulationModeBadge";
+import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
+import { isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
 import type { ChargingSession } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -33,6 +36,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState("");
   const [onlineCount, setOnlineCount] = useState(0);
+  const [offlineCount, setOfflineCount] = useState(0);
+  const [chargingCount, setChargingCount] = useState(0);
   const [hasActive, setHasActive] = useState(false);
   const [recent, setRecent] = useState<ChargingSession[]>([]);
 
@@ -45,11 +50,15 @@ export default function HomeScreen({ navigation }: Props) {
     setError("");
     try {
       const [chargers, active, sessions] = await Promise.all([
-        chargerService.getChargers({ status: "online" }),
+        chargerService.getChargers({ status: "all" }),
         sessionService.getActiveSession(userId),
         sessionService.getRecentSessions(userId, 3),
       ]);
-      setOnlineCount(chargers.length);
+      setOnlineCount(chargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length);
+      setOfflineCount(chargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length);
+      setChargingCount(
+        chargers.reduce((n, c) => n + c.connectors.filter((x) => x.status === "Charging").length, 0)
+      );
       setHasActive(!!active);
       setRecent(sessions.filter((s) => s.status !== "active"));
     } catch (e) {
@@ -69,9 +78,14 @@ export default function HomeScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       if (userId) load();
-      // Refresh avatar in background without retriggering dashboard fetch loop.
       refreshUser().catch(() => undefined);
     }, [userId, load, refreshUser])
+  );
+
+  useSupabaseRealtime(
+    useCallback(() => {
+      if (userId) load();
+    }, [userId, load])
   );
 
   return (
@@ -91,9 +105,13 @@ export default function HomeScreen({ navigation }: Props) {
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      <SimulationModeBadge compact />
+
       <AppCard style={styles.statCard}>
-        <Text style={styles.statLabel}>Online chargers</Text>
-        <Text style={styles.statValue}>{onlineCount}</Text>
+        <Text style={styles.statLabel}>Online · Offline · Charging connectors</Text>
+        <Text style={styles.statValue}>
+          {onlineCount} · {offlineCount} · {chargingCount}
+        </Text>
       </AppCard>
 
       {hasActive && (

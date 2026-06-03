@@ -1,6 +1,7 @@
 import { requireSupabase } from "../utils/supabaseClient";
 import { formatSessionDuration } from "../utils/format";
 import { requireUserId } from "./authService";
+import * as simulator from "./chargerSimulatorService";
 import type { ChargingSession } from "../types";
 
 const select = `
@@ -117,30 +118,10 @@ export async function startSession(
     throw new Error(`Connector is not available (status: ${connStatus})`);
   }
 
-  const transactionId = Math.floor(Date.now() / 1000) % 2000000000;
-  const { data: inserted, error: insertErr } = await requireSupabase()
-    .from("EV_ChargingSessions")
-    .insert({
-      transaction_id: transactionId,
-      charger_id: chargerId,
-      connector_id: connectorId,
-      user_id: uid,
-      start_time: new Date().toISOString(),
-      energy_kwh: 0,
-      status: "active",
-    })
-    .select(select)
-    .single();
-
-  if (insertErr) {
-    throw new Error(
-      insertErr.message.includes("policy")
-        ? "Cannot start session: run mobile/SUPABASE_MOBILE_POLICIES.sql in Supabase."
-        : insertErr.message
-    );
-  }
-
-  return mapRow(inserted as Record<string, unknown>);
+  const sessionId = await simulator.simulateStartSession(chargerId, connectorId, uid);
+  const session = await getSessionById(sessionId, uid);
+  if (!session) throw new Error("Session started but could not be loaded");
+  return session;
 }
 
 export async function stopSession(sessionId: string, userId?: string): Promise<void> {
@@ -148,22 +129,5 @@ export async function stopSession(sessionId: string, userId?: string): Promise<v
   const session = await getSessionById(sessionId, uid);
   if (!session) throw new Error("Session not found");
 
-  const { error } = await requireSupabase()
-    .from("EV_ChargingSessions")
-    .update({
-      status: "completed",
-      end_time: new Date().toISOString(),
-      stop_reason: "Local",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sessionId)
-    .eq("user_id", uid);
-
-  if (error) {
-    throw new Error(
-      error.message.includes("policy")
-        ? "Cannot stop session: run mobile/SUPABASE_MOBILE_POLICIES.sql in Supabase."
-        : error.message
-    );
-  }
+  await simulator.simulateStopSession(sessionId);
 }

@@ -10,6 +10,7 @@ import type {
   User,
 } from "@/types/ev";
 import type { UserRole } from "@/types/auth";
+import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
 
 export function formatDuration(startIso: string, endIso?: string | null): string {
   const start = new Date(startIso).getTime();
@@ -101,6 +102,8 @@ export function mapCharger(
     status: row.status as string,
     lastHeartbeat: (row.last_heartbeat_at as string) ?? new Date().toISOString(),
     location: (row.location as string) ?? "",
+    isSimulated: Boolean(row.is_simulated),
+    connectivity: connectivityFromHeartbeat(row.last_heartbeat_at as string),
     connectors: connectors.map(mapConnector),
   };
 }
@@ -224,8 +227,8 @@ export function computeDashboardStats(
   todayRevenue: number,
   todaySessionCount: number
 ): DashboardStats {
-  const online = chargers.filter((c) => c.status === "online").length;
-  const offline = chargers.filter((c) => c.status === "offline").length;
+  const online = chargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length;
+  const offline = chargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length;
   const faulted = chargers.filter((c) => c.status === "faulted").length;
   const availableConnectors = chargers.reduce(
     (sum, c) => sum + c.connectors.filter((x) => x.status === "Available").length,

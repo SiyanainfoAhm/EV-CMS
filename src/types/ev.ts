@@ -36,6 +36,8 @@ export interface Charger {
   status: string;
   lastHeartbeat: string;
   location: string;
+  isSimulated?: boolean;
+  connectivity?: "online" | "offline" | "stale";
   connectors: ChargerConnector[];
 }
 

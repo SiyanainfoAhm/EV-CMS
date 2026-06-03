@@ -8,6 +8,7 @@ import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import { useAuth } from "../context/AuthContext";
 import * as sessionService from "../services/sessionService";
+import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import { formatCurrency } from "../utils/format";
 import type { ChargingSession } from "../types";
 import { colors } from "../theme/colors";
@@ -15,7 +16,7 @@ import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "LiveSession">;
 
-const POLL_MS = 10000;
+const POLL_MS = 5000;
 
 export default function LiveSessionScreen({ navigation }: Props) {
   const { user } = useAuth();
@@ -41,6 +42,8 @@ export default function LiveSessionScreen({ navigation }: Props) {
       return () => clearInterval(id);
     }, [load])
   );
+
+  useSupabaseRealtime(load, !!user);
 
   const stop = async () => {
     if (!session) return;
@@ -94,7 +97,9 @@ export default function LiveSessionScreen({ navigation }: Props) {
         ) : null}
       </AppCard>
       <AppButton title="Stop Charging" onPress={stop} variant="outline" loading={stopping} style={styles.button} />
-      <Text style={styles.pollNote}>Refreshes every {POLL_MS / 1000}s from EV_ChargingSessions</Text>
+      <Text style={styles.pollNote}>
+        Live energy from EV_MeterValues / session (every {POLL_MS / 1000}s + realtime)
+      </Text>
     </ScrollView>
   );
 }

@@ -1,4 +1,5 @@
 import * as sessionService from "@/services/sessionService";
+import { requireSupabase } from "@/utils/supabaseClient";
 import { formatRelativeTime } from "@/utils/supabaseMappers";
 import type { TimeRange } from "@/types/ev";
 
@@ -29,15 +30,42 @@ function formatDayLabelFromISODate(isoDate: string): string {
 }
 
 export async function getRecentActivity(limit = 6, timeRange: TimeRange = "today"): Promise<RecentActivityItem[]> {
-  const rangeStart = getRangeStart(timeRange).getTime();
-  // Charging activity should be driven by sessions (start/completion), not audit logs (login/profile/etc).
+  const rangeStart = getRangeStart(timeRange).toISOString();
+
+  const { data: events, error } = await requireSupabase()
+    .from("EV_ChargerEvents")
+    .select("id, event_type, payload, created_at, EV_Chargers ( name, charge_point_id )")
+    .gte("created_at", rangeStart)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (!error && events?.length) {
+    return events.map((row) => {
+      const r = row as Record<string, unknown>;
+      const charger = r.EV_Chargers as Record<string, unknown> | null;
+      const cp = (charger?.charge_point_id as string) ?? (charger?.name as string) ?? "Charger";
+      const type = String(r.event_type ?? "Event");
+      return {
+        id: r.id as string,
+        event: `${type} — ${cp}`,
+        time: formatRelativeTime(r.created_at as string),
+        type: type.toLowerCase().includes("meter")
+          ? "session"
+          : type.toLowerCase().includes("stop")
+            ? "payment"
+            : "alert",
+      };
+    });
+  }
+
   const [active, history] = await Promise.all([
     sessionService.getActiveSessions(),
     sessionService.getSessionHistory(),
   ]);
+  const rangeMs = new Date(rangeStart).getTime();
 
   const sessions = [...active, ...history]
-    .filter((s) => new Date(s.startTime).getTime() >= rangeStart || (s.endTime ? new Date(s.endTime).getTime() >= rangeStart : false))
+    .filter((s) => new Date(s.startTime).getTime() >= rangeMs || (s.endTime ? new Date(s.endTime).getTime() >= rangeMs : false))
     .sort((a, b) => {
       const at = new Date(a.endTime ?? a.startTime).getTime();
       const bt = new Date(b.endTime ?? b.startTime).getTime();

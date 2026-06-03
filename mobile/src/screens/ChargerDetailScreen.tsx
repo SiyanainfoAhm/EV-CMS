@@ -7,6 +7,9 @@ import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import StatusBadge from "../components/StatusBadge";
 import * as chargerService from "../services/chargerService";
+import * as sessionService from "../services/sessionService";
+import { useAuth } from "../context/AuthContext";
+import { formatHeartbeatAgo } from "../utils/chargerConnectivity";
 import type { Charger, ChargerConnector } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -14,9 +17,11 @@ import { spacing } from "../theme/spacing";
 type Props = NativeStackScreenProps<RootStackParamList, "ChargerDetail">;
 
 export default function ChargerDetailScreen({ navigation, route }: Props) {
+  const { user } = useAuth();
   const [charger, setCharger] = useState<Charger | undefined>();
   const [selected, setSelected] = useState<ChargerConnector | undefined>();
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     chargerService
@@ -28,6 +33,19 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load charger"));
   }, [route.params.id]);
+
+  const startDemo = async () => {
+    if (!charger || !user || !selected) return;
+    setBusy(true);
+    try {
+      await sessionService.startSession(charger.id, selected.connectorId, user.id);
+      navigation.navigate("LiveSession");
+    } catch (e) {
+      Alert.alert("Start failed", e instanceof Error ? e.message : "Could not start");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startQr = () => {
     if (!charger) return;
@@ -59,6 +77,7 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
             <Text style={styles.meta}>
               {charger.chargePointId} · {charger.type} · {charger.maxPowerKw} kW max
             </Text>
+            <Text style={styles.meta}>Last heartbeat: {formatHeartbeatAgo(charger.lastHeartbeat)}</Text>
           </AppCard>
           <Text style={styles.section}>Connectors</Text>
           {charger.connectors.map((conn) => {
@@ -78,7 +97,8 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
               </Pressable>
             );
           })}
-          <AppButton title="Start with QR" onPress={startQr} style={styles.button} />
+          <AppButton title="Start demo charging" onPress={startDemo} loading={busy} style={styles.button} />
+          <AppButton title="Start with QR" onPress={startQr} variant="outline" style={styles.button} />
         </>
       ) : null}
     </ScrollView>

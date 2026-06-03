@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import SimulationModeBadge from "@/components/common/SimulationModeBadge";
+import NotificationBell from "@/components/feature/NotificationBell";
+import { startSimulatorRuntime } from "@/services/simulatorRuntime";
 
 interface NavItem {
   label: string;
@@ -18,6 +21,7 @@ const navItems: NavItem[] = [
   { label: "Payments", path: "/payments", icon: "ri-bank-card-line" },
   { label: "Reports", path: "/reports", icon: "ri-bar-chart-line" },
   { label: "Audit Logs", path: "/audit-logs", icon: "ri-file-list-3-line" },
+  { label: "Simulator", path: "/simulator", icon: "ri-cpu-line" },
   { label: "Settings", path: "/settings", icon: "ri-settings-3-line" },
 ];
 
@@ -49,6 +53,12 @@ export default function AdminLayout() {
     await logout();
     navigate("/login");
   };
+
+  useEffect(() => {
+    if (user?.role === "SuperAdmin" || user?.role === "SiteAdmin") {
+      startSimulatorRuntime();
+    }
+  }, [user?.role]);
 
   return (
     <div className="min-h-screen bg-[#f5f5f3] flex">
@@ -117,10 +127,7 @@ export default function AdminLayout() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-              <i className="ri-notification-3-line text-gray-600 text-lg"></i>
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-500 rounded-full"></span>
-            </button>
+            <NotificationBell />
 
             <div className="relative">
               <button
@@ -171,6 +178,9 @@ export default function AdminLayout() {
         </header>
 
         <main className="flex-1 p-6">
+          <div className="mb-4">
+            <SimulationModeBadge compact />
+          </div>
           <Outlet />
         </main>
       </div>

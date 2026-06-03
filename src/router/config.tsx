@@ -14,6 +14,8 @@ import PaymentsPage from "../pages/payments/page";
 import ReportsPage from "../pages/reports/page";
 import AuditLogsPage from "../pages/audit-logs/page";
 import SettingsPage from "../pages/settings/page";
+import SimulatorPage from "../pages/simulator/page";
+import NotificationsPage from "../pages/notifications/page";
 
 const routes: RouteObject[] = [
   {
@@ -75,6 +77,14 @@ const routes: RouteObject[] = [
       {
         path: "/settings",
         element: <SettingsPage />,
+      },
+      {
+        path: "/simulator",
+        element: <SimulatorPage />,
+      },
+      {
+        path: "/notifications",
+        element: <NotificationsPage />,
       },
     ],
   },

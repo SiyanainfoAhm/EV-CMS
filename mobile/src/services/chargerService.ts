@@ -1,4 +1,5 @@
 import { requireSupabase } from "../utils/supabaseClient";
+import { isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
 import type { Charger, ChargerConnector } from "../types";
 
 export interface ChargersQuery {
@@ -27,6 +28,8 @@ function mapCharger(row: Record<string, unknown>): Charger {
     maxPowerKw: Number(row.max_power_kw),
     status: row.status as string,
     location: (row.location as string) ?? "",
+    lastHeartbeat: (row.last_heartbeat_at as string) ?? null,
+    isSimulated: Boolean(row.is_simulated),
     connectors: connectors.map(mapConnector),
   };
 }
@@ -39,8 +42,11 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
     .select("*, EV_ChargerConnectors(*)")
     .order("name");
 
-  if (onlineOnly) q = q.eq("status", "online");
-  else if (status !== "all") q = q.eq("status", status);
+  if (onlineOnly) {
+    // legacy: treat as heartbeat-online after fetch
+  } else if (status !== "all" && status !== "online" && status !== "offline") {
+    q = q.eq("status", status);
+  }
 
   const s = search.trim();
   if (s) {
@@ -49,7 +55,17 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
 
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []).map((row) => mapCharger(row as Record<string, unknown>));
+  let list = (data ?? []).map((row) => mapCharger(row as Record<string, unknown>));
+
+  if (onlineOnly || status === "online") {
+    list = list.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat));
+  } else if (status === "offline") {
+    list = list.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat));
+  } else if (status === "faulted") {
+    list = list.filter((c) => c.status === "Faulted");
+  }
+
+  return list;
 }
 
 /** @deprecated use getChargers */
