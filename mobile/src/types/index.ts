@@ -8,6 +8,8 @@ export interface User {
   email: string;
   role: UserRole | string;
   phone?: string;
+  department?: string;
+  avatarUrl?: string | null;
 }
 
 export interface ChargerConnector {
@@ -39,6 +41,7 @@ export interface ChargingSession {
   duration: string;
   status: string;
   startTime: string;
+  endTime?: string;
   currentPowerKw?: number;
   soc?: number;
   amount?: number;
@@ -50,10 +53,13 @@ export interface Payment {
   totalAmount: number;
   status: string;
   createdAt: string;
+  receiptNumber?: string;
+  receiptPdfUrl?: string;
 }
 
 export interface RFIDCard {
   id: string;
   uid: string;
   status: string;
+  userId?: string | null;
 }

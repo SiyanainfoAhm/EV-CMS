@@ -14,6 +14,10 @@
     },
     "android": {
       "package": "in.dfccil.evcms"
-    }
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
   }
 }

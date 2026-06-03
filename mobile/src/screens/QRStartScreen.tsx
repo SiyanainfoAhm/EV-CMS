@@ -1,19 +1,57 @@
-import { View, Text, StyleSheet } from "react-native";
+import { useState } from "react";
+import { View, Text, StyleSheet, TextInput, Alert } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import * as sessionService from "../services/sessionService";
+import * as chargerService from "../services/chargerService";
+import { parseChargeQr } from "../utils/qrParser";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "QRStart">;
 
 export default function QRStartScreen({ navigation, route }: Props) {
+  const defaultConnector = route.params.connectorId ?? 1;
+  const [qrInput, setQrInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const resolveTarget = async () => {
+    const parsed = parseChargeQr(qrInput);
+    let chargerId = route.params.chargerId;
+    let connectorId = defaultConnector;
+
+    if (parsed) {
+      connectorId = parsed.connectorId;
+      if (parsed.chargerId) {
+        chargerId = parsed.chargerId;
+      } else if (parsed.chargePointId) {
+        const charger = await chargerService.getChargerByChargePointId(parsed.chargePointId);
+        if (!charger) throw new Error(`Unknown charger: ${parsed.chargePointId}`);
+        chargerId = charger.id;
+      }
+    }
+
+    return { chargerId, connectorId };
+  };
+
   const start = async () => {
-    await sessionService.startSession(route.params.chargerId, 1);
-    navigation.replace("LiveSession");
+    setError("");
+    setLoading(true);
+    try {
+      const { chargerId, connectorId } = await resolveTarget();
+      await sessionService.startSession(chargerId, connectorId);
+      navigation.replace("LiveSession");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not start session";
+      setError(msg);
+      Alert.alert("Start failed", msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -22,29 +60,53 @@ export default function QRStartScreen({ navigation, route }: Props) {
       <AppCard style={styles.scanBox}>
         <View style={styles.qrPlaceholder}>
           <Text style={styles.qrText}>QR Scanner</Text>
-          <Text style={styles.hint}>Align charger QR code within frame</Text>
+          <Text style={styles.hint}>Camera scanner can be added later. Paste QR payload below.</Text>
         </View>
       </AppCard>
-      <Text style={styles.or}>or start manually (demo)</Text>
-      <AppButton title="Start Charging" onPress={start} />
+      <Text style={styles.label}>QR payload (JSON, evcms:// URL, or MP-DC-001:1)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder='e.g. {"chargerId":"...","connectorId":1}'
+        placeholderTextColor={colors.textMuted}
+        value={qrInput}
+        onChangeText={setQrInput}
+        autoCapitalize="none"
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Text style={styles.or}>
+        Manual start · Gun {defaultConnector} on selected charger
+      </Text>
+      <AppButton title="Start Charging" onPress={start} loading={loading} style={styles.button} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background, padding: spacing.md },
-  scanBox: { alignItems: "center", padding: spacing.xl },
+  scanBox: { alignItems: "center", padding: spacing.xl, marginBottom: spacing.sm },
   qrPlaceholder: {
     width: 220,
-    height: 220,
+    height: 160,
     borderWidth: 2,
     borderColor: colors.emerald,
     borderStyle: "dashed",
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    padding: spacing.md,
   },
   qrText: { fontWeight: "700", fontSize: 18, color: colors.text },
   hint: { color: colors.textMuted, marginTop: 8, textAlign: "center", fontSize: 13 },
-  or: { textAlign: "center", color: colors.textMuted, marginVertical: spacing.md },
+  label: { fontWeight: "600", color: colors.text, marginTop: spacing.md, marginBottom: 6 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: spacing.md,
+    backgroundColor: colors.card,
+    fontSize: 14,
+  },
+  error: { color: colors.danger, marginTop: spacing.sm },
+  or: { textAlign: "center", color: colors.textMuted, marginVertical: spacing.md, fontSize: 13 },
+  button: { marginTop: spacing.sm },
 });

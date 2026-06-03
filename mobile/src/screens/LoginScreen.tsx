@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { RootStackParamList } from "../navigation/AppNavigator";
 import AppButton from "../components/AppButton";
-import * as authService from "../services/authService";
+import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
-type Props = NativeStackScreenProps<RootStackParamList, "Login">;
-
-export default function LoginScreen({ navigation }: Props) {
+export default function LoginScreen() {
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,11 +16,9 @@ export default function LoginScreen({ navigation }: Props) {
   const handleLogin = async () => {
     setError("");
     setLoading(true);
-    const result = await authService.login(email, password);
+    const result = await signIn(email, password);
     setLoading(false);
-    if (result.success) {
-      navigation.replace("Home");
-    } else {
+    if (!result.success) {
       setError(result.error || "Invalid credentials");
     }
   };

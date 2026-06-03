@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { validateEmail, validateLoginPassword } from "@/utils/validation";
-import * as chargerService from "@/services/chargerService";
 
 /** Login left panel — place your artwork at public/images/login-hero.png */
 const LOGIN_BG = "/images/login-hero.png?v=2";
@@ -16,31 +15,12 @@ export default function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({
-    chargers: 0,
-    activeSessions: 0,
-    connectors: 0,
-  });
+
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/dashboard", { replace: true });
     }
   }, [isAuthenticated, navigate]);
-
-  useEffect(() => {
-    Promise.all([chargerService.getDashboardStats(), chargerService.getChargers()])
-      .then(([s, chargers]) => {
-        const connectors = chargers.reduce((acc, c) => acc + c.connectors.length, 0);
-        setStats({
-          chargers: s.totalChargers,
-          activeSessions: s.activeSessions,
-          connectors,
-        });
-      })
-      .catch(() => {
-        /* keep zeros if DB unavailable on login screen */
-      });
-  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -91,21 +71,6 @@ export default function LoginPage() {
             <p className="text-lg text-gray-300 max-w-md">
               Private CMS for authorized DFCCIL personnel. Monitor, control, and manage your EV charging infrastructure.
             </p>
-          </div>
-
-          <div className="flex gap-8 mt-12">
-            <div>
-              <p className="text-3xl font-bold text-emerald-400">{stats.chargers}</p>
-              <p className="text-sm text-gray-400">Chargers</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-emerald-400">{stats.activeSessions}</p>
-              <p className="text-sm text-gray-400">Active Sessions</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-emerald-400">{stats.connectors}</p>
-              <p className="text-sm text-gray-400">Connectors</p>
-            </div>
           </div>
         </div>
       </div>

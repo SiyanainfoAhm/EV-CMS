@@ -1,4 +1,6 @@
 import { requireSupabase } from "../utils/supabaseClient";
+import { formatSessionDuration } from "../utils/format";
+import { requireUserId } from "./authService";
 import type { ChargingSession } from "../types";
 
 const select = `
@@ -9,27 +11,30 @@ const select = `
 
 function mapRow(row: Record<string, unknown>): ChargingSession {
   const charger = row.EV_Chargers as Record<string, unknown> | null;
-  const user = row.EV_Users as Record<string, unknown> | null;
   const start = row.start_time as string;
+  const end = row.end_time as string | null;
   return {
     id: row.id as string,
     chargerName: (charger?.name as string) ?? "",
     chargePointId: (charger?.charge_point_id as string) ?? "",
     connectorId: row.connector_id as number,
     energyKwh: Number(row.energy_kwh ?? 0),
-    duration: "—",
+    duration: formatSessionDuration(start, end),
     status: row.status as string,
     startTime: start,
+    endTime: end ?? undefined,
     currentPowerKw: row.current_power_kw != null ? Number(row.current_power_kw) : undefined,
     soc: row.soc != null ? Number(row.soc) : undefined,
     amount: row.amount != null ? Number(row.amount) : undefined,
   };
 }
 
-export async function getActiveSession(): Promise<ChargingSession | null> {
+export async function getActiveSession(userId?: string): Promise<ChargingSession | null> {
+  const uid = userId ?? requireUserId();
   const { data, error } = await requireSupabase()
     .from("EV_ChargingSessions")
     .select(select)
+    .eq("user_id", uid)
     .eq("status", "active")
     .order("start_time", { ascending: false })
     .limit(1)
@@ -39,33 +44,126 @@ export async function getActiveSession(): Promise<ChargingSession | null> {
   return data ? mapRow(data as Record<string, unknown>) : null;
 }
 
-export async function getSessionHistory(): Promise<ChargingSession[]> {
+export async function getSessionHistory(
+  userId?: string,
+  limit = 50
+): Promise<ChargingSession[]> {
+  const uid = userId ?? requireUserId();
   const { data, error } = await requireSupabase()
     .from("EV_ChargingSessions")
     .select(select)
-    .eq("status", "completed")
-    .order("start_time", { ascending: false });
+    .eq("user_id", uid)
+    .neq("status", "active")
+    .order("start_time", { ascending: false })
+    .limit(limit);
 
   if (error) throw error;
   return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
 }
 
-export async function startSession(chargerId: string, connectorId: number): Promise<ChargingSession> {
-  const active = await getActiveSession();
-  if (active) return active;
-  const { data } = await requireSupabase().from("EV_Chargers").select("*").eq("id", chargerId).single();
-  return {
-    id: "pending",
-    chargerName: (data?.name as string) ?? "",
-    chargePointId: (data?.charge_point_id as string) ?? "",
-    connectorId,
-    energyKwh: 0,
-    duration: "0m",
-    status: "active",
-    startTime: new Date().toISOString(),
-  };
+export async function getRecentSessions(userId?: string, limit = 5): Promise<ChargingSession[]> {
+  const uid = userId ?? requireUserId();
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select(select)
+    .eq("user_id", uid)
+    .order("start_time", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
 }
 
-export async function stopSession(_sessionId: string): Promise<void> {
-  // TODO: OCPP gateway + update "EV_ChargingSessions"
+export async function getSessionById(sessionId: string, userId?: string): Promise<ChargingSession | null> {
+  const uid = userId ?? requireUserId();
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select(select)
+    .eq("id", sessionId)
+    .eq("user_id", uid)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? mapRow(data as Record<string, unknown>) : null;
+}
+
+export async function startSession(
+  chargerId: string,
+  connectorId: number,
+  userId?: string
+): Promise<ChargingSession> {
+  const uid = userId ?? requireUserId();
+
+  const existing = await getActiveSession(uid);
+  if (existing) return existing;
+
+  const { data: charger, error: chargerErr } = await requireSupabase()
+    .from("EV_Chargers")
+    .select("*, EV_ChargerConnectors(*)")
+    .eq("id", chargerId)
+    .single();
+
+  if (chargerErr || !charger) {
+    throw new Error(chargerErr?.message ?? "Charger not found");
+  }
+
+  const connectors = (charger.EV_ChargerConnectors as Record<string, unknown>[]) ?? [];
+  const connector = connectors.find((c) => c.connector_id === connectorId);
+  if (!connector) {
+    throw new Error(`Connector ${connectorId} not found on this charger`);
+  }
+  const connStatus = String(connector.status ?? "");
+  if (connStatus.toLowerCase() !== "available") {
+    throw new Error(`Connector is not available (status: ${connStatus})`);
+  }
+
+  const transactionId = Math.floor(Date.now() / 1000) % 2000000000;
+  const { data: inserted, error: insertErr } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .insert({
+      transaction_id: transactionId,
+      charger_id: chargerId,
+      connector_id: connectorId,
+      user_id: uid,
+      start_time: new Date().toISOString(),
+      energy_kwh: 0,
+      status: "active",
+    })
+    .select(select)
+    .single();
+
+  if (insertErr) {
+    throw new Error(
+      insertErr.message.includes("policy")
+        ? "Cannot start session: run mobile/SUPABASE_MOBILE_POLICIES.sql in Supabase."
+        : insertErr.message
+    );
+  }
+
+  return mapRow(inserted as Record<string, unknown>);
+}
+
+export async function stopSession(sessionId: string, userId?: string): Promise<void> {
+  const uid = userId ?? requireUserId();
+  const session = await getSessionById(sessionId, uid);
+  if (!session) throw new Error("Session not found");
+
+  const { error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update({
+      status: "completed",
+      end_time: new Date().toISOString(),
+      stop_reason: "Local",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId)
+    .eq("user_id", uid);
+
+  if (error) {
+    throw new Error(
+      error.message.includes("policy")
+        ? "Cannot stop session: run mobile/SUPABASE_MOBILE_POLICIES.sql in Supabase."
+        : error.message
+    );
+  }
 }

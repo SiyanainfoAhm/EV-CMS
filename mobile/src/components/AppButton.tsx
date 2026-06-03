@@ -1,4 +1,4 @@
-import { Pressable, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { Pressable, Text, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from "react-native";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
@@ -8,9 +8,10 @@ interface Props {
   variant?: "primary" | "secondary" | "outline";
   loading?: boolean;
   disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
-export default function AppButton({ title, onPress, variant = "primary", loading, disabled }: Props) {
+export default function AppButton({ title, onPress, variant = "primary", loading, disabled, style }: Props) {
   const isPrimary = variant === "primary";
   return (
     <Pressable
@@ -20,6 +21,7 @@ export default function AppButton({ title, onPress, variant = "primary", loading
         styles.base,
         isPrimary ? styles.primary : variant === "outline" ? styles.outline : styles.secondary,
         (pressed || disabled) && styles.pressed,
+        style,
       ]}
     >
       {loading ? (
