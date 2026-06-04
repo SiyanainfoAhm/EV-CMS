@@ -30,14 +30,20 @@ export function useAuthState(): AuthContextValue {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = authService.getStoredSession();
-    if (stored && authService.validateToken(stored.token)) {
-      setSession(stored);
-    } else {
+    try {
+      const stored = authService.getStoredSession();
+      if (stored && authService.validateToken(stored.token)) {
+        setSession(stored);
+      } else {
+        authService.clearSession();
+        setSession(null);
+      }
+    } catch {
       authService.clearSession();
       setSession(null);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials) => {

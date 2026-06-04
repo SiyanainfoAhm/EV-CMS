@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
 import AppButton from "../components/AppButton";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme/colors";
@@ -7,7 +7,7 @@ import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, ready } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -22,6 +22,15 @@ export default function LoginScreen() {
       setError(result.error || "Invalid credentials");
     }
   };
+
+  if (!ready) {
+    return (
+      <View style={[styles.root, styles.centered]}>
+        <ActivityIndicator size="large" color={colors.emerald} />
+        <Text style={styles.restoring}>Restoring session...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -61,6 +70,8 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  centered: { alignItems: "center", justifyContent: "center" },
+  restoring: { marginTop: spacing.md, color: colors.textMuted, fontSize: 14 },
   hero: {
     backgroundColor: colors.navy,
     paddingTop: 80,

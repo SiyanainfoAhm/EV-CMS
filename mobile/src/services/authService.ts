@@ -1,45 +1,52 @@
+import { createSessionExpiresAt, isSessionExpired } from "../constants/authSession";
 import { requireSupabase } from "../utils/supabaseClient";
 import { clearStoredSession, loadStoredSession, saveStoredSession, type StoredSession } from "../utils/sessionStorage";
 import type { User } from "../types";
 
 let sessionToken: string | null = null;
 let sessionUser: User | null = null;
-let sessionExpiresAt: string | null = null;
-
-const SESSION_HOURS = 8;
+let sessionExpiresAtIso: string | null = null;
 
 function buildSession(user: User): StoredSession {
-  const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();
   return {
     token: `ev_mobile_${user.id}_${Date.now()}`,
     user,
-    expiresAt,
+    expiresAt: createSessionExpiresAt(),
   };
 }
 
 function applySession(session: StoredSession): void {
   sessionToken = session.token;
   sessionUser = session.user;
-  sessionExpiresAt = session.expiresAt;
-}
-
-function isSessionExpired(expiresAt: string): boolean {
-  if (!expiresAt) return false;
-  return new Date(expiresAt) < new Date();
+  sessionExpiresAtIso = session.expiresAt;
 }
 
 export async function restoreSession(): Promise<User | null> {
-  const stored = await loadStoredSession();
-  if (!stored) return null;
-  if (!stored.token.startsWith("ev_mobile_") || isSessionExpired(stored.expiresAt)) {
+  try {
+    const stored = await loadStoredSession();
+    if (!stored) {
+      sessionToken = null;
+      sessionUser = null;
+      sessionExpiresAtIso = null;
+      return null;
+    }
+    if (isSessionExpired(stored.expiresAt)) {
+      await clearStoredSession();
+      sessionToken = null;
+      sessionUser = null;
+      sessionExpiresAtIso = null;
+      return null;
+    }
+    applySession(stored);
+    return stored.user;
+  } catch (e) {
+    console.error("[authService] restoreSession failed:", e);
     await clearStoredSession();
     sessionToken = null;
     sessionUser = null;
-    sessionExpiresAt = null;
+    sessionExpiresAtIso = null;
     return null;
   }
-  applySession(stored);
-  return stored.user;
 }
 
 export async function login(email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
@@ -130,13 +137,13 @@ export function requireUserId(): string {
 
 export function isAuthenticated(): boolean {
   if (!sessionToken || !sessionUser) return false;
-  if (sessionExpiresAt && isSessionExpired(sessionExpiresAt)) return false;
+  if (sessionExpiresAtIso && isSessionExpired(sessionExpiresAtIso)) return false;
   return sessionToken.startsWith("ev_mobile_");
 }
 
 export async function logout(): Promise<void> {
   sessionToken = null;
   sessionUser = null;
-  sessionExpiresAt = null;
+  sessionExpiresAtIso = null;
   await clearStoredSession();
 }

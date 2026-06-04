@@ -1,6 +1,7 @@
 import type { RouteObject } from "react-router-dom";
 import NotFound from "../pages/NotFound";
 import LoginPage from "../pages/login/page";
+import RootRedirect from "../pages/login/RootRedirect";
 import AdminLayout from "../components/feature/AdminLayout";
 import ProtectedRoute from "@/app/ProtectedRoute";
 import DashboardPage from "../pages/dashboard/page";
@@ -20,7 +21,7 @@ import NotificationsPage from "../pages/notifications/page";
 const routes: RouteObject[] = [
   {
     path: "/",
-    element: <LoginPage />,
+    element: <RootRedirect />,
   },
   {
     path: "/login",

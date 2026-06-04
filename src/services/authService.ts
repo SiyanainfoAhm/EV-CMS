@@ -1,56 +1,73 @@
 import type { AuthSession, AuthUser, LoginCredentials, LoginResult, UserRole } from "@/types/auth";
+import { sessionExpiresAt, isSessionExpired } from "@/constants/authSession";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapDbRoleToAuthRole } from "@/utils/supabaseMappers";
 
 const SESSION_STORAGE_KEY = "ev_cms_session_token";
 const USER_STORAGE_KEY = "ev_cms_session_user";
+const EXPIRES_STORAGE_KEY = "ev_cms_session_expires";
+
+function canUseStorage(): boolean {
+  try {
+    return typeof localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
 
 function buildSession(user: AuthUser): AuthSession {
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
   return {
     token: `ev_jwt_${user.id}_${Date.now()}`,
     user,
-    expiresAt,
+    expiresAt: sessionExpiresAt(),
   };
 }
 
 export function getStoredSession(): AuthSession | null {
-  const token = localStorage.getItem(SESSION_STORAGE_KEY);
-  const userJson = localStorage.getItem(USER_STORAGE_KEY);
-  if (!token || !userJson) return null;
+  if (!canUseStorage()) return null;
   try {
+    const token = localStorage.getItem(SESSION_STORAGE_KEY);
+    const userJson = localStorage.getItem(USER_STORAGE_KEY);
+    if (!token || !userJson || !token.startsWith("ev_jwt_")) return null;
+
+    const expiresAt = localStorage.getItem(EXPIRES_STORAGE_KEY) || "";
+    if (isSessionExpired(expiresAt)) return null;
+
     const user = JSON.parse(userJson) as AuthUser;
-    return {
-      token,
-      user,
-      expiresAt: localStorage.getItem("ev_cms_session_expires") || "",
-    };
+    if (!user?.id) return null;
+
+    return { token, user, expiresAt };
   } catch {
     return null;
   }
 }
 
 export function persistSession(session: AuthSession): void {
-  localStorage.setItem(SESSION_STORAGE_KEY, session.token);
-  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
-  localStorage.setItem("ev_cms_session_expires", session.expiresAt);
+  if (!canUseStorage()) return;
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, session.token);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
+    localStorage.setItem(EXPIRES_STORAGE_KEY, session.expiresAt);
+  } catch (e) {
+    console.error("[authService] Failed to persist session:", e);
+  }
 }
 
 export function clearSession(): void {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-  localStorage.removeItem(USER_STORAGE_KEY);
-  localStorage.removeItem("ev_cms_session_expires");
+  if (!canUseStorage()) return;
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+    localStorage.removeItem(EXPIRES_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function validateToken(token: string | null): boolean {
-  if (!token) return false;
+  if (!token || !token.startsWith("ev_jwt_")) return false;
   const session = getStoredSession();
-  if (!session || session.token !== token) return false;
-  if (session.expiresAt && new Date(session.expiresAt) < new Date()) {
-    clearSession();
-    return false;
-  }
-  return token.startsWith("ev_jwt_");
+  return !!session && session.token === token;
 }
 
 async function verifyLoginAgainstDb(

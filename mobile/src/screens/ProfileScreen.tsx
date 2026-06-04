@@ -11,6 +11,7 @@ import * as profileService from "../services/profileService";
 import * as mediaService from "../services/mediaService";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
+import { confirmAction } from "../utils/confirm";
 import * as ImagePicker from "expo-image-picker";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
@@ -55,8 +56,14 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   };
 
-  const logout = async () => {
-    await signOut();
+  const logout = () => {
+    confirmAction(
+      "Sign out",
+      "Are you sure you want to sign out? You will need to sign in again to use the app.",
+      "Sign out",
+      () => signOut(),
+      { subtitle: "End your session", destructive: true, icon: "⎋" }
+    );
   };
 
   const pickAvatar = async () => {
@@ -106,7 +113,11 @@ export default function ProfileScreen({ navigation }: Props) {
   };
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
       <Header title="Profile" onBack={() => navigation.goBack()} />
       <AppCard style={styles.card}>
         <View style={styles.avatarRow}>

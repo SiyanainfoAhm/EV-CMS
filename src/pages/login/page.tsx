@@ -9,7 +9,7 @@ const LOGIN_BG = "/images/login-hero.png?v=2";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
@@ -17,10 +17,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!isLoading && isAuthenticated) {
       navigate("/dashboard", { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f3]">
+        <div className="flex items-center gap-2 text-gray-500 text-sm">
+          <i className="ri-loader-4-line animate-spin text-emerald-600 text-lg"></i>
+          Restoring session...
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -148,7 +159,7 @@ export default function LoginPage() {
             >
               {loading ? (
                 <>
-                  <i className="ri-loader-4-line animate-spin"></i>
+                  <i className="ri-loader-4-line animate-spin"></i> 
                   Signing in...
                 </>
               ) : (

@@ -30,44 +30,63 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const screenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: colors.background },
+} as const;
+
+function AuthStack() {
+  return (
+    <Stack.Navigator screenOptions={screenOptions}>
+      <Stack.Screen name="Login" component={LoginScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function MainStack() {
+  return (
+    <Stack.Navigator screenOptions={screenOptions} initialRouteName="Home">
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Chargers" component={ChargerListScreen} />
+      <Stack.Screen name="ChargerDetail" component={ChargerDetailScreen} />
+      <Stack.Screen name="QRStart" component={QRStartScreen} />
+      <Stack.Screen name="LiveSession" component={LiveSessionScreen} />
+      <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
+      <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+      <Stack.Screen name="RFIDBinding" component={RFIDBindingScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="Support" component={SupportScreen} />
+    </Stack.Navigator>
+  );
+}
+
 export default function AppNavigator() {
   const { ready, isAuthenticated } = useAuth();
 
   if (!ready) {
     return (
-      <View style={styles.loading}>
+      <View style={styles.root}>
         <ActivityIndicator size="large" color={colors.emerald} />
       </View>
     );
   }
 
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      {isAuthenticated ? (
-        <>
-          <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="Chargers" component={ChargerListScreen} />
-          <Stack.Screen name="ChargerDetail" component={ChargerDetailScreen} />
-          <Stack.Screen name="QRStart" component={QRStartScreen} />
-          <Stack.Screen name="LiveSession" component={LiveSessionScreen} />
-          <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
-          <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
-          <Stack.Screen name="RFIDBinding" component={RFIDBindingScreen} />
-          <Stack.Screen name="Profile" component={ProfileScreen} />
-          <Stack.Screen name="Support" component={SupportScreen} />
-        </>
-      ) : (
-        <Stack.Screen name="Login" component={LoginScreen} />
-      )}
-    </Stack.Navigator>
+    <View style={styles.root}>
+      {isAuthenticated ? <MainStack key="main" /> : <AuthStack key="auth" />}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  loading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+  },
 });

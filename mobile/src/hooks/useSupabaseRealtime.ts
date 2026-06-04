@@ -13,7 +13,7 @@ export function useSupabaseRealtime(onChange: () => void, enabled = true): void 
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (supabase) supabase.removeChannel(channel);
     };
   }, [onChange, enabled]);
 }

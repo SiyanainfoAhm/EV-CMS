@@ -18,10 +18,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    authService.restoreSession().then((restored) => {
-      setUser(restored);
-      setReady(true);
-    });
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) setReady(true);
+    }, 8000);
+
+    (async () => {
+      try {
+        const restored = await authService.restoreSession();
+        if (!cancelled) setUser(restored);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) {
+          clearTimeout(timeout);
+          setReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -54,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       ready,
       user,
-      isAuthenticated: !!user && authService.isAuthenticated(),
+      isAuthenticated: ready && !!user,
       signIn,
       signOut,
       refreshUser,

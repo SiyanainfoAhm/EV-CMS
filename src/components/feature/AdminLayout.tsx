@@ -31,6 +31,7 @@ export default function AdminLayout() {
   const { user, logout } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const currentPath = location.pathname;
   const displayName = user?.name ?? "User";
@@ -49,7 +50,13 @@ export default function AdminLayout() {
     .slice(0, 2)
     .toUpperCase();
 
-  const handleLogout = async () => {
+  const requestLogout = () => {
+    setUserMenuOpen(false);
+    setLogoutConfirmOpen(true);
+  };
+
+  const confirmLogout = async () => {
+    setLogoutConfirmOpen(false);
     await logout();
     navigate("/login");
   };
@@ -164,7 +171,7 @@ export default function AdminLayout() {
                     </button>
                     <div className="border-t border-gray-100 mt-1 pt-1">
                       <button
-                        onClick={handleLogout}
+                        onClick={requestLogout}
                         className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 whitespace-nowrap"
                       >
                         <i className="ri-logout-box-line"></i> Sign out
@@ -176,6 +183,44 @@ export default function AdminLayout() {
             </div>
           </div>
         </header>
+
+      {logoutConfirmOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setLogoutConfirmOpen(false)}></div>
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100">
+                  <i className="ri-logout-box-line text-red-600 text-lg"></i>
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Sign out</h4>
+                  <p className="text-xs text-gray-500">End your admin session</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Are you sure you want to sign out? You will need to enter your credentials again to access the dashboard.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setLogoutConfirmOpen(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmLogout}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors whitespace-nowrap"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
         <main className="flex-1 p-6">
           <div className="mb-4">
