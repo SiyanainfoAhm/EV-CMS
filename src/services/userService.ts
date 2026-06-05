@@ -1,5 +1,6 @@
 import type { User } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
+import { normalizeRfpRole } from "@/utils/rfpRoles";
 import { mapUser, mapUiRoleToDb } from "@/utils/supabaseMappers";
 
 export interface UsersQuery {
@@ -12,34 +13,35 @@ export interface UsersQuery {
 export async function getUsers(query: UsersQuery = {}): Promise<User[]> {
   const { role = "all", status = "all", search = "", limit = 200 } = query;
 
-  // Prefer direct table query for dynamic filtering.
-  // (RPC `list_ev_users` can't accept filter params in the current schema.)
-  let q = requireSupabase()
-    .from("EV_Users")
-    .select(
-      "id, full_name, email, role, department, status, last_login_at, created_at, phone, employee_id, avatar_url, rfid_uid"
-    )
-    .order("full_name")
-    .limit(limit);
+  // rfid_uid is joined from EV_RFIDCards in list_ev_users (not a column on EV_Users).
+  const { data, error } = await requireSupabase().rpc("list_ev_users");
+  if (error) throw error;
 
-  if (status !== "all") q = q.eq("status", status);
+  let rows = (data as Record<string, unknown>[]) ?? [];
+
+  if (status !== "all") {
+    rows = rows.filter((r) => r.status === status);
+  }
 
   if (role !== "all") {
     if (role === "User") {
-      q = q.in("role", ["Operator", "Viewer"]);
+      rows = rows.filter((r) => normalizeRfpRole(String(r.role)) === "User");
     } else {
-      q = q.eq("role", mapUiRoleToDb(role));
+      rows = rows.filter((r) => r.role === mapUiRoleToDb(role));
     }
   }
 
-  const s = search.trim();
+  const s = search.trim().toLowerCase();
   if (s) {
-    q = q.or(`full_name.ilike.%${s}%,email.ilike.%${s}%,department.ilike.%${s}%`);
+    rows = rows.filter((r) => {
+      const name = String(r.full_name ?? "").toLowerCase();
+      const email = String(r.email ?? "").toLowerCase();
+      const dept = String(r.department ?? "").toLowerCase();
+      return name.includes(s) || email.includes(s) || dept.includes(s);
+    });
   }
 
-  const { data, error } = await q;
-  if (error) throw error;
-  return ((data as Record<string, unknown>[]) ?? []).map(mapUser);
+  return rows.slice(0, limit).map(mapUser);
 }
 
 export async function getUserById(id: string): Promise<User | undefined> {

@@ -10,11 +10,9 @@ import type {
   User,
 } from "@/types/ev";
 import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
-export {
-  mapDbRoleToAuthRole,
-  mapDisplayRole,
-  mapUiRoleToDb,
-} from "@/utils/rfpRoles";
+import { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb } from "@/utils/rfpRoles";
+
+export { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb };
 
 export function formatDuration(startIso: string, endIso?: string | null): string {
   const start = new Date(startIso).getTime();

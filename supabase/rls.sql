@@ -18,27 +18,57 @@ ALTER TABLE "EV_SupportTickets" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "EV_Notifications" ENABLE ROW LEVEL SECURITY;
 
 -- Public read for CMS demo (no Supabase Auth)
+DROP POLICY IF EXISTS "ev_anon_select_roles" ON "EV_UserRoles";
 CREATE POLICY "ev_anon_select_roles" ON "EV_UserRoles" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_chargers" ON "EV_Chargers";
 CREATE POLICY "ev_anon_select_chargers" ON "EV_Chargers" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_connectors" ON "EV_ChargerConnectors";
 CREATE POLICY "ev_anon_select_connectors" ON "EV_ChargerConnectors" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_events" ON "EV_ChargerEvents";
 CREATE POLICY "ev_anon_select_events" ON "EV_ChargerEvents" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_rfid" ON "EV_RFIDCards";
 CREATE POLICY "ev_anon_select_rfid" ON "EV_RFIDCards" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_tariffs" ON "EV_Tariffs";
 CREATE POLICY "ev_anon_select_tariffs" ON "EV_Tariffs" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_sessions" ON "EV_ChargingSessions";
 CREATE POLICY "ev_anon_select_sessions" ON "EV_ChargingSessions" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_meter" ON "EV_MeterValues";
 CREATE POLICY "ev_anon_select_meter" ON "EV_MeterValues" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_payments" ON "EV_Payments";
 CREATE POLICY "ev_anon_select_payments" ON "EV_Payments" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_receipts" ON "EV_Receipts";
 CREATE POLICY "ev_anon_select_receipts" ON "EV_Receipts" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_audit" ON "EV_AuditLogs";
 CREATE POLICY "ev_anon_select_audit" ON "EV_AuditLogs" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_tickets" ON "EV_SupportTickets";
 CREATE POLICY "ev_anon_select_tickets" ON "EV_SupportTickets" FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "ev_anon_select_notifications" ON "EV_Notifications";
 CREATE POLICY "ev_anon_select_notifications" ON "EV_Notifications" FOR SELECT TO anon, authenticated USING (true);
 
 -- Users: no direct anon read (password_hash). Use verify_ev_login RPC.
+DROP POLICY IF EXISTS "ev_deny_anon_users" ON "EV_Users";
 CREATE POLICY "ev_deny_anon_users" ON "EV_Users" FOR SELECT TO anon USING (false);
+
+DROP POLICY IF EXISTS "ev_auth_select_users" ON "EV_Users";
 CREATE POLICY "ev_auth_select_users" ON "EV_Users" FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "ev_deny_anon_sessions_token" ON "EV_UserSessions";
 CREATE POLICY "ev_deny_anon_sessions_token" ON "EV_UserSessions" FOR SELECT TO anon USING (false);
 
 -- Custom login (email + password) — not Supabase Auth
+DROP FUNCTION IF EXISTS verify_ev_login(TEXT, TEXT);
 CREATE OR REPLACE FUNCTION verify_ev_login(p_email TEXT, p_password TEXT)
 RETURNS TABLE (
   id UUID,
@@ -79,6 +109,9 @@ RETURNS TABLE (
   role TEXT,
   department TEXT,
   status TEXT,
+  phone TEXT,
+  avatar_url TEXT,
+  employee_id TEXT,
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ,
   rfid_uid TEXT
@@ -94,6 +127,9 @@ AS $$
     u.role,
     u.department,
     u.status,
+    u.phone,
+    u.avatar_url,
+    u.employee_id,
     u.last_login_at,
     u.created_at,
     r.uid AS rfid_uid
