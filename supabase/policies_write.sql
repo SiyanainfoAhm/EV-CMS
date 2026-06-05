@@ -1,11 +1,17 @@
 -- Run after rls.sql — enables admin CRUD from web app (anon key, demo only).
 -- Production: move writes to a backend API using the service role.
 
--- Tariffs & RFID: direct table writes
+-- Tariffs & RFID: direct table writes (safe to re-run)
+DROP POLICY IF EXISTS "ev_anon_insert_tariffs" ON "EV_Tariffs";
 CREATE POLICY "ev_anon_insert_tariffs" ON "EV_Tariffs" FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_update_tariffs" ON "EV_Tariffs";
 CREATE POLICY "ev_anon_update_tariffs" ON "EV_Tariffs" FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "ev_anon_insert_rfid" ON "EV_RFIDCards";
 CREATE POLICY "ev_anon_insert_rfid" ON "EV_RFIDCards" FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_update_rfid" ON "EV_RFIDCards";
 CREATE POLICY "ev_anon_update_rfid" ON "EV_RFIDCards" FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- Users: SECURITY DEFINER RPCs (no direct password exposure)
@@ -27,7 +33,7 @@ BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
     WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role = 'Viewer' THEN 'Viewer'
+    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
     ELSE 'Operator'
   END;
 
@@ -65,7 +71,7 @@ BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
     WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role = 'Viewer' THEN 'Viewer'
+    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
     ELSE 'Operator'
   END;
 

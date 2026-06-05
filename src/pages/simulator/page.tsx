@@ -50,7 +50,7 @@ export default function SimulatorPage() {
     }
   };
 
-  if (user?.role !== "SuperAdmin" && user?.role !== "SiteAdmin") {
+  if (user?.role !== "SuperAdmin") {
     return (
       <div className="bg-white rounded-xl border p-8 text-center text-gray-600">
         Simulator is available to Admin roles only.

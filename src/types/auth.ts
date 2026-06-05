@@ -1,4 +1,5 @@
-export type UserRole = "SuperAdmin" | "SiteAdmin" | "Operator" | "Viewer";
+/** RFP roles; legacy DB values Operator/Viewer map to User in app layer. */
+export type UserRole = "SuperAdmin" | "SiteAdmin" | "User";
 
 export type UserStatus = "active" | "inactive" | "suspended";
 

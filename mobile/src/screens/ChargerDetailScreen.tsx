@@ -9,6 +9,8 @@ import StatusBadge from "../components/StatusBadge";
 import * as chargerService from "../services/chargerService";
 import * as sessionService from "../services/sessionService";
 import { useAuth } from "../context/AuthContext";
+import AdminNoticeBanner from "../components/AdminNoticeBanner";
+import { isMobileEndUser } from "../utils/rfpRoles";
 import { formatHeartbeatAgo } from "../utils/chargerConnectivity";
 import type { Charger, ChargerConnector } from "../types";
 import { colors } from "../theme/colors";
@@ -18,6 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "ChargerDetail">;
 
 export default function ChargerDetailScreen({ navigation, route }: Props) {
   const { user } = useAuth();
+  const canCharge = user ? isMobileEndUser(user.role) : false;
   const [charger, setCharger] = useState<Charger | undefined>();
   const [selected, setSelected] = useState<ChargerConnector | undefined>();
   const [error, setError] = useState("");
@@ -97,8 +100,13 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
               </Pressable>
             );
           })}
-          <AppButton title="Start demo charging" onPress={startDemo} loading={busy} style={styles.button} />
-          <AppButton title="Start with QR" onPress={startQr} variant="outline" style={styles.button} />
+          {!canCharge ? <AdminNoticeBanner /> : null}
+          {canCharge ? (
+            <>
+              <AppButton title="Start demo charging" onPress={startDemo} loading={busy} style={styles.button} />
+              <AppButton title="Start with QR" onPress={startQr} variant="outline" style={styles.button} />
+            </>
+          ) : null}
         </>
       ) : null}
     </ScrollView>

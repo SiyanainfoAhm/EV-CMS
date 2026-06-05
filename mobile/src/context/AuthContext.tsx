@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as authService from "../services/authService";
+import { isMobileAdmin as checkMobileAdmin, isMobileEndUser } from "../utils/rfpRoles";
 import type { User } from "../types";
 
 interface AuthContextValue {
@@ -9,6 +10,8 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  isMobileUser: boolean;
+  isMobileAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -77,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signOut,
       refreshUser,
+      isMobileUser: ready && !!user && isMobileEndUser(user.role),
+      isMobileAdmin: ready && !!user && checkMobileAdmin(user.role),
     }),
     [ready, user, signIn, signOut, refreshUser]
   );

@@ -1,7 +1,7 @@
 import type { AuthSession, AuthUser, LoginCredentials, LoginResult, UserRole } from "@/types/auth";
 import { sessionExpiresAt, isSessionExpired } from "@/constants/authSession";
 import { requireSupabase } from "@/utils/supabaseClient";
-import { mapDbRoleToAuthRole } from "@/utils/supabaseMappers";
+import { canAccessWebAdmin, mapDbRoleToAuthRole, WEB_USER_DENIED_MESSAGE } from "@/utils/rfpRoles";
 
 const SESSION_STORAGE_KEY = "ev_cms_session_token";
 const USER_STORAGE_KEY = "ev_cms_session_user";
@@ -137,6 +137,10 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
 
     if (user.status !== "active") {
       return { success: false, error: "Your account is not active." };
+    }
+
+    if (!canAccessWebAdmin(user.role)) {
+      return { success: false, error: WEB_USER_DENIED_MESSAGE };
     }
 
     const session = buildSession(user);

@@ -4,26 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import NotificationBell from "@/components/feature/NotificationBell";
 import { startSimulatorRuntime } from "@/services/simulatorRuntime";
-
-interface NavItem {
-  label: string;
-  path: string;
-  icon: string;
-}
-
-const navItems: NavItem[] = [
-  { label: "Dashboard", path: "/dashboard", icon: "ri-dashboard-line" },
-  { label: "Chargers", path: "/chargers", icon: "ri-flashlight-line" },
-  { label: "Sessions", path: "/sessions", icon: "ri-timer-line" },
-  { label: "Users", path: "/users", icon: "ri-group-line" },
-  { label: "RFID Cards", path: "/rfid", icon: "ri-sim-card-line" },
-  { label: "Tariffs", path: "/tariffs", icon: "ri-money-rupee-circle-line" },
-  { label: "Payments", path: "/payments", icon: "ri-bank-card-line" },
-  { label: "Reports", path: "/reports", icon: "ri-bar-chart-line" },
-  { label: "Audit Logs", path: "/audit-logs", icon: "ri-file-list-3-line" },
-  { label: "Simulator", path: "/simulator", icon: "ri-cpu-line" },
-  { label: "Settings", path: "/settings", icon: "ri-settings-3-line" },
-];
+import { getWebNavItemsForRole, normalizeRfpRole } from "@/utils/rfpRoles";
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -38,10 +19,11 @@ export default function AdminLayout() {
   const displayEmail = user?.email ?? "";
   const displayRole =
     user?.role === "SuperAdmin"
-      ? "Admin"
+      ? "Super Admin"
       : user?.role === "SiteAdmin"
         ? "Site Admin"
-        : user?.role ?? "Operator";
+        : normalizeRfpRole(user?.role ?? "User");
+  const navItems = user ? getWebNavItemsForRole(user.role) : [];
   const avatarUrl = user?.avatarUrl;
   const initials = displayName
     .split(" ")

@@ -25,8 +25,11 @@ export async function getUsers(query: UsersQuery = {}): Promise<User[]> {
   if (status !== "all") q = q.eq("status", status);
 
   if (role !== "all") {
-    // UI roles map: Admin -> SuperAdmin; others match directly.
-    q = q.eq("role", mapUiRoleToDb(role));
+    if (role === "User") {
+      q = q.in("role", ["Operator", "Viewer"]);
+    } else {
+      q = q.eq("role", mapUiRoleToDb(role));
+    }
   }
 
   const s = search.trim();

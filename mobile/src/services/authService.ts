@@ -1,4 +1,5 @@
 import { createSessionExpiresAt, isSessionExpired } from "../constants/authSession";
+import { mapDbRoleToAuthRole } from "../utils/rfpRoles";
 import { requireSupabase } from "../utils/supabaseClient";
 import { clearStoredSession, loadStoredSession, saveStoredSession, type StoredSession } from "../utils/sessionStorage";
 import type { User } from "../types";
@@ -37,8 +38,11 @@ export async function restoreSession(): Promise<User | null> {
       sessionExpiresAtIso = null;
       return null;
     }
-    applySession(stored);
-    return stored.user;
+    applySession({
+      ...stored,
+      user: { ...stored.user, role: mapDbRoleToAuthRole(stored.user.role) },
+    });
+    return sessionUser;
   } catch (e) {
     console.error("[authService] restoreSession failed:", e);
     await clearStoredSession();
@@ -84,7 +88,7 @@ export async function login(email: string, password: string): Promise<{ success:
     id: r.id as string,
     name: r.full_name as string,
     email: r.email as string,
-    role: r.role as string,
+    role: mapDbRoleToAuthRole(r.role as string),
     department: (r.department as string) ?? undefined,
   };
 
@@ -118,7 +122,7 @@ export async function refreshProfile(userId: string): Promise<User | null> {
     id: r.id as string,
     name: r.full_name as string,
     email: r.email as string,
-    role: r.role as string,
+    role: mapDbRoleToAuthRole(r.role as string),
     phone: (r.phone as string) ?? undefined,
     department: (r.department as string) ?? undefined,
     avatarUrl: (r.avatar_url as string) ?? null,

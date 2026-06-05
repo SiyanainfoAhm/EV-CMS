@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/auth";
+import { canAccessWebAdmin, canAccessWebPath } from "@/utils/rfpRoles";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -9,7 +10,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, hasRole } = useAuth();
+  const { isAuthenticated, isLoading, user, hasRole } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -25,6 +26,14 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (user && !canAccessWebAdmin(user.role)) {
+    return <Navigate to="/login" state={{ webAccessDenied: true }} replace />;
+  }
+
+  if (user && !canAccessWebPath(user.role, location.pathname)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   if (allowedRoles && allowedRoles.length > 0 && !hasRole(allowedRoles)) {

@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { canAccessWebAdmin, WEB_USER_DENIED_MESSAGE } from "@/utils/rfpRoles";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { validateEmail, validateLoginPassword } from "@/utils/validation";
 
@@ -9,7 +10,8 @@ const LOGIN_BG = "/images/login-hero.png?v=2";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+  const { login, isAuthenticated, isLoading, user, logout } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
@@ -17,10 +19,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (isLoading || !isAuthenticated || !user) return;
+    if (canAccessWebAdmin(user.role)) {
       navigate("/dashboard", { replace: true });
+    } else {
+      logout();
     }
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, user, navigate, logout]);
+
+  useEffect(() => {
+    if ((location.state as { webAccessDenied?: boolean })?.webAccessDenied) {
+      setError(WEB_USER_DENIED_MESSAGE);
+    }
+  }, [location.state]);
 
   if (isLoading) {
     return (

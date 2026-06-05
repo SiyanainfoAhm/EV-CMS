@@ -1,9 +1,10 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { canAccessWebAdmin } from "@/utils/rfpRoles";
 
 /** Sends "/" to dashboard when a stored session exists, otherwise to login. */
 export default function RootRedirect() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -16,5 +17,7 @@ export default function RootRedirect() {
     );
   }
 
-  return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
+  const canEnter =
+    isAuthenticated && user && canAccessWebAdmin(user.role);
+  return <Navigate to={canEnter ? "/dashboard" : "/login"} replace />;
 }

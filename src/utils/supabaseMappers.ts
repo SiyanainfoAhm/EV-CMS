@@ -9,8 +9,12 @@ import type {
   Tariff,
   User,
 } from "@/types/ev";
-import type { UserRole } from "@/types/auth";
 import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
+export {
+  mapDbRoleToAuthRole,
+  mapDisplayRole,
+  mapUiRoleToDb,
+} from "@/utils/rfpRoles";
 
 export function formatDuration(startIso: string, endIso?: string | null): string {
   const start = new Date(startIso).getTime();
@@ -32,26 +36,6 @@ export function formatLastLogin(iso?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-export function mapDisplayRole(role: string): string {
-  if (role === "SuperAdmin" || role === "SiteAdmin") return "Admin";
-  return role;
-}
-
-export function mapDbRoleToAuthRole(role: string): UserRole {
-  if (role === "SuperAdmin") return "SuperAdmin";
-  if (role === "SiteAdmin") return "SiteAdmin";
-  if (role === "Viewer") return "Viewer";
-  return "Operator";
-}
-
-/** UI form role labels → DB check constraint values */
-export function mapUiRoleToDb(role: string): string {
-  if (role === "Admin") return "SuperAdmin";
-  if (role === "SiteAdmin") return "SiteAdmin";
-  if (role === "Viewer") return "Viewer";
-  return "Operator";
 }
 
 export function formatRelativeTime(iso: string): string {

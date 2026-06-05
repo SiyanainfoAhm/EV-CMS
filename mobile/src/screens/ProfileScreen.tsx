@@ -12,6 +12,7 @@ import * as mediaService from "../services/mediaService";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { confirmAction } from "../utils/confirm";
+import { getDisplayRoleLabel } from "../utils/rfpRoles";
 import * as ImagePicker from "expo-image-picker";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
@@ -155,7 +156,7 @@ export default function ProfileScreen({ navigation }: Props) {
           <>
             <Text style={styles.name}>{name}</Text>
             <Text style={styles.email}>{email}</Text>
-            <Text style={styles.role}>{user?.role}</Text>
+            <Text style={styles.role}>{user ? getDisplayRoleLabel(user.role) : ""}</Text>
             {phone ? <Text style={styles.phone}>{phone}</Text> : null}
             {user?.department ? <Text style={styles.phone}>{user.department}</Text> : null}
           </>

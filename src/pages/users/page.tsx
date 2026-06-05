@@ -12,7 +12,7 @@ interface UserFormData {
   department: string;
 }
 
-const emptyForm: UserFormData = { name: "", email: "", role: "Operator", department: "Operations" };
+const emptyForm: UserFormData = { name: "", email: "", role: "User", department: "Operations" };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -128,7 +128,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             User Management
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage DFCCIL operator accounts and access roles</p>
+          <p className="text-sm text-gray-500 mt-1">Manage DFCCIL accounts — RFP roles: User (mobile), Site Admin, Super Admin</p>
         </div>
         <button
           onClick={() => { setFormData(emptyForm); setFormErrors({}); setShowAddModal(true); }}
@@ -161,9 +161,9 @@ export default function UsersPage() {
                 className="px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               >
                 <option value="all">All Roles</option>
-                <option value="Admin">Admin</option>
-                <option value="Operator">Operator</option>
-                <option value="Viewer">Viewer</option>
+                <option value="User">User</option>
+                <option value="SiteAdmin">Site Admin</option>
+                <option value="SuperAdmin">Super Admin</option>
               </select>
               <select
                 value={statusFilter}
@@ -209,7 +209,7 @@ export default function UsersPage() {
                   </td>
                   <td className="px-5 py-3.5">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      user.role === "Admin" ? "bg-rose-100 text-rose-700" : user.role === "Operator" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"
+                      user.role === "SuperAdmin" ? "bg-rose-100 text-rose-700" : user.role === "SiteAdmin" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
                     }`}>
                       {user.role}
                     </span>
@@ -292,9 +292,9 @@ export default function UsersPage() {
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     className={inputClassName(!!formErrors.role)}
                   >
-                    <option value="Admin">Admin</option>
-                    <option value="Operator">Operator</option>
-                    <option value="Viewer">Viewer</option>
+                    <option value="User">User (mobile app)</option>
+                    <option value="SiteAdmin">Site Admin</option>
+                    <option value="SuperAdmin">Super Admin</option>
                   </select>
                 </FormField>
                 <FormField label="Department" error={formErrors.department} required>

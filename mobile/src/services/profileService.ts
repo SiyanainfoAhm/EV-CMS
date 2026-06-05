@@ -1,4 +1,5 @@
 import { requireSupabase } from "../utils/supabaseClient";
+import { mapDbRoleToAuthRole } from "../utils/rfpRoles";
 import type { User } from "../types";
 
 function mapProfileRow(row: Record<string, unknown>): User {
@@ -6,7 +7,7 @@ function mapProfileRow(row: Record<string, unknown>): User {
     id: row.id as string,
     name: row.full_name as string,
     email: row.email as string,
-    role: row.role as string,
+    role: mapDbRoleToAuthRole(row.role as string),
     phone: (row.phone as string) ?? undefined,
     department: (row.department as string) ?? undefined,
     avatarUrl: (row.avatar_url as string) ?? null,

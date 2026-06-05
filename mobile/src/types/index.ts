@@ -1,6 +1,6 @@
 /** Duplicated from web src/types/ev.ts — align when monorepo is introduced */
 
-export type UserRole = "SuperAdmin" | "SiteAdmin" | "Operator" | "Viewer";
+export type UserRole = "SuperAdmin" | "SiteAdmin" | "User";
 
 export interface User {
   id: string;

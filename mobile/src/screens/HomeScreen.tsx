@@ -10,6 +10,8 @@ import { useAuth } from "../context/AuthContext";
 import * as chargerService from "../services/chargerService";
 import * as sessionService from "../services/sessionService";
 import SimulationModeBadge from "../components/SimulationModeBadge";
+import AdminNoticeBanner from "../components/AdminNoticeBanner";
+import { getMobileMenuRoutes } from "../utils/rfpRoles";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import { isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
 import type { ChargingSession } from "../types";
@@ -19,7 +21,7 @@ import { typography } from "../theme/typography";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
-const menuItems: { label: string; route: keyof RootStackParamList }[] = [
+const ALL_MENU_ITEMS: { label: string; route: keyof RootStackParamList }[] = [
   { label: "Find Chargers", route: "Chargers" },
   { label: "Live Session", route: "LiveSession" },
   { label: "Session History", route: "SessionHistory" },
@@ -30,7 +32,9 @@ const menuItems: { label: string; route: keyof RootStackParamList }[] = [
 ];
 
 export default function HomeScreen({ navigation }: Props) {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isMobileAdmin } = useAuth();
+  const allowedRoutes = getMobileMenuRoutes(user?.role ?? "User");
+  const menuItems = ALL_MENU_ITEMS.filter((item) => allowedRoutes.includes(item.route));
   const userId = user?.id;
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -105,6 +109,7 @@ export default function HomeScreen({ navigation }: Props) {
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      {isMobileAdmin ? <AdminNoticeBanner /> : null}
       <SimulationModeBadge compact />
 
       <AppCard style={styles.statCard}>
@@ -114,7 +119,7 @@ export default function HomeScreen({ navigation }: Props) {
         </Text>
       </AppCard>
 
-      {hasActive && (
+      {hasActive && !isMobileAdmin && (
         <Pressable onPress={() => navigation.navigate("LiveSession")}>
           <AppCard style={styles.activeCard}>
             <Text style={styles.activeTitle}>Charging in progress</Text>

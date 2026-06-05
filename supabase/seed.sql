@@ -1,7 +1,13 @@
--- EV CMS seed data (run after schema.sql + rls.sql in Supabase SQL Editor)
+-- EV CMS seed data (run after schema.sql + rls.sql + rfp_roles.sql in Supabase SQL Editor)
 -- UUIDs must use hex digits only (0-9, a-f) — no letters like p, l, g in IDs.
--- Demo login password for all users: dfccil123
+-- Demo password for all users: dfccil123
 -- Hash: SHA-256(password + salt) hex, salt = ev_salt_2026
+--
+-- RFP demo logins:
+--   Mobile User (+ RFID): rajesh.kumar@dfccil.gov.in | suresh.nair@dfccil.gov.in
+--   Web Super Admin:      anita.desai@dfccil.gov.in
+--   Web Site Admin:       deepak.mehta@dfccil.gov.in
+--   (DB role Operator/Viewer → app displays as User)
 
 -- Optional reset (dev only):
 -- TRUNCATE "EV_Payments", "EV_Receipts", "EV_MeterValues", "EV_ChargingSessions",
@@ -9,11 +15,14 @@
 --   "EV_UserSessions", "EV_Users", "EV_UserRoles" CASCADE;
 
 INSERT INTO "EV_UserRoles" (code, name, description) VALUES
-  ('SuperAdmin', 'Super Admin', 'Full system access'),
-  ('SiteAdmin', 'Site Admin', 'Site-level administration'),
-  ('Operator', 'Operator', 'Operations and charging'),
-  ('Viewer', 'Viewer', 'Read-only access')
-ON CONFLICT (code) DO NOTHING;
+  ('SuperAdmin', 'Super Admin', 'RFP: full web admin access'),
+  ('SiteAdmin', 'Site Admin', 'RFP: site-level web admin'),
+  ('User', 'User', 'RFP: mobile charging app'),
+  ('Operator', 'User (legacy)', 'Legacy DB value; maps to RFP User'),
+  ('Viewer', 'User (legacy)', 'Legacy DB value; maps to RFP User')
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description;
 
 INSERT INTO "EV_Users" (id, email, password_hash, salt, full_name, role, status, department, last_login_at, created_at) VALUES
   ('a0000001-0000-4000-8000-000000000001', 'rajesh.kumar@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Rajesh Kumar', 'Operator', 'active', 'Operations', '2026-06-01 07:30:00+00', '2026-01-15'),
@@ -23,7 +32,9 @@ INSERT INTO "EV_Users" (id, email, password_hash, salt, full_name, role, status,
   ('a0000001-0000-4000-8000-000000000005', 'vikram.patel@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Vikram Patel', 'Operator', 'active', 'Operations', '2026-06-01 08:30:00+00', '2026-02-15'),
   ('a0000001-0000-4000-8000-000000000006', 'anita.desai@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Anita Desai', 'SuperAdmin', 'active', 'IT', '2026-06-01 08:00:00+00', '2025-12-01'),
   ('a0000001-0000-4000-8000-000000000007', 'manoj.tiwari@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Manoj Tiwari', 'Viewer', 'active', 'Management', '2026-05-31 16:20:00+00', '2026-04-05'),
-  ('a0000001-0000-4000-8000-000000000008', 'kavita.reddy@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Kavita Reddy', 'Operator', 'inactive', 'Operations', '2026-05-16 14:00:00+00', '2026-03-20')
+  ('a0000001-0000-4000-8000-000000000008', 'kavita.reddy@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Kavita Reddy', 'Operator', 'inactive', 'Operations', '2026-05-16 14:00:00+00', '2026-03-20'),
+  ('a0000001-0000-4000-8000-000000000009', 'deepak.mehta@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Deepak Mehta', 'SiteAdmin', 'active', 'Operations', '2026-06-01 09:00:00+00', '2026-02-01'),
+  ('a0000001-0000-4000-8000-00000000000a', 'suresh.nair@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Suresh Nair', 'Operator', 'active', 'Logistics', '2026-06-01 08:45:00+00', '2026-03-01')
 ON CONFLICT (email) DO UPDATE SET
   password_hash = EXCLUDED.password_hash,
   salt = EXCLUDED.salt,
@@ -83,8 +94,14 @@ INSERT INTO "EV_RFIDCards" (id, uid, user_id, status, last_used_at, total_sessio
   ('d0000001-0000-4000-8000-000000000005', 'RFID-DFCCIL-005', 'a0000001-0000-4000-8000-000000000005', 'active', '2026-06-01 10:00:00+00', 35, '2026-02-15'),
   ('d0000001-0000-4000-8000-000000000006', 'RFID-DFCCIL-006', NULL, 'inactive', NULL, 0, '2026-05-01'),
   ('d0000001-0000-4000-8000-000000000007', 'RFID-DFCCIL-007', 'a0000001-0000-4000-8000-000000000008', 'blocked', '2026-05-15 14:30:00+00', 12, '2026-03-20'),
-  ('d0000001-0000-4000-8000-000000000008', 'RFID-DFCCIL-008', NULL, 'active', NULL, 0, '2026-05-15')
-ON CONFLICT (uid) DO NOTHING;
+  ('d0000001-0000-4000-8000-000000000008', 'RFID-DFCCIL-008', NULL, 'active', NULL, 0, '2026-05-15'),
+  ('d0000001-0000-4000-8000-000000000009', 'RFID-DFCCIL-009', 'a0000001-0000-4000-8000-000000000007', 'active', '2026-05-31 16:00:00+00', 8, '2026-04-05'),
+  ('d0000001-0000-4000-8000-00000000000a', 'RFID-DFCCIL-010', 'a0000001-0000-4000-8000-00000000000a', 'active', NULL, 0, '2026-03-01')
+ON CONFLICT (uid) DO UPDATE SET
+  user_id = EXCLUDED.user_id,
+  status = EXCLUDED.status,
+  last_used_at = EXCLUDED.last_used_at,
+  total_sessions = EXCLUDED.total_sessions;
 
 -- Active sessions
 INSERT INTO "EV_ChargingSessions" (id, transaction_id, charger_id, connector_id, user_id, rfid_card_id, start_time, energy_kwh, current_power_kw, soc, status) VALUES

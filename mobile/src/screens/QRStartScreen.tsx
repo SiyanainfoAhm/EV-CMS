@@ -8,12 +8,17 @@ import AppButton from "../components/AppButton";
 import * as sessionService from "../services/sessionService";
 import * as chargerService from "../services/chargerService";
 import { parseChargeQr } from "../utils/qrParser";
+import { useAuth } from "../context/AuthContext";
+import { isMobileEndUser } from "../utils/rfpRoles";
+import AdminNoticeBanner from "../components/AdminNoticeBanner";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "QRStart">;
 
 export default function QRStartScreen({ navigation, route }: Props) {
+  const { user } = useAuth();
+  const canCharge = user ? isMobileEndUser(user.role) : false;
   const defaultConnector = route.params.connectorId ?? 1;
   const [qrInput, setQrInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -73,10 +78,16 @@ export default function QRStartScreen({ navigation, route }: Props) {
         autoCapitalize="none"
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Text style={styles.or}>
-        Manual start · Gun {defaultConnector} on selected charger
-      </Text>
-      <AppButton title="Start Charging" onPress={start} loading={loading} style={styles.button} />
+      {!canCharge ? (
+        <AdminNoticeBanner />
+      ) : (
+        <>
+          <Text style={styles.or}>
+            Manual start · Gun {defaultConnector} on selected charger
+          </Text>
+          <AppButton title="Start Charging" onPress={start} loading={loading} style={styles.button} />
+        </>
+      )}
     </View>
   );
 }
