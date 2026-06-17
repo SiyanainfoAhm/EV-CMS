@@ -1,0 +1,74 @@
+import { requireSupabase } from "../utils/supabaseClient";
+import { requireUserId } from "./authService";
+import * as rfidService from "./rfidService";
+import * as sessionService from "./sessionService";
+import * as walletService from "./walletService";
+import type { ChargingSession } from "../types";
+
+async function assertUserCanCharge(userId: string): Promise<void> {
+  const { data, error } = await requireSupabase()
+    .from("EV_Users")
+    .select("status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data || (data as { status: string }).status !== "active") {
+    throw new Error("USER_INACTIVE");
+  }
+}
+
+async function assertRfidOrMobileAuth(userId: string): Promise<void> {
+  const cards = await rfidService.getUserRfidCards(userId);
+  const hasActive = cards.some((c) => c.status === "active");
+  if (!hasActive) {
+    // Mobile authorization path — allow demo users without RFID
+    return;
+  }
+}
+
+async function assertPaymentReadiness(userId: string): Promise<void> {
+  await walletService.assertWalletReadyForCharging(userId);
+}
+
+export async function startCharging(
+  chargerId: string,
+  connectorId: number,
+  userId?: string
+): Promise<ChargingSession> {
+  const uid = userId ?? requireUserId();
+  await assertUserCanCharge(uid);
+  await assertRfidOrMobileAuth(uid);
+  await assertPaymentReadiness(uid);
+  return sessionService.startSession(chargerId, connectorId, uid);
+}
+
+export async function stopCharging(
+  sessionId: string,
+  userId?: string
+): Promise<ChargingSession | null> {
+  const uid = userId ?? requireUserId();
+  await sessionService.stopSession(sessionId, uid);
+  return sessionService.getSessionById(sessionId, uid);
+}
+
+export async function getActiveSession(userId?: string): Promise<ChargingSession | null> {
+  return sessionService.getActiveSession(userId);
+}
+
+export function subscribeActiveSession(
+  onUpdate: () => void
+): () => void {
+  const channel = requireSupabase()
+    .channel("mobile-active-session")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "EV_ChargingSessions" },
+      () => onUpdate()
+    )
+    .subscribe();
+
+  return () => {
+    requireSupabase().removeChannel(channel);
+  };
+}

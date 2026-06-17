@@ -133,6 +133,11 @@ export function getSessionUser(): User | null {
   return sessionUser;
 }
 
+export function getSessionMeta(): { token: string; expiresAt: string } | null {
+  if (!sessionToken || !sessionExpiresAtIso) return null;
+  return { token: sessionToken, expiresAt: sessionExpiresAtIso };
+}
+
 export function requireUserId(): string {
   const id = sessionUser?.id;
   if (!id) throw new Error("Not signed in");

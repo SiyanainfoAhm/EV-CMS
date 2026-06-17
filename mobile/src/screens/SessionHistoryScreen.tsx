@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text } from "react-native";
+import { ScrollView, StyleSheet, Text, RefreshControl } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
@@ -13,8 +14,10 @@ import { spacing } from "../theme/spacing";
 type Props = NativeStackScreenProps<RootStackParamList, "SessionHistory">;
 
 export default function SessionHistoryScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<ChargingSession[]>([]);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -22,9 +25,9 @@ export default function SessionHistoryScreen({ navigation }: Props) {
       setSessions(data);
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load history");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -32,15 +35,27 @@ export default function SessionHistoryScreen({ navigation }: Props) {
     }, [load])
   );
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Header title="Session History" subtitle="Your completed sessions" onBack={() => navigation.goBack()} />
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />}
+    >
+      <Header title={t("session.history")} subtitle={t("session.historySubtitle")} onBack={() => navigation.goBack()} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {sessions.length === 0 && !error ? (
-        <Text style={styles.empty}>No session history yet</Text>
-      ) : null}
+      {sessions.length === 0 && !error ? <Text style={styles.empty}>{t("session.noHistory")}</Text> : null}
       {sessions.map((s) => (
-        <SessionCard key={s.id} session={s} />
+        <SessionCard
+          key={s.id}
+          session={s}
+          onPress={() => navigation.navigate("SessionSummary", { sessionId: s.id })}
+        />
       ))}
     </ScrollView>
   );
