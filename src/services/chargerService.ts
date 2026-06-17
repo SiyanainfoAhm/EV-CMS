@@ -50,6 +50,97 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
   return fetchChargersRaw(query);
 }
 
+export interface ChargerInput {
+  chargePointId: string;
+  name: string;
+  manufacturer: string;
+  model?: string;
+  serialNumber?: string;
+  firmwareVersion?: string;
+  chargerType: "DC Fast" | "AC Slow";
+  maxPowerKw: number;
+  location: string;
+}
+
+function defaultModel(manufacturer: string, chargerType: string): string {
+  if (manufacturer === "Tri Square") {
+    return chargerType === "DC Fast" ? "TS-30DC-DG" : "TS-7.4AC-SG";
+  }
+  return chargerType === "DC Fast" ? "MP-30DC-DG" : "MP-7.5AC-SG";
+}
+
+function connectorPlan(chargerType: string, maxPowerKw: number): { connectorId: number; connectorType: string; maxPowerKw: number }[] {
+  if (chargerType === "DC Fast") {
+    const perGun = Math.round((maxPowerKw / 2) * 100) / 100;
+    return [
+      { connectorId: 1, connectorType: "CCS2", maxPowerKw: perGun },
+      { connectorId: 2, connectorType: "CCS2", maxPowerKw: perGun },
+    ];
+  }
+  return [{ connectorId: 1, connectorType: "Type2", maxPowerKw: maxPowerKw }];
+}
+
+export async function createCharger(input: ChargerInput): Promise<Charger> {
+  const chargePointId = input.chargePointId.trim().toUpperCase();
+  const model = input.model?.trim() || defaultModel(input.manufacturer, input.chargerType);
+  const serialNumber = input.serialNumber?.trim() || "";
+  const firmwareVersion = input.firmwareVersion?.trim() || "v1.0.0";
+
+  const { data: chargerRow, error: chargerError } = await requireSupabase()
+    .from("EV_Chargers")
+    .insert({
+      charge_point_id: chargePointId,
+      name: input.name.trim(),
+      manufacturer: input.manufacturer,
+      model,
+      serial_number: serialNumber || null,
+      firmware_version: firmwareVersion,
+      charger_type: input.chargerType,
+      max_power_kw: input.maxPowerKw,
+      status: "offline",
+      location: input.location.trim(),
+      is_simulated: false,
+    })
+    .select("*")
+    .single();
+
+  if (chargerError) {
+    if (chargerError.code === "23505") {
+      throw new Error(`Charge point ID "${chargePointId}" already exists`);
+    }
+    throw chargerError;
+  }
+
+  const chargerId = (chargerRow as { id: string }).id;
+  const connectors = connectorPlan(input.chargerType, input.maxPowerKw).map((c) => ({
+    charger_id: chargerId,
+    connector_id: c.connectorId,
+    connector_type: c.connectorType,
+    max_power_kw: c.maxPowerKw,
+    status: "Unavailable",
+  }));
+
+  const { data: connectorRows, error: connectorError } = await requireSupabase()
+    .from("EV_ChargerConnectors")
+    .insert(connectors)
+    .select("*");
+
+  if (connectorError) {
+    throw connectorError;
+  }
+
+  await requireSupabase().from("EV_ChargerEvents").insert({
+    charger_id: chargerId,
+    event_type: "BootNotification",
+    payload: { chargePointId, source: "admin", model, firmwareVersion },
+  });
+
+  return mapCharger(
+    chargerRow as Record<string, unknown>,
+    (connectorRows ?? []) as Record<string, unknown>[]
+  );
+}
+
 export async function getChargerById(id: string): Promise<Charger | undefined> {
   const { data, error } = await requireSupabase()
     .from("EV_Chargers")

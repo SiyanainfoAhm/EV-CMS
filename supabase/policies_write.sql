@@ -14,6 +14,27 @@ CREATE POLICY "ev_anon_insert_rfid" ON "EV_RFIDCards" FOR INSERT TO anon, authen
 DROP POLICY IF EXISTS "ev_anon_update_rfid" ON "EV_RFIDCards";
 CREATE POLICY "ev_anon_update_rfid" ON "EV_RFIDCards" FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 
+-- Chargers: admin inventory CRUD (demo only — use service role API in production)
+DROP POLICY IF EXISTS "ev_anon_insert_chargers" ON "EV_Chargers";
+CREATE POLICY "ev_anon_insert_chargers" ON "EV_Chargers"
+  FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_update_chargers" ON "EV_Chargers";
+CREATE POLICY "ev_anon_update_chargers" ON "EV_Chargers"
+  FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_insert_connectors" ON "EV_ChargerConnectors";
+CREATE POLICY "ev_anon_insert_connectors" ON "EV_ChargerConnectors"
+  FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_update_connectors" ON "EV_ChargerConnectors";
+CREATE POLICY "ev_anon_update_connectors" ON "EV_ChargerConnectors"
+  FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "ev_anon_insert_events" ON "EV_ChargerEvents";
+CREATE POLICY "ev_anon_insert_events" ON "EV_ChargerEvents"
+  FOR INSERT TO anon, authenticated WITH CHECK (true);
+
 -- Users: SECURITY DEFINER RPCs (no direct password exposure)
 CREATE OR REPLACE FUNCTION create_ev_user(
   p_email TEXT,

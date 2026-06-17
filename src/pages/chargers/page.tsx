@@ -4,6 +4,8 @@ import { useAsyncData } from "@/hooks/useAsyncData";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { FormField, inputClassName } from "@/components/ui/FormField";
+import { hasErrors, validateChargerForm, type ChargerFormFields } from "@/utils/validation";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
@@ -13,6 +15,23 @@ import {
 
 type StatusFilter = "all" | "online" | "offline" | "faulted";
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
+
+const emptyChargerForm: ChargerFormFields = {
+  chargePointId: "",
+  name: "",
+  manufacturer: "MyPower Experts",
+  model: "",
+  serialNumber: "",
+  firmwareVersion: "v1.0.0",
+  chargerType: "DC Fast",
+  maxPowerKw: 60,
+  location: "",
+};
+
+function defaultPowerKw(chargerType: string, manufacturer: string): number {
+  if (chargerType === "DC Fast") return 60;
+  return manufacturer === "Tri Square" ? 7.4 : 7.5;
+}
 
 function getRelativeTime(isoStr: string): string {
   const now = new Date();
@@ -61,7 +80,17 @@ export default function ChargersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [manufacturerFilter, setManufacturerFilter] = useState<string>("all");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState<ChargerFormFields>(emptyChargerForm);
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof ChargerFormFields, string>>>({});
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const apiStatus = statusFilter === "online" || statusFilter === "offline" ? "all" : statusFilter;
 
@@ -108,15 +137,80 @@ export default function ChargersPage() {
     });
   }, [mockChargers, statusFilter]);
 
+  const handleAdd = async () => {
+    const errors = validateChargerForm(formData);
+    setFormErrors(errors);
+    if (hasErrors(errors)) return;
+    setSaving(true);
+    try {
+      const created = await chargerService.createCharger({
+        chargePointId: formData.chargePointId,
+        name: formData.name,
+        manufacturer: formData.manufacturer,
+        model: formData.model || undefined,
+        serialNumber: formData.serialNumber || undefined,
+        firmwareVersion: formData.firmwareVersion || undefined,
+        chargerType: formData.chargerType as "DC Fast" | "AC Slow",
+        maxPowerKw: formData.maxPowerKw,
+        location: formData.location,
+      });
+      await reloadChargers();
+      setShowAddModal(false);
+      setFormData(emptyChargerForm);
+      setFormErrors({});
+      showToast("Charger added successfully");
+      navigate(`/chargers/${created.id}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to add charger. Run supabase/policies_write.sql");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateChargerType = (chargerType: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      chargerType,
+      maxPowerKw: defaultPowerKw(chargerType, prev.manufacturer),
+    }));
+  };
+
+  const updateManufacturer = (manufacturer: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      manufacturer,
+      maxPowerKw: defaultPowerKw(prev.chargerType, manufacturer),
+    }));
+  };
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-          Charger Management
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Monitor and manage {mockChargers.length > 0 ? `all ${mockChargers.length}` : ""} EV chargers across DFCCIL sites
-        </p>
+      {toast && (
+        <div className="fixed top-20 right-6 z-50 px-4 py-2.5 bg-gray-900 text-white rounded-lg text-sm shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            Charger Management
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Monitor and manage {mockChargers.length > 0 ? `all ${mockChargers.length}` : ""} EV chargers across DFCCIL sites
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setFormData(emptyChargerForm);
+            setFormErrors({});
+            setShowAddModal(true);
+          }}
+          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap flex items-center gap-2"
+        >
+          <i className="ri-add-line"></i>
+          Add Charger
+        </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -324,6 +418,126 @@ export default function ChargersPage() {
           </div>
         )}
       </div>
+
+      {showAddModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowAddModal(false)}></div>
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-2xl my-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Add New Charger</h3>
+              <p className="text-xs text-gray-500 mb-5">Register a physical charge point for OCPP onboarding and fleet management.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Charge Point ID" error={formErrors.chargePointId} required>
+                  <input
+                    type="text"
+                    value={formData.chargePointId}
+                    onChange={(e) => setFormData({ ...formData, chargePointId: e.target.value.toUpperCase() })}
+                    className={inputClassName(!!formErrors.chargePointId)}
+                    placeholder="e.g. MP-DC-013"
+                  />
+                </FormField>
+                <FormField label="Display Name" error={formErrors.name} required>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className={inputClassName(!!formErrors.name)}
+                    placeholder="e.g. MP Fast Charger Station 13"
+                  />
+                </FormField>
+                <FormField label="Manufacturer" error={formErrors.manufacturer} required>
+                  <select
+                    value={formData.manufacturer}
+                    onChange={(e) => updateManufacturer(e.target.value)}
+                    className={inputClassName(!!formErrors.manufacturer)}
+                  >
+                    <option value="MyPower Experts">MyPower Experts</option>
+                    <option value="Tri Square">Tri Square</option>
+                  </select>
+                </FormField>
+                <FormField label="Charger Type" error={formErrors.chargerType} required>
+                  <select
+                    value={formData.chargerType}
+                    onChange={(e) => updateChargerType(e.target.value)}
+                    className={inputClassName(!!formErrors.chargerType)}
+                  >
+                    <option value="DC Fast">DC Fast</option>
+                    <option value="AC Slow">AC Slow</option>
+                  </select>
+                </FormField>
+                <FormField label="Model">
+                  <input
+                    type="text"
+                    value={formData.model}
+                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                    className={inputClassName()}
+                    placeholder="Auto-filled if blank"
+                  />
+                </FormField>
+                <FormField label="Max Power (kW)" error={formErrors.maxPowerKw} required>
+                  <input
+                    type="number"
+                    min={1}
+                    step={0.1}
+                    value={formData.maxPowerKw}
+                    onChange={(e) => setFormData({ ...formData, maxPowerKw: Number(e.target.value) })}
+                    className={inputClassName(!!formErrors.maxPowerKw)}
+                  />
+                </FormField>
+                <FormField label="Serial Number">
+                  <input
+                    type="text"
+                    value={formData.serialNumber}
+                    onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                    className={inputClassName()}
+                    placeholder="Optional"
+                  />
+                </FormField>
+                <FormField label="Firmware Version">
+                  <input
+                    type="text"
+                    value={formData.firmwareVersion}
+                    onChange={(e) => setFormData({ ...formData, firmwareVersion: e.target.value })}
+                    className={inputClassName()}
+                  />
+                </FormField>
+                <div className="sm:col-span-2">
+                  <FormField label="Location" error={formErrors.location} required>
+                    <input
+                      type="text"
+                      value={formData.location}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                      className={inputClassName(!!formErrors.location)}
+                      placeholder="e.g. DFCCIL Yard, New Delhi"
+                    />
+                  </FormField>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-4">
+                {formData.chargerType === "DC Fast"
+                  ? "Creates 2 CCS2 connectors (guns) at half the max power each."
+                  : "Creates 1 Type2 connector. Charger starts offline until OCPP BootNotification."}
+              </p>
+              <div className="flex items-center justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdd}
+                  disabled={saving}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Add Charger"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
