@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Navigate } from "react-router-dom";
 import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import { useAuth } from "@/hooks/useAuth";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as simulator from "@/services/chargerSimulatorService";
 import { startSimulatorRuntime, stopSimulatorRuntime, isSimulatorRuntimeActive } from "@/services/simulatorRuntime";
@@ -49,6 +51,10 @@ export default function SimulatorPage() {
       setBusy("");
     }
   };
+
+  if (!isSimulationEnabled()) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   if (user?.role !== "SuperAdmin") {
     return (

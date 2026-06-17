@@ -6,6 +6,7 @@ import Header from "../components/Header";
 import ChargerCard from "../components/ChargerCard";
 import * as chargerService from "../services/chargerService";
 import SimulationModeBadge from "../components/SimulationModeBadge";
+import { isSimulationEnabled } from "../utils/simulationMode";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import type { Charger } from "../types";
 import { colors } from "../theme/colors";
@@ -49,7 +50,7 @@ export default function ChargerListScreen({ navigation }: Props) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Header title="Chargers" subtitle="Live status from EV_Chargers" onBack={() => navigation.goBack()} />
-      <SimulationModeBadge compact />
+      {isSimulationEnabled() ? <SimulationModeBadge compact /> : null}
       <TextInput
         style={styles.search}
         placeholder="Search name, ID, location..."

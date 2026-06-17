@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import NotificationBell from "@/components/feature/NotificationBell";
 import { startSimulatorRuntime } from "@/services/simulatorRuntime";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 import { getWebNavItemsForRole, normalizeRfpRole } from "@/utils/rfpRoles";
 
 export default function AdminLayout() {
@@ -44,6 +45,7 @@ export default function AdminLayout() {
   };
 
   useEffect(() => {
+    if (!isSimulationEnabled()) return;
     if (user?.role === "SuperAdmin" || user?.role === "SiteAdmin") {
       startSimulatorRuntime();
     }
@@ -205,9 +207,11 @@ export default function AdminLayout() {
       )}
 
         <main className="flex-1 p-6">
-          <div className="mb-4">
-            <SimulationModeBadge compact />
-          </div>
+          {isSimulationEnabled() && (
+            <div className="mb-4">
+              <SimulationModeBadge compact />
+            </div>
+          )}
           <Outlet />
         </main>
       </div>
