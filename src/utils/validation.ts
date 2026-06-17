@@ -163,6 +163,44 @@ export function validateProfileForm(data: ProfileFormFields): Partial<Record<key
   return errors;
 }
 
+export interface ChargerFormFields {
+  chargePointId: string;
+  name: string;
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  firmwareVersion: string;
+  chargerType: string;
+  maxPowerKw: number;
+  location: string;
+}
+
+const CHARGE_POINT_ID = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
+
+export function validateChargePointId(id: string): ValidationResult {
+  const trimmed = id.trim().toUpperCase();
+  if (!trimmed) return "Charge point ID is required";
+  if (!CHARGE_POINT_ID.test(trimmed)) {
+    return "Use 3–32 characters: letters, numbers, hyphens (e.g. MP-DC-001)";
+  }
+  return null;
+}
+
+export function validateChargerForm(data: ChargerFormFields): Partial<Record<keyof ChargerFormFields, string>> {
+  const errors: Partial<Record<keyof ChargerFormFields, string>> = {};
+  const cpErr = validateChargePointId(data.chargePointId);
+  if (cpErr) errors.chargePointId = cpErr;
+  const nameErr = validateRequired(data.name, "Charger name");
+  if (nameErr) errors.name = nameErr;
+  if (!data.manufacturer) errors.manufacturer = "Manufacturer is required";
+  if (!data.chargerType) errors.chargerType = "Charger type is required";
+  const powerErr = validatePositiveNumber(data.maxPowerKw, "Max power (kW)", { min: 1, max: 500 });
+  if (powerErr) errors.maxPowerKw = powerErr;
+  const locErr = validateRequired(data.location, "Location");
+  if (locErr) errors.location = locErr;
+  return errors;
+}
+
 export function hasErrors(errors: object): boolean {
   return Object.keys(errors).length > 0;
 }
