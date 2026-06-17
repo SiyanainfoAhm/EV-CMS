@@ -3,9 +3,11 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import NotificationBell from "@/components/feature/NotificationBell";
+import GlobalSearch from "@/components/feature/GlobalSearch";
 import { startSimulatorRuntime } from "@/services/simulatorRuntime";
 import { isSimulationEnabled } from "@/utils/simulationMode";
 import { getWebNavItemsForRole, normalizeRfpRole } from "@/utils/rfpRoles";
+import { useInactivityLogout } from "@/hooks/useInactivityLogout";
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -50,6 +52,8 @@ export default function AdminLayout() {
       startSimulatorRuntime();
     }
   }, [user?.role]);
+
+  useInactivityLogout(() => navigate("/login", { state: { sessionExpired: true } }));
 
   return (
     <div className="min-h-screen bg-[#f5f5f3] flex">
@@ -107,14 +111,7 @@ export default function AdminLayout() {
       <div className={`flex-1 flex flex-col transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 sticky top-0 z-20">
           <div className="flex items-center gap-4">
-            <div className="relative">
-              <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-              <input
-                type="text"
-                placeholder="Search chargers, users, sessions..."
-                className="pl-9 pr-4 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-              />
-            </div>
+            <GlobalSearch />
           </div>
 
           <div className="flex items-center gap-4">

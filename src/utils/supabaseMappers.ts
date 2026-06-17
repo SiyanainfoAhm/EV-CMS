@@ -69,7 +69,8 @@ export function mapConnector(row: Record<string, unknown>): ChargerConnector {
 
 export function mapCharger(
   row: Record<string, unknown>,
-  connectors: Record<string, unknown>[]
+  connectors: Record<string, unknown>[],
+  tariffRow?: Record<string, unknown> | null
 ): Charger {
   return {
     id: row.id as string,
@@ -82,10 +83,12 @@ export function mapCharger(
     type: row.charger_type as string,
     maxPowerKw: Number(row.max_power_kw),
     status: row.status as string,
-    lastHeartbeat: (row.last_heartbeat_at as string) ?? new Date().toISOString(),
+    lastHeartbeat: (row.last_heartbeat_at as string | null) ?? undefined,
     location: (row.location as string) ?? "",
     isSimulated: Boolean(row.is_simulated),
     connectivity: connectivityFromHeartbeat(row.last_heartbeat_at as string),
+    tariffId: (row.tariff_id as string | null) ?? null,
+    tariff: tariffRow ? mapTariff(tariffRow) : null,
     connectors: connectors.map(mapConnector),
   };
 }
@@ -120,6 +123,7 @@ export function mapSession(
     endMeter: row.end_meter != null ? Number(row.end_meter) : undefined,
     amount: row.amount != null ? Number(row.amount) : undefined,
     stopReason: (row.stop_reason as string) ?? undefined,
+    authMethod: (row.authorization_method as string) ?? undefined,
   };
 }
 

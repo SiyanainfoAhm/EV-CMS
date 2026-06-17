@@ -26,6 +26,55 @@ export interface TariffInput {
   isActive?: boolean;
 }
 
+export async function getTariffById(id: string): Promise<Tariff | null> {
+  const { data, error } = await requireSupabase()
+    .from("EV_Tariffs")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return mapTariff(data as Record<string, unknown>);
+}
+
+export async function getActiveTariffByType(chargerType: string): Promise<Tariff | null> {
+  const { data, error } = await requireSupabase()
+    .from("EV_Tariffs")
+    .select("*")
+    .eq("is_active", true)
+    .eq("applies_to", chargerType)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return mapTariff(data as Record<string, unknown>);
+}
+
+/** Resolve tariff: per-charger override first, then type default. */
+export async function resolveTariffForCharger(charger: {
+  tariffId?: string | null;
+  type: string;
+}): Promise<Tariff | null> {
+  if (charger.tariffId) {
+    const assigned = await getTariffById(charger.tariffId);
+    if (assigned?.isActive) return assigned;
+  }
+  return getActiveTariffByType(charger.type);
+}
+
+export function formatTariffSummary(tariff: Tariff): string {
+  const fee = tariff.sessionFee > 0 ? ` + ₹${tariff.sessionFee.toFixed(2)} session fee` : "";
+  return `₹${tariff.ratePerKwh.toFixed(2)}/kWh${fee} (${tariff.gstPercent}% GST)`;
+}
+
+export async function getTariffsForChargerType(chargerType: string): Promise<Tariff[]> {
+  const tariffs = await getActiveTariffs();
+  return tariffs.filter((t) => t.appliesTo === chargerType);
+}
+
 export async function createTariff(input: TariffInput): Promise<Tariff> {
   const { data, error } = await requireSupabase()
     .from("EV_Tariffs")

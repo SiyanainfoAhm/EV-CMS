@@ -9,26 +9,25 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
 } from "recharts";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import * as sessionService from "@/services/sessionService";
 import * as reportService from "@/services/reportService";
+import { downloadCsv, printPdfReport } from "@/utils/exportReports";
+import { utcRangeStart } from "@/utils/dateRanges";
 import type { TimeRange } from "@/types/ev";
-
-const COLORS = ["#059669", "#d97706", "#e11d48", "#7c3aed", "#0891b2", "#2563eb", "#9333ea"];
 
 export default function ReportsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
   const { chargers, stats, activeSessions } = useDashboardData(timeRange);
   const days = timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
   const rangeSubtitle = timeRange === "week" ? "this week" : timeRange === "month" ? "this month" : "this quarter";
-  const { data: historyData } = useAsyncData(() => sessionService.getSessionHistory(), []);
+  const { data: historyData } = useAsyncData(() => sessionService.getSessionHistory({ limit: 2000 }), []);
   const { data: chartData } = useAsyncData(() => reportService.getDailyRevenueAndSessions(days), [days]);
+  const { data: userWise } = useAsyncData(() => reportService.getUserWiseReport(days), [days]);
+  const { data: faultRows } = useAsyncData(() => reportService.getFaultOfflineReport(), []);
+  const [exportToast, setExportToast] = useState<string | null>(null);
   const dailyRevenue = useMemo(
     () => (chartData ?? []).map((d) => ({ day: d.day, revenue: d.revenue })),
     [chartData]
@@ -47,13 +46,7 @@ export default function ReportsPage() {
     activeSessions: 0,
   };
 
-  const rangeStart = useMemo(() => {
-    const start = new Date();
-    start.setUTCHours(0, 0, 0, 0);
-    const dayCount = timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
-    start.setUTCDate(start.getUTCDate() - (dayCount - 1));
-    return start;
-  }, [timeRange]);
+  const rangeStart = useMemo(() => utcRangeStart(days), [days]);
 
   const filteredSessionHistory = useMemo(
     () => mockSessionHistory.filter((s) => new Date(s.startTime).getTime() >= rangeStart.getTime()),
@@ -91,8 +84,72 @@ export default function ReportsPage() {
 
   const totalChargers = mockDashboardStats.totalChargers || mockChargers.length || 1;
 
+  const showExportToast = (msg: string) => {
+    setExportToast(msg);
+    setTimeout(() => setExportToast(null), 3000);
+  };
+
+  const exportEnergyCsv = () => {
+    downloadCsv(
+      `energy-usage-${timeRange}.csv`,
+      ["Charge Point ID", "Charger Name", "Sessions", "Energy kWh"],
+      chargerUsage.map((c) => {
+        const ch = mockChargers.find((x) => x.chargePointId === c.name);
+        return [c.name, ch?.name ?? c.name, c.sessions, c.energy];
+      }),
+    );
+    showExportToast("Energy usage CSV downloaded");
+  };
+
+  const exportRevenueCsv = () => {
+    downloadCsv(
+      `revenue-summary-${timeRange}.csv`,
+      ["Day", "Revenue INR", "Sessions"],
+      (chartData ?? []).map((d) => [d.day, d.revenue, d.sessions]),
+    );
+    showExportToast("Revenue summary exported (CSV — open in Excel)");
+  };
+
+  const exportSessionsCsv = () => {
+    downloadCsv(
+      `session-history-${timeRange}.csv`,
+      ["Txn ID", "User", "Charger", "Start", "End", "Energy kWh", "Amount", "Status", "Auth", "Stop Reason"],
+      filteredSessionHistory.map((s) => [
+        s.transactionId,
+        s.userName,
+        s.chargerName,
+        s.startTime,
+        s.endTime ?? "",
+        s.energyKwh,
+        s.amount ?? "",
+        s.status,
+        s.authMethod ?? "",
+        s.stopReason ?? "",
+      ]),
+    );
+    showExportToast("Session history CSV downloaded");
+  };
+
+  const exportFaultPdf = () => {
+    const rows = faultRows ?? [];
+    printPdfReport("Fault & Offline Charger Report", [
+      {
+        heading: `Summary (${rows.length} chargers need attention)`,
+        lines: rows.length
+          ? rows.map((r) => `${r.chargePointId} — ${r.name}: ${r.status} / ${r.connectivity} · ${r.location}`)
+          : ["All chargers online — no faults or offline units"],
+      },
+    ]);
+    showExportToast("Fault report sent to print / PDF");
+  };
+
   return (
     <div className="space-y-5">
+      {exportToast && (
+        <div className="fixed top-20 right-6 z-50 px-4 py-2.5 bg-gray-900 text-white rounded-lg text-sm shadow-lg">
+          {exportToast}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
@@ -238,13 +295,15 @@ export default function ReportsPage() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: "Energy Usage Report", icon: "ri-flashlight-line", format: "PDF" },
-            { label: "Revenue Summary", icon: "ri-money-rupee-circle-line", format: "Excel" },
-            { label: "Session History", icon: "ri-timer-line", format: "CSV" },
-            { label: "Fault & Offline Report", icon: "ri-error-warning-line", format: "PDF" },
-          ].map((r, i) => (
+            { label: "Energy Usage Report", icon: "ri-flashlight-line", format: "CSV", onClick: exportEnergyCsv },
+            { label: "Revenue Summary", icon: "ri-money-rupee-circle-line", format: "CSV", onClick: exportRevenueCsv },
+            { label: "Session History", icon: "ri-timer-line", format: "CSV", onClick: exportSessionsCsv },
+            { label: "Fault & Offline Report", icon: "ri-error-warning-line", format: "PDF", onClick: exportFaultPdf },
+          ].map((r) => (
             <button
-              key={i}
+              key={r.label}
+              type="button"
+              onClick={r.onClick}
               className="flex flex-col items-center gap-2 p-4 bg-[#f5f5f3] rounded-xl hover:bg-emerald-50 border border-transparent hover:border-emerald-200 transition-all cursor-pointer"
             >
               <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-white border border-gray-200">
@@ -254,6 +313,67 @@ export default function ReportsPage() {
               <span className="text-[10px] text-gray-400">{r.format}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">User-wise Usage ({rangeSubtitle})</h3>
+          <div className="overflow-x-auto max-h-72">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
+                  <th className="text-left py-2">User</th>
+                  <th className="text-right py-2">Sessions</th>
+                  <th className="text-right py-2">kWh</th>
+                  <th className="text-right py-2">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(userWise ?? []).slice(0, 15).map((u) => (
+                  <tr key={u.userId} className="border-b border-gray-50">
+                    <td className="py-2 text-gray-900">{u.userName}</td>
+                    <td className="py-2 text-right text-gray-600">{u.sessions}</td>
+                    <td className="py-2 text-right text-gray-600">{u.energyKwh.toFixed(1)}</td>
+                    <td className="py-2 text-right font-medium">₹{u.revenue.toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(userWise ?? []).length === 0 && (
+              <p className="text-xs text-gray-400 py-6 text-center">No session data in this range</p>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Fault & Offline Chargers</h3>
+          <div className="overflow-x-auto max-h-72">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
+                  <th className="text-left py-2">Charger</th>
+                  <th className="text-left py-2">Status</th>
+                  <th className="text-left py-2">Connectivity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(faultRows ?? []).map((r) => (
+                  <tr key={r.chargePointId} className="border-b border-gray-50">
+                    <td className="py-2">
+                      <p className="font-medium text-gray-900">{r.name}</p>
+                      <p className="text-xs text-gray-400">{r.chargePointId}</p>
+                    </td>
+                    <td className="py-2 capitalize text-gray-600">{r.status}</td>
+                    <td className="py-2 capitalize text-gray-600">{r.connectivity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(faultRows ?? []).length === 0 && (
+              <p className="text-xs text-emerald-600 py-6 text-center">All chargers healthy</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
