@@ -1,4 +1,5 @@
 import type { UserRole } from "@/types/auth";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 
 /** RFP roles: SuperAdmin, SiteAdmin, User (DB may store Operator/Viewer for User). */
 export type RfpRole = "SuperAdmin" | "SiteAdmin" | "User";
@@ -46,6 +47,9 @@ export function isMobileEndUser(role: string): boolean {
 
 export function canAccessWebPath(role: string, pathname: string): boolean {
   if (!canAccessWebAdmin(role)) return false;
+  if (!isSimulationEnabled() && (pathname === "/simulator" || pathname.startsWith("/simulator/"))) {
+    return false;
+  }
   if (isWebSuperAdmin(role)) return true;
   return !SUPER_ADMIN_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -73,7 +77,10 @@ export const WEB_NAV_ITEMS: WebNavItem[] = [
 
 export function getWebNavItemsForRole(role: string): WebNavItem[] {
   const rfp = normalizeRfpRole(role) as UserRole;
-  return WEB_NAV_ITEMS.filter((item) => item.roles.includes(rfp));
+  return WEB_NAV_ITEMS.filter((item) => {
+    if (!isSimulationEnabled() && item.path === "/simulator") return false;
+    return item.roles.includes(rfp);
+  });
 }
 
 export const WEB_USER_DENIED_MESSAGE =

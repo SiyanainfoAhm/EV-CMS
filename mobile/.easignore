@@ -1,0 +1,10 @@
+# Exclude native Android project — EAS prebuild generates fresh ios/android on cloud
+android/
+
+# Docs and reports (not needed for builds)
+*.md
+SUPABASE_MOBILE_POLICIES.sql
+
+# Local env (vars are in eas.json profiles)
+.env
+.env.*

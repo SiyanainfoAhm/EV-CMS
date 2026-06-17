@@ -9,7 +9,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:ios": "eas build --platform ios --profile production",
+    "build:ios:preview": "eas build --platform ios --profile preview",
+    "build:ios:simulator": "eas build --platform ios --profile simulator --clear-cache"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
@@ -33,6 +36,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~18.3.12",
+    "sharp": "^0.35.1",
     "typescript": "~5.3.3"
   }
 }

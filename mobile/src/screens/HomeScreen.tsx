@@ -10,6 +10,7 @@ import { useAuth } from "../context/AuthContext";
 import * as chargerService from "../services/chargerService";
 import * as sessionService from "../services/sessionService";
 import SimulationModeBadge from "../components/SimulationModeBadge";
+import { isSimulationEnabled } from "../utils/simulationMode";
 import AdminNoticeBanner from "../components/AdminNoticeBanner";
 import { getMobileMenuRoutes } from "../utils/rfpRoles";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
@@ -110,7 +111,7 @@ export default function HomeScreen({ navigation }: Props) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {isMobileAdmin ? <AdminNoticeBanner /> : null}
-      <SimulationModeBadge compact />
+      {isSimulationEnabled() ? <SimulationModeBadge compact /> : null}
 
       <AppCard style={styles.statCard}>
         <Text style={styles.statLabel}>Online · Offline · Charging connectors</Text>
