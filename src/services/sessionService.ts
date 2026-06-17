@@ -21,7 +21,22 @@ const sessionSelect = `
 export interface SessionsHistoryQuery {
   status?: string; // completed | stopped | faulted | all
   search?: string; // user/charger/chargePointId/rfid
+  authMethod?: string; // RFID | Mobile | QR | Remote | all
+  stopReason?: string; // filter substring or exact
   limit?: number;
+}
+
+function matchesSearch(session: ChargingSession, search: string): boolean {
+  const q = search.toLowerCase();
+  return (
+    session.userName.toLowerCase().includes(q) ||
+    session.chargerName.toLowerCase().includes(q) ||
+    session.chargePointId.toLowerCase().includes(q) ||
+    String(session.transactionId).includes(q) ||
+    (session.rfidTag ?? "").toLowerCase().includes(q) ||
+    (session.stopReason ?? "").toLowerCase().includes(q) ||
+    (session.authMethod ?? "").toLowerCase().includes(q)
+  );
 }
 
 export async function getActiveSessions(): Promise<ChargingSession[]> {
@@ -36,28 +51,28 @@ export async function getActiveSessions(): Promise<ChargingSession[]> {
 }
 
 export async function getSessionHistory(query: SessionsHistoryQuery = {}): Promise<ChargingSession[]> {
-  const { status = "all", search = "", limit = 500 } = query;
+  const { status = "all", search = "", authMethod = "all", stopReason = "", limit = 500 } = query;
 
   let q = requireSupabase()
     .from("EV_ChargingSessions")
     .select(sessionSelect)
-    // history = everything except active
     .neq("status", "active")
     .order("start_time", { ascending: false })
     .limit(limit);
 
   if (status !== "all") q = q.eq("status", status);
-
-  const s = search.trim();
-  if (s) {
-    // Robust filters on base columns. (Joined-table text search varies by PostgREST config.)
-    q = q.or(`id.ilike.%${s}%,transaction_id::text.ilike.%${s}%`);
-  }
+  if (authMethod !== "all") q = q.eq("authorization_method", authMethod);
+  if (stopReason.trim()) q = q.ilike("stop_reason", `%${stopReason.trim()}%`);
 
   const { data, error } = await q;
 
   if (error) throw error;
-  return mapSessionRows((data as Record<string, unknown>[]) ?? []);
+  let rows = mapSessionRows((data as Record<string, unknown>[]) ?? []);
+
+  const s = search.trim();
+  if (s) rows = rows.filter((session) => matchesSearch(session, s));
+
+  return rows;
 }
 
 export async function getSessionById(id: string): Promise<ChargingSession | undefined> {

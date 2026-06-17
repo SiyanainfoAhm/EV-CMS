@@ -31,6 +31,10 @@ DROP POLICY IF EXISTS "ev_anon_update_connectors" ON "EV_ChargerConnectors";
 CREATE POLICY "ev_anon_update_connectors" ON "EV_ChargerConnectors"
   FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "ev_anon_delete_connectors" ON "EV_ChargerConnectors";
+CREATE POLICY "ev_anon_delete_connectors" ON "EV_ChargerConnectors"
+  FOR DELETE TO anon, authenticated USING (true);
+
 DROP POLICY IF EXISTS "ev_anon_insert_events" ON "EV_ChargerEvents";
 CREATE POLICY "ev_anon_insert_events" ON "EV_ChargerEvents"
   FOR INSERT TO anon, authenticated WITH CHECK (true);

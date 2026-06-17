@@ -1,8 +1,12 @@
 import { useState, useMemo } from "react";
 import { useAsyncData } from "@/hooks/useAsyncData";
+import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
 import * as sessionService from "@/services/sessionService";
+import * as ocppService from "@/services/ocppService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { isUtcToday } from "@/utils/dateRanges";
+import type { ChargingSession } from "@/types/ev";
 
 type TabType = "active" | "history";
 
@@ -16,21 +20,35 @@ function formatTime(isoStr: string): string {
 }
 
 export default function SessionsPage() {
-  const { data: activeData } = useAsyncData(() => sessionService.getActiveSessions(), []);
+  const { data: activeData, reload: reloadActive } = useAsyncData(() => sessionService.getActiveSessions(), []);
   useAsyncData(() => chargerService.getChargers(), []);
   const mockActiveSessions = activeData ?? [];
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [authFilter, setAuthFilter] = useState<string>("all");
+  const [stopReasonFilter, setStopReasonFilter] = useState("");
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
-  const { data: historyData } = useAsyncData(
-    () => sessionService.getSessionHistory({ status: statusFilter, search: debouncedSearch }),
-    [statusFilter, debouncedSearch],
+  const { data: historyData, reload: reloadHistory } = useAsyncData(
+    () =>
+      sessionService.getSessionHistory({
+        status: statusFilter,
+        search: debouncedSearch,
+        authMethod: authFilter,
+        stopReason: stopReasonFilter,
+      }),
+    [statusFilter, debouncedSearch, authFilter, stopReasonFilter],
   );
+
+  useSupabaseRealtime(() => {
+    reloadActive();
+    reloadHistory();
+  });
   const mockSessionHistory = historyData ?? [];
-  const [stopModal, setStopModal] = useState<string | null>(null);
+  const [stopModal, setStopModal] = useState<ChargingSession | null>(null);
   const [stopResult, setStopResult] = useState<string | null>(null);
+  const [stopLoading, setStopLoading] = useState(false);
 
   const allSessions = useMemo(() => {
     const active = mockActiveSessions;
@@ -43,9 +61,9 @@ export default function SessionsPage() {
   const filteredHistory = useMemo(() => allSessions.history, [allSessions.history]);
 
   const stats = useMemo(() => {
-    const todayStr = "2026-06-01";
-    const todayHistory = allSessions.history.filter((s) => s.startTime.startsWith(todayStr));
-    const energyToday = todayHistory.reduce((sum, s) => sum + (s.energyKwh || 0), 0);
+    const todayHistory = allSessions.history.filter((s) => isUtcToday(s.startTime));
+    const todayActive = allSessions.active.filter((s) => isUtcToday(s.startTime));
+    const energyToday = [...todayHistory, ...todayActive].reduce((sum, s) => sum + (s.energyKwh || 0), 0);
     const revenueToday = todayHistory.reduce((sum, s) => sum + (s.amount || 0), 0);
     return {
       active: allSessions.active.length,
@@ -55,14 +73,32 @@ export default function SessionsPage() {
     };
   }, [allSessions]);
 
-  const handleRemoteStop = (sessionId: string) => {
-    setStopModal(sessionId);
+  const handleRemoteStop = (session: ChargingSession) => {
+    setStopModal(session);
   };
 
-  const confirmStop = () => {
-    setStopModal(null);
-    setStopResult("RemoteStop command sent to charger. Awaiting response...");
-    setTimeout(() => setStopResult(null), 4000);
+  const confirmStop = async () => {
+    if (!stopModal) return;
+    setStopLoading(true);
+    try {
+      const result = await ocppService.remoteStopTransaction({
+        chargePointId: stopModal.chargePointId,
+        transactionId: stopModal.transactionId,
+      });
+      setStopModal(null);
+      setStopResult(
+        result.accepted
+          ? `RemoteStop sent for session #${stopModal.transactionId}`
+          : `Charger rejected RemoteStop for session #${stopModal.transactionId}`,
+      );
+      await reloadActive();
+    } catch (e) {
+      setStopModal(null);
+      setStopResult(e instanceof Error ? e.message : "Remote stop failed — is the OCPP gateway running?");
+    } finally {
+      setStopLoading(false);
+      setTimeout(() => setStopResult(null), 5000);
+    }
   };
 
   return (
@@ -150,6 +186,7 @@ export default function SessionsPage() {
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Charger</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Connector</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Auth</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Start Time</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Duration</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Energy</th>
@@ -176,6 +213,9 @@ export default function SessionsPage() {
                       <span className="text-sm text-gray-600">Gun {session.connectorId} · {session.connectorType}</span>
                     </td>
                     <td className="px-5 py-3.5">
+                      <span className="text-xs text-gray-600">{session.authMethod ?? "RFID"}</span>
+                    </td>
+                    <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-600">{formatTime(session.startTime)}</p>
                     </td>
                     <td className="px-5 py-3.5">
@@ -191,7 +231,7 @@ export default function SessionsPage() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => handleRemoteStop(session.id)}
+                          onClick={() => handleRemoteStop(session)}
                           className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors whitespace-nowrap flex items-center gap-1"
                         >
                           <div className="w-3.5 h-3.5 flex items-center justify-center">
@@ -223,6 +263,24 @@ export default function SessionsPage() {
                   />
                 </div>
                 <select
+                  value={authFilter}
+                  onChange={(e) => setAuthFilter(e.target.value)}
+                  className="px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                >
+                  <option value="all">All Auth</option>
+                  <option value="RFID">RFID</option>
+                  <option value="Mobile">Mobile</option>
+                  <option value="QR">QR</option>
+                  <option value="Remote">Remote</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="Stop reason filter..."
+                  value={stopReasonFilter}
+                  onChange={(e) => setStopReasonFilter(e.target.value)}
+                  className="px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg text-xs text-gray-600 w-40 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+                <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
@@ -246,6 +304,7 @@ export default function SessionsPage() {
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Txn ID</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Charger</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Auth</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Start</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">End</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Duration</th>
@@ -268,6 +327,9 @@ export default function SessionsPage() {
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-700">{session.chargerName}</p>
                       <p className="text-xs text-gray-400">Gun {session.connectorId}</p>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-xs text-gray-600">{session.authMethod ?? "—"}</span>
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-600">{formatTime(session.startTime)}</p>
@@ -325,7 +387,7 @@ export default function SessionsPage() {
 
       {stopModal && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setStopModal(null)}></div>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => !stopLoading && setStopModal(null)}></div>
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-sm">
               <div className="flex items-center gap-3 mb-4">
@@ -334,24 +396,26 @@ export default function SessionsPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-gray-900">Stop Charging Session</h4>
-                  <p className="text-xs text-gray-500">RemoteStop command will be sent</p>
+                  <p className="text-xs text-gray-500">OCPP RemoteStop → {stopModal.chargePointId}</p>
                 </div>
               </div>
               <p className="text-sm text-gray-600 mb-4">
-                Are you sure you want to stop session {stopModal}? The charger will stop dispensing power immediately.
+                Stop session #{stopModal.transactionId} for {stopModal.userName}? The charger will stop dispensing power.
               </p>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setStopModal(null)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                  disabled={stopLoading}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={confirmStop}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors whitespace-nowrap"
+                  onClick={() => void confirmStop()}
+                  disabled={stopLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors whitespace-nowrap disabled:opacity-60"
                 >
-                  Stop Session
+                  {stopLoading ? "Sending…" : "Stop Session"}
                 </button>
               </div>
             </div>

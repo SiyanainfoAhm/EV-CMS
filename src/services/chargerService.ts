@@ -15,7 +15,13 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
 
   let q = requireSupabase()
     .from("EV_Chargers")
-    .select("*, EV_ChargerConnectors(*)")
+    .select(
+      `
+      *,
+      EV_ChargerConnectors(*),
+      EV_Tariffs!tariff_id(id, name, rate_per_kwh, session_fee, gst_percent, applies_to, is_active, created_at)
+    `
+    )
     .order("name")
     .limit(limit);
 
@@ -41,8 +47,10 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
       : nested
         ? [nested as Record<string, unknown>]
         : [];
-    const { EV_ChargerConnectors: _removed, ...charger } = raw;
-    return mapCharger(charger, connectors);
+    const tariffRow = raw.EV_Tariffs as Record<string, unknown> | Record<string, unknown>[] | null;
+    const tariff = Array.isArray(tariffRow) ? tariffRow[0] : tariffRow;
+    const { EV_ChargerConnectors: _removed, EV_Tariffs: _tariff, ...charger } = raw;
+    return mapCharger(charger, connectors, tariff ?? null);
   });
 }
 
@@ -60,6 +68,19 @@ export interface ChargerInput {
   chargerType: "DC Fast" | "AC Slow";
   maxPowerKw: number;
   location: string;
+  tariffId?: string | null;
+}
+
+export interface ChargerUpdateInput {
+  name: string;
+  manufacturer: string;
+  model?: string;
+  serialNumber?: string;
+  firmwareVersion?: string;
+  chargerType: "DC Fast" | "AC Slow";
+  maxPowerKw: number;
+  location: string;
+  tariffId?: string | null;
 }
 
 function defaultModel(manufacturer: string, chargerType: string): string {
@@ -99,6 +120,7 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
       max_power_kw: input.maxPowerKw,
       status: "offline",
       location: input.location.trim(),
+      tariff_id: input.tariffId || null,
       is_simulated: false,
     })
     .select("*")
@@ -135,24 +157,144 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
     payload: { chargePointId, source: "admin", model, firmwareVersion },
   });
 
-  return mapCharger(
-    chargerRow as Record<string, unknown>,
-    (connectorRows ?? []) as Record<string, unknown>[]
-  );
+  const created = await getChargerById(chargerId);
+  if (!created) throw new Error("Charger created but could not be loaded");
+  return created;
+}
+
+export async function updateCharger(id: string, input: ChargerUpdateInput): Promise<Charger> {
+  const existing = await getChargerById(id);
+  if (!existing) {
+    throw new Error("Charger not found");
+  }
+
+  const model = input.model?.trim() || defaultModel(input.manufacturer, input.chargerType);
+  const serialNumber = input.serialNumber?.trim() || "";
+  const firmwareVersion = input.firmwareVersion?.trim() || "v1.0.0";
+  const typeChanged = existing.type !== input.chargerType;
+  const powerChanged = existing.maxPowerKw !== input.maxPowerKw;
+
+  if (typeChanged && existing.connectors.some((c) => c.status === "Charging")) {
+    throw new Error("Cannot change charger type while a connector is charging");
+  }
+
+  const { data: chargerRow, error: chargerError } = await requireSupabase()
+    .from("EV_Chargers")
+    .update({
+      name: input.name.trim(),
+      manufacturer: input.manufacturer,
+      model,
+      serial_number: serialNumber || null,
+      firmware_version: firmwareVersion,
+      charger_type: input.chargerType,
+      max_power_kw: input.maxPowerKw,
+      location: input.location.trim(),
+      tariff_id: input.tariffId || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (chargerError) throw chargerError;
+
+  let connectorRows: Record<string, unknown>[] = existing.connectors.map((c) => ({
+    id: c.id,
+    charger_id: id,
+    connector_id: c.connectorId,
+    connector_type: c.type,
+    max_power_kw: c.maxPowerKw,
+    status: c.status,
+  }));
+
+  if (typeChanged) {
+    const { error: deleteError } = await requireSupabase()
+      .from("EV_ChargerConnectors")
+      .delete()
+      .eq("charger_id", id);
+    if (deleteError) throw deleteError;
+
+    const connectors = connectorPlan(input.chargerType, input.maxPowerKw).map((c) => ({
+      charger_id: id,
+      connector_id: c.connectorId,
+      connector_type: c.connectorType,
+      max_power_kw: c.maxPowerKw,
+      status: "Unavailable",
+    }));
+
+    const { data: inserted, error: insertError } = await requireSupabase()
+      .from("EV_ChargerConnectors")
+      .insert(connectors)
+      .select("*");
+
+    if (insertError) throw insertError;
+    connectorRows = (inserted ?? []) as Record<string, unknown>[];
+  } else if (powerChanged) {
+    const plan = connectorPlan(input.chargerType, input.maxPowerKw);
+    for (const planned of plan) {
+      const { error } = await requireSupabase()
+        .from("EV_ChargerConnectors")
+        .update({
+          max_power_kw: planned.maxPowerKw,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("charger_id", id)
+        .eq("connector_id", planned.connectorId);
+      if (error) throw error;
+    }
+
+    const { data: refreshed, error: refreshError } = await requireSupabase()
+      .from("EV_ChargerConnectors")
+      .select("*")
+      .eq("charger_id", id)
+      .order("connector_id");
+
+    if (refreshError) throw refreshError;
+    connectorRows = (refreshed ?? []) as Record<string, unknown>[];
+  }
+
+  await requireSupabase().from("EV_ChargerEvents").insert({
+    charger_id: id,
+    event_type: "ChargerUpdated",
+    payload: {
+      chargePointId: existing.chargePointId,
+      source: "admin",
+      changes: {
+        name: input.name,
+        location: input.location,
+        chargerType: input.chargerType,
+        maxPowerKw: input.maxPowerKw,
+        tariffId: input.tariffId ?? null,
+      },
+    },
+  });
+
+  const updated = await getChargerById(id);
+  if (!updated) throw new Error("Charger not found after update");
+  return updated;
 }
 
 export async function getChargerById(id: string): Promise<Charger | undefined> {
   const { data, error } = await requireSupabase()
     .from("EV_Chargers")
-    .select("*, EV_ChargerConnectors(*)")
+    .select(
+      `
+      *,
+      EV_ChargerConnectors(*),
+      EV_Tariffs!tariff_id(id, name, rate_per_kwh, session_fee, gst_percent, applies_to, is_active, created_at)
+    `
+    )
     .eq("id", id)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) return undefined;
-  const connectors = (data.EV_ChargerConnectors as Record<string, unknown>[]) ?? [];
-  const { EV_ChargerConnectors: _, ...charger } = data as Record<string, unknown>;
-  return mapCharger(charger, connectors);
+  const raw = data as Record<string, unknown>;
+  const connectors = (raw.EV_ChargerConnectors as Record<string, unknown>[]) ?? [];
+  const tariffRow = raw.EV_Tariffs as Record<string, unknown> | Record<string, unknown>[] | null;
+  const tariff = Array.isArray(tariffRow) ? tariffRow[0] : tariffRow;
+  const { EV_ChargerConnectors: _, EV_Tariffs: __, ...charger } = raw;
+  return mapCharger(charger, connectors, tariff ?? null);
 }
 
 export async function getActiveSessionsForChargers(): Promise<ChargingSession[]> {
