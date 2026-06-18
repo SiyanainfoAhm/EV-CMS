@@ -6,6 +6,7 @@ import * as tariffService from "@/services/tariffService";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
 import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
+import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
@@ -122,6 +123,7 @@ export default function ChargerDetailPage() {
   const [firmwareLoading, setFirmwareLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [effectiveTariff, setEffectiveTariff] = useState<Tariff | null>(null);
+  useOcppGatewayConfig();
 
   if (!charger) {
     return (
