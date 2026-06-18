@@ -22,9 +22,11 @@ const METHOD_LABEL_KEYS: Record<TopupPaymentMethod, string> = {
   gateway: "topup.methodGateway",
 };
 
-export default function TopupScreen({ navigation }: Props) {
+export default function TopupScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const [amount, setAmount] = useState("");
+  const suggestedAmount = route.params?.suggestedAmount;
+  const returnSessionId = route.params?.returnSessionId;
+  const [amount, setAmount] = useState(suggestedAmount ? String(suggestedAmount) : "");
   const [method, setMethod] = useState<TopupPaymentMethod>("gateway");
   const [loading, setLoading] = useState(false);
 
@@ -47,7 +49,10 @@ export default function TopupScreen({ navigation }: Props) {
 
       const order = await paymentService.createTopupPaymentOrder(parsed, method);
       await paymentService.startTopupPayment(order);
-      navigation.replace("TopupPaymentStatus", { paymentOrderId: order.paymentOrderId });
+      navigation.replace("TopupPaymentStatus", {
+        paymentOrderId: order.paymentOrderId,
+        returnSessionId,
+      });
     } catch (e) {
       const msg =
         e instanceof Error && e.message === "INVALID_AMOUNT"
@@ -64,6 +69,15 @@ export default function TopupScreen({ navigation }: Props) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Header title={t("topup.title")} onBack={() => navigation.goBack()} />
+
+      {suggestedAmount ? (
+        <AppCard style={styles.contextCard}>
+          <Text style={styles.contextTitle}>{t("topup.sessionPaymentContext")}</Text>
+          <Text style={styles.contextBody}>
+            {t("topup.suggestedAmount", { amount: suggestedAmount })}
+          </Text>
+        </AppCard>
+      ) : null}
 
       <AppCard>
         <Text style={styles.label}>{t("topup.enterAmount")}</Text>
@@ -137,5 +151,8 @@ const styles = StyleSheet.create({
   methodText: { color: colors.text },
   methodTextActive: { fontWeight: "700", color: colors.emerald },
   gatewayNote: { color: colors.textMuted, fontSize: 13, marginTop: spacing.sm, textAlign: "center" },
+  contextCard: { marginBottom: spacing.sm, backgroundColor: colors.emeraldMuted },
+  contextTitle: { fontWeight: "700", color: colors.text, marginBottom: 6 },
+  contextBody: { color: colors.textMuted, lineHeight: 20 },
   btn: { marginTop: spacing.md },
 });

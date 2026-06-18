@@ -59,6 +59,11 @@ export default function SupportTicketListScreen({ navigation }: Props) {
             <Text style={styles.desc} numberOfLines={2}>
               {ticket.description}
             </Text>
+            {ticket.attachments.length > 0 ? (
+              <Text style={styles.attachMeta}>
+                {t("support.attachments")}: {ticket.attachments.length}
+              </Text>
+            ) : null}
             <View style={styles.meta}>
               <StatusBadge status={ticket.status} />
               <Text style={styles.date}>
@@ -79,6 +84,7 @@ const styles = StyleSheet.create({
   card: { marginBottom: spacing.sm },
   subject: { fontSize: 16, fontWeight: "700", color: colors.text },
   desc: { color: colors.textMuted, marginTop: 6, fontSize: 14 },
+  attachMeta: { color: colors.emerald, fontSize: 12, marginTop: 6, fontWeight: "600" },
   meta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.sm },
   date: { fontSize: 12, color: colors.textMuted },
   error: { color: colors.danger, marginBottom: spacing.sm },

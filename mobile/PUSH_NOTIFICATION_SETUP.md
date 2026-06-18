@@ -6,6 +6,23 @@ The mobile app registers **Expo push tokens** in `EV_UserPushTokens` linked to *
 
 In-app notification history uses **`EV_Notifications`** (`message` = body, `read` = is_read).
 
+## Push Notification Production Setup
+
+1. Android package name must be `in.dfccil.evcms`.
+2. Firebase Android app must use the same package name.
+3. `google-services.json` should be placed at `mobile/google-services.json`.
+4. `app.json` must include:
+   - `android.package` = `in.dfccil.evcms`
+   - `android.googleServicesFile` = `./google-services.json`
+5. `expo-notifications` plugin must be added.
+6. Firebase service account private key must be uploaded to EAS credentials for FCM V1.
+7. Do not store Firebase private key in mobile source code.
+8. Build Android using EAS:
+   - `eas build --platform android --profile preview`
+   - `eas build --platform android --profile production`
+9. Test push on a physical Android device, not only emulator.
+10. Backend/Supabase Edge Function will send push using Expo Push API.
+
 ## SQL setup
 
 Run in Supabase SQL Editor (after `SUPABASE_MOBILE_POLICIES.sql`):
@@ -35,10 +52,15 @@ Enable **Realtime** for `EV_Notifications` in Dashboard → Database → Replica
 
 ## Android FCM / production
 
-1. Configure Firebase project for your Android app package `in.dfccil.evcms`.
-2. Upload FCM credentials in [Expo EAS credentials](https://docs.expo.dev/push-notifications/fcm-credentials/).
-3. **Do not** commit `google-services.json` secrets to public repos if policy forbids it.
-4. Build with `eas build --platform android`.
+1. Firebase project: `dffcilevcms` (package `in.dfccil.evcms`).
+2. `google-services.json` is wired via `app.json` → `android.googleServicesFile`.
+3. Upload **FCM V1 service account** credentials in [Expo EAS credentials](https://docs.expo.dev/push-notifications/fcm-credentials/):
+   ```bash
+   eas credentials
+   ```
+   Select Android → production/preview → Google Service Account Key for FCM V1.
+4. **Do not** commit Firebase service account private key JSON files.
+5. Build with `eas build --platform android`.
 
 ## iOS
 
@@ -57,8 +79,4 @@ Enable **Realtime** for `EV_Notifications` in Dashboard → Database → Replica
 ## Environment
 
 - `app.json` → `extra.eas.projectId` must be set (already configured).
-- No Firebase secrets in mobile source code.
-
-## Dev-only local test
-
-On Notifications screen in `__DEV__`, tap **DEV: Local test push** to schedule a local notification (no server).
+- No Firebase secrets in mobile TypeScript source code.

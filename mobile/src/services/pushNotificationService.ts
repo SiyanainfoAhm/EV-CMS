@@ -6,7 +6,6 @@ export {
   removePushTokenOnLogout,
   registerPushToken,
   setupNotificationListeners,
-  showLocalTestNotification,
   addNotificationReceivedListener,
   addNotificationResponseListener,
 } from "./notificationService";

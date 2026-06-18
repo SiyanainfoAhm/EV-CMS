@@ -9,19 +9,27 @@ import AppButton from "../components/AppButton";
 import StatusBadge from "../components/StatusBadge";
 import * as sessionService from "../services/sessionService";
 import * as receiptService from "../services/receiptService";
+import * as paymentService from "../services/paymentService";
 import { formatCurrency } from "../utils/format";
 import { translateChargerName } from "../utils/translateRecord";
 import type { ChargingSession, Receipt } from "../types";
+import type { SessionPaymentSummary } from "../services/paymentService";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
+import { TOPUP_MIN_AMOUNT } from "../config/walletConfig";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SessionSummary">;
 
+function isPaymentPaid(status: string): boolean {
+  return status === "success" || status === "paid";
+}
+
 export default function SessionSummaryScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { sessionId } = route.params;
+  const { sessionId, focusPayment } = route.params;
   const [session, setSession] = useState<ChargingSession | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [payment, setPayment] = useState<SessionPaymentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,8 +41,12 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
       const s = await sessionService.getSessionById(sessionId);
       setSession(s);
       if (s) {
-        const r = await receiptService.getReceiptBySessionId(sessionId);
+        const [r, p] = await Promise.all([
+          receiptService.getReceiptBySessionId(sessionId),
+          paymentService.getSessionPayment(sessionId),
+        ]);
         setReceipt(r);
+        setPayment(p);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
@@ -46,6 +58,45 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const payFromWallet = async () => {
+    if (!payment || payment.amountDue <= 0) return;
+    setBusy(true);
+    try {
+      const result = await paymentService.paySessionFromWallet(sessionId);
+      setPayment(result);
+      Alert.alert(t("common.success"), t("session.paymentSuccess"));
+      await load();
+    } catch (e) {
+      const code = e instanceof Error ? e.message : "UNKNOWN";
+      if (code === "WALLET_LOW_BALANCE") {
+        const shortfall = Math.max(
+          TOPUP_MIN_AMOUNT,
+          Math.ceil((payment.amountDue - payment.walletBalance) / 100) * 100
+        );
+        Alert.alert(t("common.error"), t("session.insufficientWallet"), [
+          { text: t("common.cancel"), style: "cancel" },
+          {
+            text: t("wallet.topUp"),
+            onPress: () =>
+              navigation.navigate("Topup", { suggestedAmount: shortfall, returnSessionId: sessionId }),
+          },
+        ]);
+        return;
+      }
+      if (code === "WALLET_BLOCKED") {
+        Alert.alert(t("common.error"), t("wallet.walletBlocked"));
+        return;
+      }
+      if (code === "PAYMENT_NOT_FOUND") {
+        Alert.alert(t("common.error"), t("session.paymentNotFound"));
+        return;
+      }
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : t("session.paymentFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const download = async () => {
     if (!receipt?.pdfUrl) return;
@@ -78,6 +129,9 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
     );
   }
 
+  const paymentDue = payment && payment.amountDue > 0 && !isPaymentPaid(payment.status);
+  const canPayFromWallet = paymentDue && payment.walletBalance >= payment.amountDue;
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Header title={t("session.summary")} subtitle={t("session.completed")} onBack={() => navigation.goBack()} />
@@ -108,6 +162,71 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
         <StatusBadge status={session.status} />
       </AppCard>
 
+      {payment ? (
+        <AppCard
+          style={[
+            styles.paymentCard,
+            focusPayment && paymentDue ? styles.paymentCardHighlight : null,
+          ]}
+        >
+          <View>
+            <Text style={styles.paymentTitle}>{t("session.paymentDueTitle")}</Text>
+            <View style={styles.paymentRow}>
+              <Text style={styles.label}>{t("payment.amount")}</Text>
+              <Text style={styles.paymentValue}>{formatCurrency(payment.amount)}</Text>
+            </View>
+            <View style={styles.paymentRow}>
+              <Text style={styles.label}>{t("session.gst")}</Text>
+              <Text style={styles.paymentValue}>{formatCurrency(payment.gstAmount)}</Text>
+            </View>
+            <View style={styles.paymentRow}>
+              <Text style={styles.label}>{t("session.totalDue")}</Text>
+              <Text style={styles.totalDue}>{formatCurrency(payment.totalAmount)}</Text>
+            </View>
+            <View style={styles.paymentRow}>
+              <Text style={styles.label}>{t("session.paymentStatus")}</Text>
+              <StatusBadge status={payment.status} />
+            </View>
+            <View style={styles.paymentRow}>
+              <Text style={styles.label}>{t("wallet.usableBalance")}</Text>
+              <Text style={styles.paymentValue}>{formatCurrency(payment.walletBalance)}</Text>
+            </View>
+
+            {paymentDue ? (
+              <>
+                <Text style={styles.paymentHint}>{t("session.paymentDueHint")}</Text>
+                <AppButton
+                  title={t("session.payFromWallet")}
+                  onPress={payFromWallet}
+                  loading={busy}
+                  style={styles.btn}
+                />
+                {!canPayFromWallet ? (
+                  <AppButton
+                    title={t("session.topUpToPay")}
+                    variant="outline"
+                    onPress={() =>
+                      navigation.navigate("Topup", {
+                        suggestedAmount: Math.max(
+                          TOPUP_MIN_AMOUNT,
+                          Math.ceil((payment.amountDue - payment.walletBalance) / 100) * 100
+                        ),
+                        returnSessionId: sessionId,
+                      })
+                    }
+                    style={styles.btn}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <Text style={styles.paidText}>{t("session.paymentCompleted")}</Text>
+            )}
+          </View>
+        </AppCard>
+      ) : (
+        <Text style={styles.muted}>{t("session.paymentNotFound")}</Text>
+      )}
+
       {receipt?.pdfUrl ? (
         <>
           <AppButton title={t("receipt.download")} onPress={download} loading={busy} style={styles.btn} />
@@ -119,7 +238,7 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
             style={styles.btn}
           />
         </>
-      ) : (
+      ) : paymentDue ? null : (
         <Text style={styles.muted}>{t("receipt.noReceipt")}</Text>
       )}
 
@@ -146,6 +265,19 @@ const styles = StyleSheet.create({
   statLbl: { fontSize: 12, color: colors.textMuted },
   statVal: { fontSize: 18, fontWeight: "700", color: colors.emerald, marginTop: 4 },
   amount: { marginTop: spacing.md, fontWeight: "600", color: colors.text },
+  paymentCard: { marginTop: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.emerald },
+  paymentCardHighlight: { borderLeftColor: colors.danger, backgroundColor: colors.emeraldMuted },
+  paymentTitle: { fontSize: 16, fontWeight: "700", color: colors.text, marginBottom: spacing.sm },
+  paymentRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  paymentValue: { fontWeight: "600", color: colors.text },
+  totalDue: { fontSize: 20, fontWeight: "800", color: colors.danger },
+  paymentHint: { marginTop: spacing.md, color: colors.textMuted, fontSize: 13, lineHeight: 20 },
+  paidText: { marginTop: spacing.md, color: colors.emerald, fontWeight: "600" },
   btn: { marginTop: spacing.sm },
   muted: { color: colors.textMuted, textAlign: "center", marginTop: spacing.lg },
   error: { color: colors.danger, textAlign: "center", marginTop: spacing.lg },

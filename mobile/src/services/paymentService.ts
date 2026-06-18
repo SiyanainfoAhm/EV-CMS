@@ -85,6 +85,88 @@ export async function openGatewayCheckout(checkoutUrl: string): Promise<void> {
   await Linking.openURL(checkoutUrl);
 }
 
+export interface SessionPaymentSummary {
+  paymentId: string;
+  sessionId: string;
+  amount: number;
+  gstAmount: number;
+  totalAmount: number;
+  status: string;
+  walletBalance: number;
+  amountDue: number;
+}
+
+export async function getSessionPayment(sessionId: string, userId?: string): Promise<SessionPaymentSummary | null> {
+  const uid = userId ?? requireUserId();
+  const { data, error } = await requireSupabase().rpc("ev_get_session_payment", {
+    p_user_id: uid,
+    p_session_id: sessionId,
+  });
+  if (error) {
+    if (error.code === "42883" || error.message?.includes("ev_get_session_payment")) {
+      return getSessionPaymentFallback(sessionId, uid);
+    }
+    throw error;
+  }
+  const row = (data as Record<string, unknown>[] | null)?.[0];
+  if (!row) return getSessionPaymentFallback(sessionId, uid);
+  return {
+    paymentId: row.payment_id as string,
+    sessionId: row.session_id as string,
+    amount: Number(row.amount),
+    gstAmount: Number(row.gst_amount),
+    totalAmount: Number(row.total_amount),
+    status: row.status as string,
+    walletBalance: Number(row.wallet_balance),
+    amountDue: Number(row.amount_due),
+  };
+}
+
+async function getSessionPaymentFallback(sessionId: string, userId: string): Promise<SessionPaymentSummary | null> {
+  const [paymentRes, wallet] = await Promise.all([
+    requireSupabase()
+      .from("EV_Payments")
+      .select("id, session_id, amount, gst_amount, total_amount, status")
+      .eq("session_id", sessionId)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    walletService.getWalletSummary(userId),
+  ]);
+
+  if (paymentRes.error) throw paymentRes.error;
+  if (!paymentRes.data) return null;
+
+  const row = paymentRes.data as Record<string, unknown>;
+  const status = String(row.status);
+  const totalAmount = Number(row.total_amount);
+  const paid = status === "success" || status === "paid";
+
+  return {
+    paymentId: row.id as string,
+    sessionId: row.session_id as string,
+    amount: Number(row.amount),
+    gstAmount: Number(row.gst_amount),
+    totalAmount,
+    status,
+    walletBalance: wallet?.usableBalance ?? 0,
+    amountDue: paid ? 0 : totalAmount,
+  };
+}
+
+export async function paySessionFromWallet(sessionId: string, userId?: string): Promise<SessionPaymentSummary> {
+  const uid = userId ?? requireUserId();
+  const { error } = await requireSupabase().rpc("ev_pay_session_from_wallet", {
+    p_user_id: uid,
+    p_session_id: sessionId,
+  });
+  if (error) throw error;
+  const updated = await getSessionPayment(sessionId, uid);
+  if (!updated) throw new Error("PAYMENT_NOT_FOUND");
+  return updated;
+}
+
 export async function refreshTopupOrderStatus(paymentOrderId: string): Promise<PaymentOrder | null> {
   const row = await walletService.getPaymentOrderStatus(paymentOrderId);
   if (!row) return null;

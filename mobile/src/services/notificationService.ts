@@ -38,9 +38,10 @@ export async function registerForPushNotifications(userId: string): Promise<stri
 
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
-        name: "DFCCIL EV",
+        name: "default",
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#FF231F7C",
       });
     }
 
@@ -129,18 +130,4 @@ export function addNotificationResponseListener(
   listener: (response: Notifications.NotificationResponse) => void
 ) {
   return Notifications.addNotificationResponseReceivedListener(listener);
-}
-
-/** Development-only local notification test. */
-export async function showLocalTestNotification(): Promise<void> {
-  if (!__DEV__) return;
-
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "Test Notification",
-      body: "This is a local test notification.",
-      data: { type: "general" },
-    },
-    trigger: null,
-  });
 }
