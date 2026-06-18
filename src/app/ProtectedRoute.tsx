@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import * as authService from "@/services/authService";
+import { isSessionExpired } from "@/constants/authSession";
 import type { UserRole } from "@/types/auth";
 import { canAccessWebAdmin, canAccessWebPath } from "@/utils/rfpRoles";
 
@@ -26,6 +28,12 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  const stored = authService.getStoredSession();
+  if (!stored || isSessionExpired(stored.expiresAt)) {
+    void authService.logout();
+    return <Navigate to="/login" state={{ sessionExpired: true }} replace />;
   }
 
   if (user && !canAccessWebAdmin(user.role)) {

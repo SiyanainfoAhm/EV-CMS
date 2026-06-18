@@ -4,6 +4,9 @@ import { useAsyncData } from "@/hooks/useAsyncData";
 import * as profileService from "@/services/profileService";
 import * as mediaService from "@/services/mediaService";
 import { formatLastLogin } from "@/utils/supabaseMappers";
+import { setIdleTimeoutMinutes } from "@/hooks/useInactivityLogout";
+import * as adminService from "@/services/adminService";
+import { isWebSuperAdmin } from "@/utils/rfpRoles";
 import type { NotificationPreferences, SystemPreferences } from "@/types/profile";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import {
@@ -83,6 +86,10 @@ export default function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
+  const [showTwoFaModal, setShowTwoFaModal] = useState(false);
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     if (activeTab === "security" && userId) {
@@ -234,6 +241,7 @@ export default function SettingsPage() {
     if (!userId) return;
     setSaving(true);
     try {
+      setIdleTimeoutMinutes(systemSettings.sessionTimeout);
       await persistPreferences(notifications, systemSettings);
       showToast("System settings saved");
     } catch (e) {
@@ -241,6 +249,31 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleArchiveSessions = async () => {
+    if (!user || !isWebSuperAdmin(user.role)) return;
+    if (!window.confirm("Delete completed sessions older than 1 year? This cannot be undone.")) return;
+    setArchiving(true);
+    try {
+      const count = await adminService.archiveSessionsOlderThanOneYear();
+      showToast(count > 0 ? `Archived ${count} session(s)` : "No sessions older than 1 year to archive");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Archive job failed — run phase2_web_admin.sql migration");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const confirmEnable2Fa = () => {
+    if (twoFaCode.trim().length !== 6) {
+      showToast("Enter the 6-digit code from your authenticator app");
+      return;
+    }
+    setTwoFaEnabled(true);
+    setShowTwoFaModal(false);
+    setTwoFaCode("");
+    showToast("Two-factor authentication enabled (demo — full TOTP in Phase 5)");
   };
 
   const displayName = profile?.name ?? user?.name ?? "—";
@@ -542,11 +575,30 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium text-gray-900">2FA Status</p>
                 <p className="text-xs text-gray-400 mt-0.5">Add an extra layer of security to your account</p>
               </div>
-              <span className="text-xs px-3 py-1 rounded-full font-medium bg-red-100 text-red-700">Disabled</span>
+              <span className={`text-xs px-3 py-1 rounded-full font-medium ${twoFaEnabled ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                {twoFaEnabled ? "Enabled" : "Disabled"}
+              </span>
             </div>
-            <button className="mt-4 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
-              Enable 2FA
-            </button>
+            {twoFaEnabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTwoFaEnabled(false);
+                  showToast("Two-factor authentication disabled");
+                }}
+                className="mt-4 px-4 py-2.5 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
+              >
+                Disable 2FA
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowTwoFaModal(true)}
+                className="mt-4 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+              >
+                Enable 2FA
+              </button>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -761,6 +813,25 @@ export default function SettingsPage() {
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Data Retention</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Remove completed charging sessions older than 1 year per compliance policy. Schedule via pg_cron in production.
+            </p>
+            {user && isWebSuperAdmin(user.role) ? (
+              <button
+                type="button"
+                onClick={() => void handleArchiveSessions()}
+                disabled={archiving}
+                className="px-4 py-2.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-sm font-medium hover:bg-amber-100 disabled:opacity-60 whitespace-nowrap"
+              >
+                {archiving ? "Running archive…" : "Run 1-year session archive"}
+              </button>
+            ) : (
+              <p className="text-xs text-gray-400">Super Admin only</p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-900 mb-4">About CMS</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between py-1">
@@ -786,6 +857,44 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showTwoFaModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowTwoFaModal(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-sm">
+              <h4 className="text-sm font-semibold text-gray-900 mb-1">Enable Two-Factor Authentication</h4>
+              <p className="text-xs text-gray-500 mb-4">
+                Scan this placeholder QR in Google Authenticator, then enter the 6-digit code.
+              </p>
+              <div className="w-32 h-32 mx-auto mb-4 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200">
+                <i className="ri-qr-code-line text-4xl text-gray-400"></i>
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={twoFaCode}
+                onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-center font-mono mb-4"
+              />
+              <div className="flex gap-3 justify-end">
+                <button type="button" onClick={() => setShowTwoFaModal(false)} className="px-4 py-2 text-sm text-gray-600">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmEnable2Fa}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium"
+                >
+                  Verify &amp; Enable
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
