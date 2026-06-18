@@ -1,6 +1,8 @@
-import type { SupportTicket } from "@/types/ev";
+import type { SupportTicket, SupportTicketAttachment } from "@/types/ev";
+import * as mediaService from "@/services/mediaService";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapSupportTicket } from "@/utils/supabaseMappers";
+import { MAX_SUPPORT_TICKET_ATTACHMENTS } from "@/utils/supportTicketAttachments";
 
 const TICKET_SELECT =
   "*, requester:EV_Users!EV_SupportTickets_user_id_fkey ( full_name, email ), assignee:EV_Users!EV_SupportTickets_assigned_to_fkey ( full_name )";
@@ -24,6 +26,38 @@ function mapRow(row: Record<string, unknown>): SupportTicket {
     row.requester as Record<string, unknown> | null,
     row.assignee as Record<string, unknown> | null
   );
+}
+
+async function hydrateAttachmentsFromStorage(ticket: SupportTicket): Promise<SupportTicket> {
+  if (ticket.attachments.length > 0) return ticket;
+  try {
+    const fromStorage = await mediaService.listSupportTicketAttachments(ticket.userId, ticket.id);
+    if (fromStorage.length > 0) {
+      await saveTicketAttachments(ticket.id, fromStorage);
+      return { ...ticket, attachments: fromStorage };
+    }
+  } catch {
+    // Storage list optional if policies not applied yet.
+  }
+  return ticket;
+}
+
+async function saveTicketAttachments(ticketId: string, attachments: SupportTicketAttachment[]): Promise<void> {
+  const { error } = await requireSupabase()
+    .from("EV_SupportTickets")
+    .update({
+      attachments,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ticketId);
+
+  if (error) {
+    throw new Error(
+      error.message.includes("policy")
+        ? "Cannot update attachments: run supabase/support_tickets_admin.sql in Supabase."
+        : error.message
+    );
+  }
 }
 
 export async function getSupportTickets(query: SupportTicketsQuery = {}): Promise<SupportTicket[]> {
@@ -70,7 +104,8 @@ export async function getSupportTicketById(id: string): Promise<SupportTicket | 
     .maybeSingle();
 
   if (error) throw error;
-  return data ? mapRow(data as Record<string, unknown>) : null;
+  if (!data) return null;
+  return hydrateAttachmentsFromStorage(mapRow(data as Record<string, unknown>));
 }
 
 export async function updateSupportTicket(id: string, input: UpdateSupportTicketInput): Promise<void> {
@@ -88,4 +123,28 @@ export async function updateSupportTicket(id: string, input: UpdateSupportTicket
         : error.message
     );
   }
+}
+
+export async function uploadAdminTicketAttachments(
+  ticketId: string,
+  files: File[]
+): Promise<SupportTicketAttachment[]> {
+  if (!files.length) return [];
+
+  const ticket = await getSupportTicketById(ticketId);
+  if (!ticket) throw new Error("Ticket not found");
+
+  if (ticket.attachments.length + files.length > MAX_SUPPORT_TICKET_ATTACHMENTS) {
+    throw new Error(`Maximum ${MAX_SUPPORT_TICKET_ATTACHMENTS} attachments per ticket`);
+  }
+
+  const uploaded: SupportTicketAttachment[] = [];
+  for (const file of files) {
+    const item = await mediaService.uploadSupportTicketAttachment(ticket.userId, ticketId, file);
+    uploaded.push(item);
+  }
+
+  const merged = [...ticket.attachments, ...uploaded];
+  await saveTicketAttachments(ticketId, merged);
+  return merged;
 }

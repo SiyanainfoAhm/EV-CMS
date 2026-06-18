@@ -1,9 +1,15 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import * as supportTicketService from "@/services/supportTicketService";
 import * as userService from "@/services/userService";
 import type { SupportTicket, User } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { canAccessWebAdmin } from "@/utils/rfpRoles";
+import {
+  formatAttachmentSize,
+  isImageAttachment,
+  MAX_SUPPORT_TICKET_ATTACHMENTS,
+  SUPPORT_ATTACHMENT_ACCEPT,
+} from "@/utils/supportTicketAttachments";
 
 const STATUS_OPTIONS = ["open", "in_progress", "resolved", "closed"] as const;
 const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
@@ -56,10 +62,14 @@ export default function SupportTicketsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailTicket, setDetailTicket] = useState<SupportTicket | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [editStatus, setEditStatus] = useState("");
   const [editPriority, setEditPriority] = useState("");
   const [editAssignee, setEditAssignee] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
@@ -87,9 +97,13 @@ export default function SupportTicketsPage() {
   }, []);
 
   const selectedTicket = useMemo(
-    () => tickets.find((t) => t.id === selectedId) ?? null,
-    [tickets, selectedId]
+    () => detailTicket ?? tickets.find((t) => t.id === selectedId) ?? null,
+    [detailTicket, tickets, selectedId]
   );
+
+  const remainingAttachmentSlots = selectedTicket
+    ? Math.max(0, MAX_SUPPORT_TICKET_ATTACHMENTS - selectedTicket.attachments.length)
+    : 0;
 
   const stats = useMemo(() => {
     return {
@@ -100,15 +114,27 @@ export default function SupportTicketsPage() {
     };
   }, [tickets]);
 
-  const openDetail = (ticket: SupportTicket) => {
+  const openDetail = async (ticket: SupportTicket) => {
     setSelectedId(ticket.id);
     setEditStatus(ticket.status);
     setEditPriority(ticket.priority);
     setEditAssignee(ticket.assignedTo ?? "");
+    setDetailTicket(ticket);
+    setDetailLoading(true);
+    try {
+      const full = await supportTicketService.getSupportTicketById(ticket.id);
+      if (full) setDetailTicket(full);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to load attachments");
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const closeDetail = () => {
     setSelectedId(null);
+    setDetailTicket(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const saveTicket = async () => {
@@ -127,6 +153,23 @@ export default function SupportTicketsPage() {
       showToast(e instanceof Error ? e.message : "Failed to update ticket");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleUploadAttachments = async (fileList: FileList | null) => {
+    if (!selectedId || !fileList?.length) return;
+    const files = Array.from(fileList);
+    setUploading(true);
+    try {
+      const merged = await supportTicketService.uploadAdminTicketAttachments(selectedId, files);
+      setDetailTicket((prev) => (prev ? { ...prev, attachments: merged } : prev));
+      await loadTickets();
+      showToast(`${files.length} file${files.length === 1 ? "" : "s"} uploaded`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -208,25 +251,28 @@ export default function SupportTicketsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] table-fixed">
+          <table className="w-full min-w-[880px] table-fixed">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[22%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[20%]">
                   Subject
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[16%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[14%]">
                   User
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[10%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[8%]">
+                  Files
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[9%]">
                   Status
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[10%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[9%]">
                   Priority
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[14%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[12%]">
                   Assigned
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[14%]">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[12%]">
                   Created
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[8%]">
@@ -248,6 +294,16 @@ export default function SupportTicketsPage() {
                   <td className="px-4 py-3.5 min-w-0">
                     <p className="text-sm text-gray-900 truncate">{ticket.userName || "—"}</p>
                     <p className="text-xs text-gray-400 truncate">{ticket.userEmail}</p>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    {ticket.attachments.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                        <i className="ri-attachment-2 text-sm"></i>
+                        {ticket.attachments.length}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3.5">
                     <span
@@ -298,7 +354,7 @@ export default function SupportTicketsPage() {
         <>
           <div className="fixed inset-0 bg-black/40 z-40" onClick={closeDetail}></div>
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-xl border border-gray-200 w-full max-w-xl max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-100 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-gray-900">{selectedTicket.subject}</h3>
@@ -319,6 +375,90 @@ export default function SupportTicketsPage() {
                 <div>
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Description</p>
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedTicket.description}</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Attachments ({selectedTicket.attachments.length})
+                    </p>
+                    {detailLoading ? (
+                      <span className="text-xs text-gray-400">Loading…</span>
+                    ) : null}
+                  </div>
+
+                  {selectedTicket.attachments.length === 0 && !detailLoading ? (
+                    <p className="text-sm text-gray-400">No attachments on this ticket.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedTicket.attachments.map((file) => (
+                        <div
+                          key={file.path || file.url}
+                          className="flex items-center gap-3 p-2.5 rounded-lg border border-gray-100 bg-[#f9faf7]"
+                        >
+                          {isImageAttachment(file.mimeType) ? (
+                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                              <img
+                                src={file.url}
+                                alt={file.name}
+                                className="w-14 h-14 rounded-lg object-cover border border-gray-200"
+                              />
+                            </a>
+                          ) : (
+                            <div className="w-14 h-14 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
+                              <i className="ri-file-pdf-line text-red-500 text-xl"></i>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate" title={file.name}>
+                              {file.name}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {formatAttachmentSize(file.size)}
+                              {file.size ? " · " : ""}
+                              {isImageAttachment(file.mimeType) ? "Image" : "PDF"}
+                            </p>
+                          </div>
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={file.name}
+                            className="text-xs font-medium text-emerald-600 hover:text-emerald-700 whitespace-nowrap shrink-0"
+                          >
+                            {isImageAttachment(file.mimeType) ? "Open" : "Download"}
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {remainingAttachmentSlots > 0 ? (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <p className="text-xs text-gray-500 mb-2">
+                        Add up to {remainingAttachmentSlots} more file
+                        {remainingAttachmentSlots === 1 ? "" : "s"} (images or PDF, max 10 MB each)
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept={SUPPORT_ATTACHMENT_ACCEPT}
+                          multiple
+                          disabled={uploading}
+                          className="text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:text-xs file:font-medium"
+                          onChange={(e) => handleUploadAttachments(e.target.files)}
+                        />
+                        {uploading ? (
+                          <span className="text-xs text-gray-400">Uploading…</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-600 mt-2">
+                      Maximum {MAX_SUPPORT_TICKET_ATTACHMENTS} attachments reached.
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

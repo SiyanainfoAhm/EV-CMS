@@ -364,6 +364,28 @@ function getRangeStart(timeRange: TimeRange): Date {
   return start;
 }
 
+function computePeakDemandKw(
+  meterRows: { power_kw: number | null; sampled_at: string }[] | null,
+  activeSessions: ChargingSession[]
+): number {
+  const demandByMinute = new Map<string, number>();
+
+  for (const row of meterRows ?? []) {
+    const power = Number(row.power_kw ?? 0);
+    if (power <= 0) continue;
+    const minuteKey = row.sampled_at.slice(0, 16);
+    demandByMinute.set(minuteKey, (demandByMinute.get(minuteKey) ?? 0) + power);
+  }
+
+  let peak = 0;
+  for (const demand of demandByMinute.values()) {
+    peak = Math.max(peak, demand);
+  }
+
+  const activeDemand = activeSessions.reduce((sum, s) => sum + (s.currentPowerKw ?? 0), 0);
+  return Math.max(peak, activeDemand);
+}
+
 export async function getDashboardStats(timeRange: TimeRange = "today"): Promise<DashboardStats> {
   const [chargers, activeSessions] = await Promise.all([
     fetchChargersRaw(),
@@ -371,12 +393,20 @@ export async function getDashboardStats(timeRange: TimeRange = "today"): Promise
   ]);
 
   const rangeStart = getRangeStart(timeRange);
+  const rangeStartIso = rangeStart.toISOString();
 
-  const { data: rangeSessions } = await requireSupabase()
-    .from("EV_ChargingSessions")
-    .select("energy_kwh, amount")
-    .eq("status", "completed")
-    .gte("start_time", rangeStart.toISOString());
+  const [{ data: rangeSessions }, { data: meterRows }] = await Promise.all([
+    requireSupabase()
+      .from("EV_ChargingSessions")
+      .select("energy_kwh, amount, start_time, end_time")
+      .eq("status", "completed")
+      .gte("start_time", rangeStartIso),
+    requireSupabase()
+      .from("EV_MeterValues")
+      .select("power_kw, sampled_at")
+      .gte("sampled_at", rangeStartIso)
+      .not("power_kw", "is", null),
+  ]);
 
   const rangeEnergyKwh = (rangeSessions ?? []).reduce(
     (sum, s) => sum + Number((s as { energy_kwh: number }).energy_kwh ?? 0),
@@ -387,12 +417,32 @@ export async function getDashboardStats(timeRange: TimeRange = "today"): Promise
     0
   );
 
+  let totalDurationMs = 0;
+  let durationCount = 0;
+  for (const session of rangeSessions ?? []) {
+    const startTime = (session as { start_time: string }).start_time;
+    const endTime = (session as { end_time: string | null }).end_time;
+    if (!endTime) continue;
+    const durationMs = new Date(endTime).getTime() - new Date(startTime).getTime();
+    if (durationMs <= 0) continue;
+    totalDurationMs += durationMs;
+    durationCount += 1;
+  }
+
+  const avgSessionDurationMs = durationCount > 0 ? totalDurationMs / durationCount : null;
+  const peakPowerKw = computePeakDemandKw(
+    (meterRows ?? []) as { power_kw: number | null; sampled_at: string }[],
+    activeSessions as ChargingSession[]
+  );
+
   return computeDashboardStats(
     chargers,
     activeSessions,
     rangeEnergyKwh,
     rangeRevenue,
-    rangeSessions?.length ?? 0
+    rangeSessions?.length ?? 0,
+    avgSessionDurationMs,
+    peakPowerKw
   );
 }
 

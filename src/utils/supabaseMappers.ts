@@ -11,6 +11,7 @@ import type {
   User,
 } from "@/types/ev";
 import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
+import { parseSupportTicketAttachments } from "@/utils/supportTicketAttachments";
 import { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb } from "@/utils/rfpRoles";
 
 export { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb };
@@ -19,10 +20,19 @@ export function formatDuration(startIso: string, endIso?: string | null): string
   const start = new Date(startIso).getTime();
   const end = endIso ? new Date(endIso).getTime() : Date.now();
   const mins = Math.max(0, Math.floor((end - start) / 60000));
+  return formatDurationMinutes(mins);
+}
+
+export function formatDurationMinutes(mins: number): string {
+  if (mins < 1) return "<1m";
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return `${h}h ${m}m`;
+}
+
+export function formatAvgDurationMs(avgMs: number): string {
+  return formatDurationMinutes(Math.round(avgMs / 60000));
 }
 
 export function formatLastLogin(iso?: string | null): string {
@@ -209,6 +219,7 @@ export function mapSupportTicket(
     priority: row.priority as string,
     assignedTo: (row.assigned_to as string) ?? null,
     assignedToName: assignee ? (assignee.full_name as string) : null,
+    attachments: parseSupportTicketAttachments(row.attachments),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -233,7 +244,9 @@ export function computeDashboardStats(
   activeSessions: ChargingSession[],
   todayEnergyKwh: number,
   todayRevenue: number,
-  todaySessionCount: number
+  todaySessionCount: number,
+  avgSessionDurationMs?: number | null,
+  peakPowerKw = 0
 ): DashboardStats {
   const online = chargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length;
   const offline = chargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length;
@@ -242,7 +255,6 @@ export function computeDashboardStats(
     (sum, c) => sum + c.connectors.filter((x) => x.status === "Available").length,
     0
   );
-  const peakPower = activeSessions.reduce((max, s) => Math.max(max, s.currentPowerKw ?? 0), 0);
 
   return {
     totalChargers: chargers.length,
@@ -254,7 +266,10 @@ export function computeDashboardStats(
     totalEnergyTodayKwh: todayEnergyKwh,
     totalRevenueToday: todayRevenue,
     totalSessionsToday: todaySessionCount,
-    avgSessionDuration: "1h 45m",
-    peakPowerToday: peakPower,
+    avgSessionDuration:
+      avgSessionDurationMs != null && avgSessionDurationMs > 0
+        ? formatAvgDurationMs(avgSessionDurationMs)
+        : "—",
+    peakPowerToday: Math.round(peakPowerKw * 10) / 10,
   };
 }

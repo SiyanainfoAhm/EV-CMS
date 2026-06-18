@@ -127,6 +127,15 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface SupportTicketAttachment {
+  name: string;
+  path: string;
+  url: string;
+  mimeType: string;
+  size?: number;
+  uploadedAt: string;
+}
+
 export interface SupportTicket {
   id: string;
   userId: string;
@@ -138,6 +147,7 @@ export interface SupportTicket {
   priority: string;
   assignedTo: string | null;
   assignedToName: string | null;
+  attachments: SupportTicketAttachment[];
   createdAt: string;
   updatedAt: string;
 }
