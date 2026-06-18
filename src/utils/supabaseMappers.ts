@@ -6,6 +6,7 @@ import type {
   DashboardStats,
   Payment,
   RFIDCard,
+  SupportTicket,
   Tariff,
   User,
 } from "@/types/ev";
@@ -189,6 +190,27 @@ export function mapPayment(
     gatewayTxnId: (row.gateway_txn_id as string) ?? null,
     reconciliation: (row.reconciliation_status as string) ?? "unmatched",
     createdAt: row.created_at as string,
+  };
+}
+
+export function mapSupportTicket(
+  row: Record<string, unknown>,
+  requester?: Record<string, unknown> | null,
+  assignee?: Record<string, unknown> | null
+): SupportTicket {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    userName: requester ? (requester.full_name as string) : "",
+    userEmail: requester ? (requester.email as string) : "",
+    subject: row.subject as string,
+    description: row.description as string,
+    status: row.status as string,
+    priority: row.priority as string,
+    assignedTo: (row.assigned_to as string) ?? null,
+    assignedToName: assignee ? (assignee.full_name as string) : null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   };
 }
 

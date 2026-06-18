@@ -26,6 +26,7 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
     .limit(limit);
 
   if (status !== "all") q = q.eq("status", status);
+  else q = q.neq("status", "decommissioned");
   if (type !== "all") q = q.eq("charger_type", type);
   if (manufacturer !== "all") q = q.eq("manufacturer", manufacturer);
 
@@ -393,4 +394,49 @@ export async function getDashboardStats(timeRange: TimeRange = "today"): Promise
     rangeRevenue,
     rangeSessions?.length ?? 0
   );
+}
+
+export async function decommissionCharger(id: string): Promise<void> {
+  const charger = await getChargerById(id);
+  if (!charger) throw new Error("Charger not found");
+  if (charger.status === "decommissioned") {
+    throw new Error("Charger is already decommissioned");
+  }
+
+  const activeSessions = await getActiveSessionsForChargers();
+  const hasActiveSession = activeSessions.some(
+    (s) => s.chargePointId === charger.chargePointId || s.chargerId === id
+  );
+  if (hasActiveSession || charger.connectors.some((c) => c.status === "Charging")) {
+    throw new Error("Cannot decommission while a charging session is active");
+  }
+
+  const { error: chargerError } = await requireSupabase()
+    .from("EV_Chargers")
+    .update({
+      status: "decommissioned",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (chargerError) {
+    throw new Error(
+      chargerError.message.includes("policy")
+        ? "Cannot decommission: run supabase/policies_write.sql on Supabase."
+        : chargerError.message
+    );
+  }
+
+  const { error: connectorError } = await requireSupabase()
+    .from("EV_ChargerConnectors")
+    .update({ status: "Unavailable", updated_at: new Date().toISOString() })
+    .eq("charger_id", id);
+
+  if (connectorError) throw connectorError;
+
+  await requireSupabase().from("EV_ChargerEvents").insert({
+    charger_id: id,
+    event_type: "Decommissioned",
+    payload: { chargePointId: charger.chargePointId, source: "admin" },
+  });
 }
