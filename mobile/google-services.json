@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "707717171759",
+    "project_id": "dffcilevcms",
+    "storage_bucket": "dffcilevcms.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:707717171759:android:868bc4c16d2642706614da",
+        "android_client_info": {
+          "package_name": "in.dfccil.evcms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSb-O0zGctsc_0MaDTJ3EpUZxsvqM8sUU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -35,6 +35,13 @@ uploads/**/*
 *.tsbuildinfo
 .eslintcache
 
+# Firebase / Google credentials (never commit private keys)
+firebase-service-account.json
+*-service-account.json
+service-account*.json
+# google-services.json is committed for EAS prebuild; uncomment to exclude:
+# mobile/google-services.json
+
 # Expo / React Native (mobile)
 mobile/.expo/
 mobile/dist/

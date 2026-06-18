@@ -244,7 +244,16 @@ BEGIN
   INSERT INTO "EV_AuditLogs" (user_id, action, entity_type, entity_id, details)
   VALUES (p_user_id, 'Remote Start', 'Session', v_session_id::text, 'Simulator StartTransaction');
 
-  PERFORM ev_notify_user(p_user_id, 'Charging started', 'Your session has begun on connector ' || p_connector_id::text, 'success');
+  PERFORM ev_notify_user(p_user_id, 'Charging started', 'Your session has begun on connector ' || p_connector_id::text, 'charging_started');
+
+  UPDATE "EV_Notifications" n
+  SET reference_type = 'charging_session', reference_id = v_session_id
+  WHERE n.id = (
+    SELECT id FROM "EV_Notifications"
+    WHERE user_id = p_user_id AND type = 'charging_started'
+    ORDER BY created_at DESC
+    LIMIT 1
+  );
   PERFORM ev_notify_admins(
     'New session started',
     (SELECT full_name FROM "EV_Users" WHERE id = p_user_id) || ' started charging (simulator)',
@@ -333,7 +342,7 @@ BEGIN
   WHERE id = v_sess.charger_id;
 
   INSERT INTO "EV_Payments" (session_id, user_id, amount, gst_amount, total_amount, status, gateway, reconciliation_status)
-  VALUES (p_session_id, v_sess.user_id, v_amount, v_gst, v_total, 'success', 'Simulator', 'matched');
+  VALUES (p_session_id, v_sess.user_id, v_amount, v_gst, v_total, 'pending', 'wallet', 'unmatched');
 
   PERFORM ev_sim_log_event(v_sess.charger_id, v_sess.connector_id, 'StopTransaction', jsonb_build_object('sessionId', p_session_id, 'amount', v_total));
 
@@ -343,8 +352,17 @@ BEGIN
   PERFORM ev_notify_user(
     v_sess.user_id,
     'Charging completed',
-    'Session finished. Total ₹' || ROUND(v_total, 2)::text,
-    'success'
+    'Session finished. Pay ₹' || ROUND(v_total, 2)::text || ' from your wallet.',
+    'charging_stopped'
+  );
+
+  UPDATE "EV_Notifications" n
+  SET reference_type = 'charging_session', reference_id = p_session_id
+  WHERE n.id = (
+    SELECT id FROM "EV_Notifications"
+    WHERE user_id = v_sess.user_id AND type = 'charging_stopped'
+    ORDER BY created_at DESC
+    LIMIT 1
   );
   PERFORM ev_notify_admins('Session completed', 'Charging session ended (simulator)', 'info');
 END;
