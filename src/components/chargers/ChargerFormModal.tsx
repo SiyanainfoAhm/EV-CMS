@@ -6,7 +6,8 @@ import {
   validateChargerForm,
   type ChargerFormFields,
 } from "@/utils/validation";
-import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
+import { buildOcppWebSocketUrl, getOcppPathPattern } from "@/utils/ocppUrls";
+import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
 import * as chargerService from "@/services/chargerService";
 import * as tariffService from "@/services/tariffService";
 import type { Charger, Tariff } from "@/types/ev";
@@ -68,6 +69,7 @@ export function ChargerFormModal({
   const [saving, setSaving] = useState(false);
   const [typeTariffs, setTypeTariffs] = useState<Tariff[]>([]);
   const [defaultTariff, setDefaultTariff] = useState<Tariff | null>(null);
+  const { ready: ocppConfigReady, isConfigured: ocppConfigured } = useOcppGatewayConfig();
 
   useEffect(() => {
     if (open) {
@@ -277,7 +279,18 @@ export function ChargerFormModal({
           {formData.chargePointId.trim() ? (
             <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
               <p className="text-xs text-gray-500 mb-1">OCPP WebSocket URL (configure on charger)</p>
-              <code className="text-xs text-emerald-700 break-all">{buildOcppWebSocketUrl(formData.chargePointId)}</code>
+              {ocppConfigReady && ocppConfigured ? (
+                <code className="text-xs text-emerald-700 break-all">{buildOcppWebSocketUrl(formData.chargePointId)}</code>
+              ) : ocppConfigReady ? (
+                <p className="text-xs text-amber-700">
+                  Not configured — set <strong>VITE_OCPP_GATEWAY_API_URL</strong> in Vercel and{" "}
+                  <strong>redeploy</strong>, or edit <code className="text-[10px]">public/app-config.json</code>{" "}
+                  (<code className="text-[10px]">ocppGatewayApiUrl</code>). Use your OCPP gateway host (not the Vercel
+                  admin URL). Pattern: <code className="text-[10px]">{getOcppPathPattern()}</code>
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400">Loading gateway config…</p>
+              )}
             </div>
           ) : null}
           <div className="flex items-center justify-end gap-3 mt-6">

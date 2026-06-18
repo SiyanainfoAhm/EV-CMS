@@ -12,8 +12,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login, isAuthenticated, isLoading, user, logout } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("anita.desai@dfccil.gov.in");
+  const [password, setPassword] = useState("dfccil123");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

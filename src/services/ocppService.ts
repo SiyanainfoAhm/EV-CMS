@@ -2,9 +2,11 @@
  * OCPP 1.6J client — calls the Node.js OCPP gateway REST API.
  */
 
-import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
+import { buildOcppWebSocketUrl, getGatewayRestUrl } from "@/utils/ocppUrls";
 
-const gatewayUrl = (import.meta.env.VITE_OCPP_GATEWAY_API_URL || "").replace(/\/$/, "");
+function gatewayUrl(): string {
+  return getGatewayRestUrl();
+}
 
 export class OcppGatewayError extends Error {
   status?: number;
@@ -17,10 +19,11 @@ export class OcppGatewayError extends Error {
 }
 
 async function gatewayFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!gatewayUrl) {
+  const base = gatewayUrl();
+  if (!base) {
     throw new OcppGatewayError("VITE_OCPP_GATEWAY_API_URL is not configured");
   }
-  const res = await fetch(`${gatewayUrl}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
@@ -141,7 +144,7 @@ export interface OcppFleetResponse {
 
 /** Live OCPP connection map for all registered chargers (12+ — no hardcoded IDs). */
 export async function getOcppFleet(): Promise<OcppFleetResponse> {
-  if (!gatewayUrl) {
+  if (!gatewayUrl()) {
     return { total: 0, connectedCount: 0, ocppPathPattern: "/ocpp/{chargePointId}", chargers: [] };
   }
   try {
