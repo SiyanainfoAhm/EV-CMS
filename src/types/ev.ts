@@ -34,10 +34,12 @@ export interface Charger {
   type: string;
   maxPowerKw: number;
   status: string;
-  lastHeartbeat: string;
+  lastHeartbeat?: string | null;
   location: string;
   isSimulated?: boolean;
   connectivity?: "online" | "offline" | "stale";
+  tariffId?: string | null;
+  tariff?: Tariff | null;
   connectors: ChargerConnector[];
 }
 
@@ -63,6 +65,7 @@ export interface ChargingSession {
   endMeter?: number;
   amount?: number;
   stopReason?: string;
+  authMethod?: string;
 }
 
 export interface RFIDCard {

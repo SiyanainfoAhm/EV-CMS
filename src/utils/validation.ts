@@ -173,6 +173,7 @@ export interface ChargerFormFields {
   chargerType: string;
   maxPowerKw: number;
   location: string;
+  tariffId: string;
 }
 
 const CHARGE_POINT_ID = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
@@ -190,6 +191,18 @@ export function validateChargerForm(data: ChargerFormFields): Partial<Record<key
   const errors: Partial<Record<keyof ChargerFormFields, string>> = {};
   const cpErr = validateChargePointId(data.chargePointId);
   if (cpErr) errors.chargePointId = cpErr;
+  return { ...errors, ...validateChargerFormFields(data) };
+}
+
+/** Edit form — charge point ID is fixed after registration. */
+export function validateChargerEditForm(data: ChargerFormFields): Partial<Record<keyof ChargerFormFields, string>> {
+  return validateChargerFormFields(data);
+}
+
+function validateChargerFormFields(
+  data: ChargerFormFields
+): Partial<Record<keyof ChargerFormFields, string>> {
+  const errors: Partial<Record<keyof ChargerFormFields, string>> = {};
   const nameErr = validateRequired(data.name, "Charger name");
   if (nameErr) errors.name = nameErr;
   if (!data.manufacturer) errors.manufacturer = "Manufacturer is required";

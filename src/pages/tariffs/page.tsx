@@ -104,7 +104,7 @@ export default function TariffsPage() {
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             Tariff Configuration
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Set charging rates and billing parameters</p>
+          <p className="text-sm text-gray-500 mt-1">Set charging rates — assign per charger from Chargers → Edit</p>
         </div>
         <button
           onClick={() => { setFormData(emptyTariff); setFormErrors({}); setShowAddModal(true); }}

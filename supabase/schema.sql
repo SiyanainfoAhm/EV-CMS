@@ -165,6 +165,11 @@ COMMENT ON TABLE "EV_Tariffs" IS 'Admin web: tariff configuration';
 CREATE INDEX IF NOT EXISTS idx_ev_tariffs_status ON "EV_Tariffs" (is_active);
 CREATE INDEX IF NOT EXISTS idx_ev_tariffs_created_at ON "EV_Tariffs" (created_at);
 
+ALTER TABLE "EV_Chargers"
+  ADD COLUMN IF NOT EXISTS tariff_id UUID REFERENCES "EV_Tariffs"(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ev_chargers_tariff_id ON "EV_Chargers" (tariff_id);
+
 CREATE TABLE IF NOT EXISTS "EV_ChargingSessions" (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   transaction_id INTEGER UNIQUE,

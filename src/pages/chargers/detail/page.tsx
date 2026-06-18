@@ -1,7 +1,18 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as chargerService from "@/services/chargerService";
-import type { Charger, ChargingSession } from "@/types/ev";
+import * as ocppService from "@/services/ocppService";
+import * as tariffService from "@/services/tariffService";
+import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
+import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
+import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
+import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
+import {
+  connectivityFromHeartbeat,
+  formatHeartbeatAgo,
+  type ConnectivityLabel,
+} from "@/utils/chargerConnectivity";
+import type { Charger, ChargingSession, Tariff } from "@/types/ev";
 
 function getRelativeTime(isoStr: string): string {
   const now = new Date();
@@ -16,16 +27,31 @@ function getRelativeTime(isoStr: string): string {
   return `${diffDays}d ago`;
 }
 
-function getStatusColor(status: string): string {
-  switch (status) {
+function getConnectivityColor(connectivity: ConnectivityLabel | "faulted"): string {
+  switch (connectivity) {
     case "online":
       return "bg-emerald-500";
+    case "stale":
+      return "bg-amber-400";
     case "offline":
       return "bg-gray-400";
     case "faulted":
       return "bg-red-500";
     default:
       return "bg-gray-400";
+  }
+}
+
+function getConnectivityTextClass(connectivity: ConnectivityLabel | "faulted"): string {
+  switch (connectivity) {
+    case "online":
+      return "text-emerald-600";
+    case "stale":
+      return "text-amber-600";
+    case "faulted":
+      return "text-red-500";
+    default:
+      return "text-gray-500";
   }
 }
 
@@ -37,12 +63,38 @@ export default function ChargerDetailPage() {
   const [ocppEvents, setOcppEvents] = useState<chargerService.ChargerEvent[]>([]);
   const [ocppTab, setOcppTab] = useState<"recent" | "all">("recent");
 
-  useEffect(() => {
+  const reloadChargerData = useCallback(() => {
     if (!id) return;
     chargerService.getChargerById(id).then(setCharger);
     chargerService.getActiveSessionsForChargers().then(setMockActiveSessions);
     chargerService.getChargerEvents(id).then(setOcppEvents);
   }, [id]);
+
+  useEffect(() => {
+    reloadChargerData();
+  }, [reloadChargerData]);
+
+  useSupabaseRealtime(reloadChargerData);
+
+  useEffect(() => {
+    if (!charger) {
+      setEffectiveTariff(null);
+      return;
+    }
+    void tariffService.resolveTariffForCharger(charger).then(setEffectiveTariff);
+  }, [charger?.id, charger?.tariffId, charger?.type]);
+
+  useEffect(() => {
+    if (!charger?.chargePointId) return;
+    const check = () => {
+      ocppService.getChargerStatus(charger.chargePointId).then((s) => {
+        setOcppSocketLive(Boolean(s.connected));
+      }).catch(() => setOcppSocketLive(false));
+    };
+    check();
+    const timer = setInterval(check, 15000);
+    return () => clearInterval(timer);
+  }, [charger?.chargePointId]);
 
   const ocppMessages = useMemo(() => {
     const list = ocppTab === "recent" ? ocppEvents.slice(0, 10) : ocppEvents;
@@ -63,6 +115,15 @@ export default function ChargerDetailPage() {
   const [selectedConnector, setSelectedConnector] = useState<number | null>(null);
   const [actionModal, setActionModal] = useState<{ type: string; connectorId: number } | null>(null);
   const [actionResult, setActionResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [ocppSocketLive, setOcppSocketLive] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
+  const [firmwareUrl, setFirmwareUrl] = useState("");
+  const [firmwareLoading, setFirmwareLoading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [effectiveTariff, setEffectiveTariff] = useState<Tariff | null>(null);
+  useOcppGatewayConfig();
 
   if (!charger) {
     return (
@@ -82,19 +143,101 @@ export default function ChargerDetailPage() {
     );
   }
 
+  const connectivityLabel: ConnectivityLabel | "faulted" =
+    charger.status === "faulted" ? "faulted" : connectivityFromHeartbeat(charger.lastHeartbeat);
+
+  const handleFirmwareUpdate = async () => {
+    if (!charger || !firmwareUrl.trim()) return;
+    setFirmwareLoading(true);
+    try {
+      const result = await ocppService.updateFirmware(charger.chargePointId, firmwareUrl.trim());
+      setShowFirmwareModal(false);
+      setFirmwareUrl("");
+      setToast(result.accepted ? "UpdateFirmware accepted by charger" : "Charger rejected firmware update");
+      setTimeout(() => setToast(null), 4000);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Firmware update failed");
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setFirmwareLoading(false);
+    }
+  };
+
   const handleRemoteAction = (type: string, connectorId: number) => {
     setActionModal({ type, connectorId });
     setActionResult(null);
   };
 
-  const confirmAction = () => {
-    if (!actionModal) return;
+  const confirmAction = async () => {
+    if (!actionModal || !charger) return;
     const { type, connectorId } = actionModal;
-    setActionResult({
-      success: true,
-      message: `${type} command sent to Gun ${connectorId}. Awaiting charger response...`,
-    });
+    setActionLoading(true);
     setActionModal(null);
+
+    try {
+      if (type === "RemoteStart") {
+        const idTag = prompt("Enter RFID idTag for remote start:", "RFID-DFCCIL-001");
+        if (!idTag?.trim()) {
+          setActionResult({ success: false, message: "Remote start cancelled — idTag required" });
+          return;
+        }
+        const result = await ocppService.remoteStartTransaction({
+          chargePointId: charger.chargePointId,
+          connectorId,
+          idTag: idTag.trim(),
+        });
+        setActionResult({
+          success: result.accepted,
+          message: result.accepted
+            ? `RemoteStart sent to Gun ${connectorId}. Awaiting charger response…`
+            : `RemoteStart rejected by charger on Gun ${connectorId}`,
+        });
+      } else if (type === "RemoteStop") {
+        const session = sessions.find((s) => s.connectorId === connectorId);
+        if (!session?.transactionId) {
+          setActionResult({
+            success: false,
+            message: `No active session on Gun ${connectorId} to stop`,
+          });
+          return;
+        }
+        const result = await ocppService.remoteStopTransaction({
+          chargePointId: charger.chargePointId,
+          transactionId: session.transactionId,
+        });
+        setActionResult({
+          success: result.accepted,
+          message: result.accepted
+            ? `RemoteStop sent for transaction ${session.transactionId}`
+            : `RemoteStop rejected by charger`,
+        });
+      } else if (type === "Reset") {
+        await ocppService.resetCharger(charger.chargePointId, connectorId === 0 ? "Hard" : "Soft");
+        setActionResult({
+          success: true,
+          message:
+            connectorId === 0
+              ? "Hard reset command sent to charger"
+              : `Soft reset command sent (Gun ${connectorId} context)`,
+        });
+      } else if (type === "Unlock") {
+        const result = await ocppService.unlockConnector(charger.chargePointId, connectorId);
+        setActionResult({
+          success: result.accepted,
+          message: result.accepted
+            ? `Unlock command sent to Gun ${connectorId}`
+            : `Unlock rejected by charger on Gun ${connectorId}`,
+        });
+      }
+      reloadChargerData();
+    } catch (e) {
+      setActionResult({
+        success: false,
+        message: e instanceof Error ? e.message : "OCPP command failed — is the gateway running?",
+      });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const connectorActions = [
@@ -123,31 +266,99 @@ export default function ChargerDetailPage() {
             <span className="text-xs text-gray-500">{charger.manufacturer}</span>
             <span className="text-gray-300">·</span>
             <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${getStatusColor(charger.status)}`}></div>
-              <span
-                className={`text-xs font-medium ${
-                  charger.status === "online"
-                    ? "text-emerald-600"
-                    : charger.status === "faulted"
-                    ? "text-red-500"
-                    : "text-gray-500"
-                }`}
-              >
-                {charger.status.charAt(0).toUpperCase() + charger.status.slice(1)}
+              <div className={`w-2 h-2 rounded-full ${getConnectivityColor(connectivityLabel)}`}></div>
+              <span className={`text-xs font-medium capitalize ${getConnectivityTextClass(connectivityLabel)}`}>
+                {connectivityLabel}
               </span>
             </div>
           </div>
         </div>
-        <button
-          onClick={() => handleRemoteAction("Reset", 0)}
-          className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors whitespace-nowrap flex items-center gap-2"
-        >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowEditModal(true)}
+            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2"
+          >
+            <i className="ri-edit-line"></i>
+            Edit
+          </button>
+          <button
+            onClick={() => setShowFirmwareModal(true)}
+            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2"
+          >
+            <i className="ri-download-cloud-line"></i>
+            Firmware
+          </button>
+          <button
+            onClick={() => handleRemoteAction("Reset", 0)}
+            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors whitespace-nowrap flex items-center gap-2"
+          >
           <div className="w-4 h-4 flex items-center justify-center">
             <i className="ri-restart-line"></i>
           </div>
           Reset Charger
-        </button>
+          </button>
+        </div>
       </div>
+
+      {toast && (
+        <div className="fixed top-20 right-6 z-50 px-4 py-2.5 bg-gray-900 text-white rounded-lg text-sm shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      <ChargerFormModal
+        open={showEditModal}
+        mode="edit"
+        editingId={charger.id}
+        initialForm={chargerToForm(charger)}
+        onClose={() => setShowEditModal(false)}
+        onSaved={() => {
+          reloadChargerData();
+          setToast("Charger updated successfully");
+          setTimeout(() => setToast(null), 3000);
+        }}
+        onError={(msg) => {
+          setToast(msg);
+          setTimeout(() => setToast(null), 3000);
+        }}
+      />
+
+      {showFirmwareModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => !firmwareLoading && setShowFirmwareModal(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-md">
+              <h4 className="text-sm font-semibold text-gray-900 mb-1">OCPP UpdateFirmware</h4>
+              <p className="text-xs text-gray-500 mb-4">Send firmware package URL to {charger.chargePointId}</p>
+              <input
+                type="url"
+                value={firmwareUrl}
+                onChange={(e) => setFirmwareUrl(e.target.value)}
+                placeholder="https://cdn.example.com/firmware/v2.5.0.bin"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-4"
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowFirmwareModal(false)}
+                  disabled={firmwareLoading}
+                  className="px-4 py-2 text-sm text-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleFirmwareUpdate()}
+                  disabled={firmwareLoading || !firmwareUrl.trim()}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+                >
+                  {firmwareLoading ? "Sending…" : "Send Update"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {actionResult && (
         <div
@@ -213,9 +424,50 @@ export default function ChargerDetailPage() {
                 <p className="text-xs text-gray-400 mb-1">Location</p>
                 <p className="text-sm font-medium text-gray-900">{charger.location}</p>
               </div>
+              <div className="sm:col-span-3">
+                <p className="text-xs text-gray-400 mb-1">Billing Tariff</p>
+                {effectiveTariff ? (
+                  <>
+                    <p className="text-sm font-medium text-gray-900">{effectiveTariff.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{tariffService.formatTariffSummary(effectiveTariff)}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {charger.tariff ? "Custom tariff assigned to this charger" : `Type default for ${charger.type}`}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-amber-600">No active tariff — assign one in Tariffs or Edit charger</p>
+                )}
+              </div>
               <div>
                 <p className="text-xs text-gray-400 mb-1">Last Heartbeat</p>
-                <p className="text-sm font-medium text-gray-900">{getRelativeTime(charger.lastHeartbeat)}</p>
+                <p className="text-sm font-medium text-gray-900">{formatHeartbeatAgo(charger.lastHeartbeat)}</p>
+              </div>
+              <div className="sm:col-span-3">
+                <p className="text-xs text-gray-400 mb-1">OCPP WebSocket</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      ocppSocketLive ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {ocppSocketLive ? "Socket connected" : "Socket not connected"}
+                  </span>
+                  <code className="text-xs text-gray-700 bg-gray-50 px-2 py-1 rounded break-all flex-1 min-w-0">
+                    {buildOcppWebSocketUrl(charger.chargePointId)}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(buildOcppWebSocketUrl(charger.chargePointId));
+                    }}
+                    className="text-xs text-emerald-600 hover:text-emerald-700 font-medium whitespace-nowrap"
+                  >
+                    Copy URL
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Unique per charger — use this URL on the physical unit or simulator. Path pattern: /ocpp/{"{chargePointId}"}
+                </p>
               </div>
             </div>
           </div>
@@ -416,9 +668,10 @@ export default function ChargerDetailPage() {
                 </button>
                 <button
                   onClick={confirmAction}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap"
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap disabled:opacity-60"
                 >
-                  Confirm
+                  {actionLoading ? "Sending…" : "Confirm"}
                 </button>
               </div>
             </div>
