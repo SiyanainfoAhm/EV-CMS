@@ -1,23 +1,58 @@
 import { Linking } from "react-native";
+import {
+  canUseRazorpayBackend,
+  isRazorpayClientConfigured,
+  isRazorpayGateway,
+  isRazorpayPaymentReady,
+  paymentConfig,
+} from "../config/paymentConfig";
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
+import {
+  openRazorpayCheckout,
+  isRazorpayUserCancelled,
+  type CreateRazorpayOrderResponse,
+} from "./razorpayService";
 import * as walletService from "./walletService";
 import type { Payment, PaymentOrder, TopupOrderResponse } from "../types";
 
-const GATEWAY_ENABLED = process.env.EXPO_PUBLIC_PAYMENT_GATEWAY_ENABLED === "true";
-const GATEWAY_NAME = process.env.EXPO_PUBLIC_PAYMENT_GATEWAY_NAME ?? "dfccil_gateway";
-const PAYMENT_MOCK_ENABLED = process.env.EXPO_PUBLIC_ENABLE_PAYMENT_MOCK === "true";
+export type RazorpayTopupResult = {
+  paymentOrderId: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  status: string;
+  walletCredited: boolean;
+  cancelled?: boolean;
+  errorMessage?: string;
+};
 
 export function checkGatewayConfigured(): boolean {
-  return GATEWAY_ENABLED;
+  if (!paymentConfig.gatewayEnabled) return false;
+  if (isRazorpayGateway()) {
+    return isRazorpayPaymentReady() || paymentConfig.mockEnabled;
+  }
+  return true;
 }
 
 export function isPaymentMockEnabled(): boolean {
-  return PAYMENT_MOCK_ENABLED;
+  return paymentConfig.mockEnabled;
+}
+
+export function isRazorpayPaymentEnabled(): boolean {
+  return isRazorpayPaymentReady();
 }
 
 export function getGatewayPendingMessage(): string {
-  return "Payment gateway API will be integrated once DFCCIL provides gateway details.";
+  if (!paymentConfig.gatewayEnabled) {
+    return "razorpay.gatewayNotConfigured";
+  }
+  if (isRazorpayGateway() && !isRazorpayClientConfigured()) {
+    return "razorpay.keyMissing";
+  }
+  if (isRazorpayGateway() && !canUseRazorpayBackend()) {
+    return "razorpay.gatewayNotConfigured";
+  }
+  return "razorpay.title";
 }
 
 export async function getPaymentHistory(userId?: string): Promise<Payment[]> {
@@ -46,12 +81,16 @@ export async function getPaymentHistory(userId?: string): Promise<Payment[]> {
   });
 }
 
-/** Create a top-up payment order (does not credit wallet). */
+/** Create a top-up payment order (legacy Supabase RPC — used when mock/pending gateway). */
 export async function createTopupPaymentOrder(
   amount: number,
   paymentMethod?: string
 ): Promise<TopupOrderResponse> {
-  const gatewayName = checkGatewayConfigured() ? GATEWAY_NAME : "dfccil_gateway_pending";
+  const gatewayName = checkGatewayConfigured()
+    ? isRazorpayGateway()
+      ? "razorpay"
+      : paymentConfig.gatewayName
+    : "dfccil_gateway_pending";
   const result = await walletService.createTopupOrder(amount, gatewayName);
   return {
     paymentOrderId: result.paymentOrderId,
@@ -61,11 +100,60 @@ export async function createTopupPaymentOrder(
   };
 }
 
-/** Start top-up flow — opens gateway checkout when configured, otherwise returns pending order. */
+/** Full Razorpay top-up: create order → checkout → backend verify. */
+export async function processRazorpayTopup(amount: number): Promise<RazorpayTopupResult> {
+  const order = await walletService.createRazorpayTopupOrder(amount);
+
+  try {
+    const checkout = await openRazorpayCheckout(order);
+
+    const verifyPayload = {
+      payment_order_id: order.payment_order_id,
+      razorpay_order_id: checkout.razorpay_order_id ?? order.razorpay_order_id,
+      razorpay_payment_id: checkout.razorpay_payment_id,
+      razorpay_signature: checkout.razorpay_signature ?? "",
+    };
+
+    const verified = await walletService.verifyRazorpayTopupPayment(verifyPayload);
+
+    return {
+      paymentOrderId: verified.payment_order_id,
+      razorpayOrderId: verifyPayload.razorpay_order_id,
+      razorpayPaymentId: verified.gateway_payment_id ?? checkout.razorpay_payment_id,
+      status: verified.status,
+      walletCredited: verified.wallet_credited,
+    };
+  } catch (e) {
+    if (isRazorpayUserCancelled(e)) {
+      return {
+        paymentOrderId: order.payment_order_id,
+        razorpayOrderId: order.razorpay_order_id,
+        status: "cancelled",
+        walletCredited: false,
+        cancelled: true,
+      };
+    }
+
+    const message = e instanceof Error ? e.message : "PAYMENT_FAILED";
+    return {
+      paymentOrderId: order.payment_order_id,
+      razorpayOrderId: order.razorpay_order_id,
+      status: "failed",
+      walletCredited: false,
+      errorMessage: message,
+    };
+  }
+}
+
+/** Start top-up flow — Razorpay native checkout or legacy URL gateway. */
 export async function startTopupPayment(
   order: TopupOrderResponse
 ): Promise<{ openedCheckout: boolean; order: TopupOrderResponse }> {
   if (!checkGatewayConfigured()) {
+    return { openedCheckout: false, order };
+  }
+
+  if (isRazorpayGateway()) {
     return { openedCheckout: false, order };
   }
 
@@ -176,6 +264,8 @@ export async function refreshTopupOrderStatus(paymentOrderId: string): Promise<P
     amount: row.amount,
     currency: row.currency,
     gatewayName: row.gatewayName,
+    gatewayOrderId: row.gatewayOrderId,
+    gatewayPaymentId: row.gatewayPaymentId,
     checkoutUrl: row.checkoutUrl,
     status: row.status,
     walletCredited: row.walletCredited,
@@ -184,3 +274,5 @@ export async function refreshTopupOrderStatus(paymentOrderId: string): Promise<P
     updatedAt: row.updatedAt,
   };
 }
+
+export type { CreateRazorpayOrderResponse };

@@ -7,6 +7,7 @@ import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import * as paymentService from "../services/paymentService";
+import { isRazorpayGateway } from "../config/paymentConfig";
 import { TOPUP_MIN_AMOUNT, TOPUP_PAYMENT_METHODS, TOPUP_QUICK_AMOUNTS } from "../config/walletConfig";
 import type { TopupPaymentMethod } from "../config/walletConfig";
 import { parseAmountInput } from "../utils/currency";
@@ -41,10 +42,44 @@ export default function TopupScreen({ navigation, route }: Props) {
       return;
     }
 
+    if (!paymentService.checkGatewayConfigured()) {
+      Alert.alert(t("common.error"), t("razorpay.gatewayNotConfigured"));
+      return;
+    }
+
     setLoading(true);
     try {
-      if (!paymentService.checkGatewayConfigured()) {
-        Alert.alert(t("common.error"), t("topup.gatewayNotConfigured"));
+      if (paymentService.isRazorpayPaymentEnabled()) {
+        const result = await paymentService.processRazorpayTopup(parsed);
+        navigation.replace("TopupPaymentStatus", {
+          paymentOrderId: result.paymentOrderId,
+          returnSessionId,
+          razorpayOrderId: result.razorpayOrderId,
+          razorpayPaymentId: result.razorpayPaymentId,
+          initialStatus: result.status,
+          initialWalletCredited: result.walletCredited,
+          initialMessage: result.cancelled
+            ? t("razorpay.paymentCancelled")
+            : result.errorMessage
+              ? t("razorpay.paymentFailed")
+              : result.walletCredited
+                ? t("razorpay.verificationSuccess")
+                : result.status === "paid"
+                  ? t("razorpay.verificationSuccess")
+                  : t("razorpay.verificationPending"),
+        });
+        return;
+      }
+
+      if (paymentService.isPaymentMockEnabled()) {
+        const order = await paymentService.createTopupPaymentOrder(parsed, method);
+        navigation.replace("TopupPaymentStatus", {
+          paymentOrderId: order.paymentOrderId,
+          returnSessionId,
+          initialStatus: order.status,
+          initialMessage: t("razorpay.verificationPending"),
+        });
+        return;
       }
 
       const order = await paymentService.createTopupPaymentOrder(parsed, method);
@@ -52,19 +87,27 @@ export default function TopupScreen({ navigation, route }: Props) {
       navigation.replace("TopupPaymentStatus", {
         paymentOrderId: order.paymentOrderId,
         returnSessionId,
+        initialStatus: order.status,
       });
     } catch (e) {
       const msg =
         e instanceof Error && e.message === "INVALID_AMOUNT"
           ? t("topup.invalidAmount")
-          : e instanceof Error
-            ? e.message
-            : t("topup.orderFailed");
+          : e instanceof Error && e.message === "API_NOT_CONFIGURED"
+            ? t("razorpay.gatewayNotConfigured")
+            : e instanceof Error && e.message === "RAZORPAY_KEY_MISSING"
+              ? t("razorpay.keyMissing")
+              : e instanceof Error
+                ? e.message
+                : t("razorpay.orderCreateFailed");
       Alert.alert(t("common.error"), msg);
     } finally {
       setLoading(false);
     }
   };
+
+  const gatewayReady = paymentService.checkGatewayConfigured();
+  const razorpayReady = paymentService.isRazorpayPaymentEnabled();
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -100,19 +143,45 @@ export default function TopupScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        <Text style={[styles.label, { marginTop: spacing.md }]}>{t("topup.paymentMethod")}</Text>
-        {TOPUP_PAYMENT_METHODS.map((m) => (
-          <Pressable key={m} style={[styles.methodRow, method === m && styles.methodActive]} onPress={() => setMethod(m)}>
-            <Text style={[styles.methodText, method === m && styles.methodTextActive]}>{t(METHOD_LABEL_KEYS[m])}</Text>
-          </Pressable>
-        ))}
+        {!razorpayReady && !isRazorpayGateway() ? (
+          <>
+            <Text style={[styles.label, { marginTop: spacing.md }]}>{t("topup.paymentMethod")}</Text>
+            {TOPUP_PAYMENT_METHODS.map((m) => (
+              <Pressable
+                key={m}
+                style={[styles.methodRow, method === m && styles.methodActive]}
+                onPress={() => setMethod(m)}
+              >
+                <Text style={[styles.methodText, method === m && styles.methodTextActive]}>
+                  {t(METHOD_LABEL_KEYS[m])}
+                </Text>
+              </Pressable>
+            ))}
+          </>
+        ) : (
+          <Text style={[styles.hint, { marginTop: spacing.md }]}>{t("razorpay.title")}</Text>
+        )}
       </AppCard>
 
-      {!paymentService.checkGatewayConfigured() ? (
+      {!gatewayReady ? (
+        <Text style={styles.gatewayNote}>{t(paymentService.getGatewayPendingMessage())}</Text>
+      ) : razorpayReady ? (
+        <Text style={styles.gatewayNote}>{t("razorpay.checkoutHint")}</Text>
+      ) : paymentService.isPaymentMockEnabled() ? (
+        <Text style={styles.gatewayNote}>{t("razorpay.verificationPending")}</Text>
+      ) : isRazorpayGateway() ? (
+        <Text style={styles.gatewayNote}>{t(paymentService.getGatewayPendingMessage())}</Text>
+      ) : (
         <Text style={styles.gatewayNote}>{t("topup.waitingForGateway")}</Text>
-      ) : null}
+      )}
 
-      <AppButton title={t("topup.proceedToPayment")} onPress={submit} loading={loading} style={styles.btn} />
+      <AppButton
+        title={t("topup.proceedToPayment")}
+        onPress={submit}
+        loading={loading}
+        disabled={!gatewayReady}
+        style={styles.btn}
+      />
     </ScrollView>
   );
 }

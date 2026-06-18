@@ -37,7 +37,15 @@ export type RootStackParamList = {
   PaymentHistory: undefined;
   Wallet: undefined;
   Topup: { suggestedAmount?: number; returnSessionId?: string } | undefined;
-  TopupPaymentStatus: { paymentOrderId: string; returnSessionId?: string };
+  TopupPaymentStatus: {
+    paymentOrderId: string;
+    returnSessionId?: string;
+    razorpayOrderId?: string;
+    razorpayPaymentId?: string;
+    initialStatus?: string;
+    initialWalletCredited?: boolean;
+    initialMessage?: string;
+  };
   WalletTransactions: undefined;
   RFIDBinding: undefined;
   Profile: undefined;
