@@ -39,8 +39,8 @@ uploads/**/*
 firebase-service-account.json
 *-service-account.json
 service-account*.json
-# google-services.json is committed for EAS prebuild; uncomment to exclude:
-# mobile/google-services.json
+mobile/google-services.json
+google-services.json
 
 # Expo / React Native (mobile)
 mobile/.expo/
