@@ -37,7 +37,7 @@ function statusTitleKey(status: string): string {
 
 export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { paymentOrderId } = route.params;
+  const { paymentOrderId, returnSessionId } = route.params;
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,6 +130,18 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
         variant="outline"
         style={styles.btn}
       />
+      {returnSessionId ? (
+        <AppButton
+          title={t("session.backToSessionPayment")}
+          onPress={() =>
+            navigation.navigate("SessionSummary", {
+              sessionId: returnSessionId,
+              focusPayment: true,
+            })
+          }
+          style={styles.btn}
+        />
+      ) : null}
     </ScrollView>
   );
 }

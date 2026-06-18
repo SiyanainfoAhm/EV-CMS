@@ -72,6 +72,15 @@ export interface Receipt {
   issuedAt?: string;
 }
 
+export interface SupportTicketAttachment {
+  name: string;
+  path: string;
+  url: string;
+  mimeType: string;
+  size?: number;
+  uploadedAt: string;
+}
+
 export interface SupportTicket {
   id: string;
   subject: string;
@@ -79,6 +88,7 @@ export interface SupportTicket {
   status: string;
   priority: string;
   category?: string;
+  attachments: SupportTicketAttachment[];
   createdAt: string;
 }
 

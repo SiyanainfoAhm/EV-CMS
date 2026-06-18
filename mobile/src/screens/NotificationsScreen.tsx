@@ -17,7 +17,6 @@ import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import * as customNotificationService from "../services/customNotificationService";
 import { navigateFromNotificationData } from "../navigation/navigationRef";
-import { showLocalTestNotification } from "../services/notificationService";
 import { useAuth } from "../context/AuthContext";
 import type { AppNotification } from "../types";
 import { colors } from "../theme/colors";
@@ -96,9 +95,11 @@ export default function NotificationsScreen({ navigation }: Props) {
       setItems((prev) => prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)));
     }
     const payload = {
-      type: item.type,
-      reference_id: item.referenceId,
       ...item.data,
+      type: item.type,
+      reference_type: item.referenceType,
+      reference_id: item.referenceId,
+      title: item.title,
     };
     navigateFromNotificationData(payload);
   };
@@ -123,15 +124,6 @@ export default function NotificationsScreen({ navigation }: Props) {
 
       {unread > 0 ? (
         <AppButton title={t("notifications.markAllAsRead")} onPress={markAll} variant="outline" style={styles.btn} />
-      ) : null}
-
-      {__DEV__ ? (
-        <AppButton
-          title="DEV: Local test push"
-          onPress={() => showLocalTestNotification()}
-          variant="outline"
-          style={styles.btn}
-        />
       ) : null}
 
       {loading ? <ActivityIndicator color={colors.emerald} style={{ marginVertical: spacing.md }} /> : null}

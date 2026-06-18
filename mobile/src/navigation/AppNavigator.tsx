@@ -32,12 +32,12 @@ export type RootStackParamList = {
   ChargerDetail: { id: string };
   QRStart: { chargerId?: string; connectorId?: number };
   LiveSession: undefined;
-  SessionSummary: { sessionId: string };
+  SessionSummary: { sessionId: string; focusPayment?: boolean };
   SessionHistory: undefined;
   PaymentHistory: undefined;
   Wallet: undefined;
-  Topup: undefined;
-  TopupPaymentStatus: { paymentOrderId: string };
+  Topup: { suggestedAmount?: number; returnSessionId?: string } | undefined;
+  TopupPaymentStatus: { paymentOrderId: string; returnSessionId?: string };
   WalletTransactions: undefined;
   RFIDBinding: undefined;
   Profile: undefined;

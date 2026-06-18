@@ -24,6 +24,7 @@
     },
     "android": {
       "package": "in.dfccil.evcms",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
