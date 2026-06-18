@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
+import { useTranslation } from "react-i18next";
 import AppButton from "../components/AppButton";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 import { useAuth } from "../context/AuthContext";
+import type { AppLanguage } from "../i18n";
+import i18n from "../i18n";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
 export default function LoginScreen() {
+  const { t } = useTranslation();
   const { signIn, ready } = useAuth();
+  const [language, setLanguage] = useState<AppLanguage>((i18n.language as AppLanguage) || "en");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,7 +25,7 @@ export default function LoginScreen() {
     const result = await signIn(email, password);
     setLoading(false);
     if (!result.success) {
-      setError(result.error || "Invalid credentials");
+      setError(result.error || t("auth.invalidUser"));
     }
   };
 
@@ -27,7 +33,7 @@ export default function LoginScreen() {
     return (
       <View style={[styles.root, styles.centered]}>
         <ActivityIndicator size="large" color={colors.emerald} />
-        <Text style={styles.restoring}>Restoring session...</Text>
+        <Text style={styles.restoring}>{t("auth.restoring")}</Text>
       </View>
     );
   }
@@ -38,16 +44,16 @@ export default function LoginScreen() {
         <View style={styles.logo}>
           <Text style={styles.logoIcon}>⚡</Text>
         </View>
-        <Text style={styles.brand}>DFCCIL EV CMS</Text>
-        <Text style={styles.tagline}>Charge smarter across DFCCIL sites</Text>
+        <Text style={styles.brand}>{t("auth.loginTitle")}</Text>
+        <Text style={styles.tagline}>{t("dashboard.subtitle")}</Text>
       </View>
       <View style={styles.form}>
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>Sign in to start or manage charging</Text>
+        <LanguageSwitcher value={language} onChange={setLanguage} />
+        <Text style={styles.title}>{t("common.login")}</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <TextInput
           style={styles.input}
-          placeholder="name@dfccil.gov.in"
+          placeholder={t("common.email")}
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
@@ -56,13 +62,13 @@ export default function LoginScreen() {
         />
         <TextInput
           style={styles.input}
-          placeholder="Password"
+          placeholder={t("common.password")}
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
         />
-        <AppButton title="Sign in" onPress={handleLogin} loading={loading} />
+        <AppButton title={loading ? t("common.loading") : t("common.submit")} onPress={handleLogin} loading={loading} />
       </View>
     </KeyboardAvoidingView>
   );

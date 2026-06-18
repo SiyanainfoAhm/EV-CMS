@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TextInput, Alert, ScrollView } from "react-native";
+import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import UserAvatar from "../components/UserAvatar";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 import { useAuth } from "../context/AuthContext";
 import * as profileService from "../services/profileService";
 import * as mediaService from "../services/mediaService";
@@ -13,12 +15,16 @@ import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { confirmAction } from "../utils/confirm";
 import { getDisplayRoleLabel } from "../utils/rfpRoles";
+import type { AppLanguage } from "../i18n";
+import i18n from "../i18n";
 import * as ImagePicker from "expo-image-picker";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
 export default function ProfileScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { user, signOut, refreshUser } = useAuth();
+  const [language, setLanguage] = useState<AppLanguage>((i18n.language as AppLanguage) || "en");
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
@@ -49,7 +55,7 @@ export default function ProfileScreen({ navigation }: Props) {
       await profileService.updateProfile(user.id, { name, email, phone, avatarUrl });
       await refreshUser();
       setEditing(false);
-      Alert.alert("Saved", "Profile updated in EV_Users");
+      Alert.alert(t("common.success"), t("profile.saved"));
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Update failed");
     } finally {
@@ -59,11 +65,11 @@ export default function ProfileScreen({ navigation }: Props) {
 
   const logout = () => {
     confirmAction(
-      "Sign out",
-      "Are you sure you want to sign out? You will need to sign in again to use the app.",
-      "Sign out",
+      t("profile.signOut"),
+      t("profile.signOutConfirm"),
+      t("profile.signOut"),
       () => signOut(),
-      { subtitle: "End your session", destructive: true, icon: "⎋" }
+      { subtitle: t("profile.signOutSubtitle"), destructive: true, icon: "⎋" }
     );
   };
 
@@ -119,15 +125,15 @@ export default function ProfileScreen({ navigation }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Header title="Profile" onBack={() => navigation.goBack()} />
+      <Header title={t("profile.title")} onBack={() => navigation.goBack()} />
       <AppCard style={styles.card}>
         <View style={styles.avatarRow}>
           <UserAvatar name={name} avatarUrl={avatarUrl} size={72} loading={avatarBusy} />
           <View style={styles.avatarActions}>
-            <AppButton title="Change photo" onPress={pickAvatar} disabled={avatarBusy} />
+            <AppButton title={t("profile.changePhoto")} onPress={pickAvatar} disabled={avatarBusy} />
             {avatarUrl ? (
               <AppButton
-                title="Remove photo"
+                title={t("profile.removePhoto")}
                 onPress={removeAvatar}
                 variant="outline"
                 disabled={avatarBusy}
@@ -139,9 +145,9 @@ export default function ProfileScreen({ navigation }: Props) {
 
         {editing ? (
           <>
-            <Text style={styles.label}>Name</Text>
+            <Text style={styles.label}>{t("profile.name")}</Text>
             <TextInput style={styles.input} value={name} onChangeText={setName} />
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t("profile.email")}</Text>
             <TextInput
               style={styles.input}
               value={email}
@@ -149,7 +155,7 @@ export default function ProfileScreen({ navigation }: Props) {
               autoCapitalize="none"
               keyboardType="email-address"
             />
-            <Text style={styles.label}>Phone</Text>
+            <Text style={styles.label}>{t("profile.phone")}</Text>
             <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
           </>
         ) : (
@@ -161,16 +167,17 @@ export default function ProfileScreen({ navigation }: Props) {
             {user?.department ? <Text style={styles.phone}>{user.department}</Text> : null}
           </>
         )}
+        <LanguageSwitcher value={language} onChange={setLanguage} />
       </AppCard>
       {editing ? (
         <>
-          <AppButton title="Save profile" onPress={save} loading={saving} style={styles.button} />
-          <AppButton title="Cancel" onPress={() => setEditing(false)} variant="outline" style={styles.button} />
+          <AppButton title={t("profile.saveProfile")} onPress={save} loading={saving} style={styles.button} />
+          <AppButton title={t("common.cancel")} onPress={() => setEditing(false)} variant="outline" style={styles.button} />
         </>
       ) : (
-        <AppButton title="Edit profile" onPress={() => setEditing(true)} style={styles.button} />
+        <AppButton title={t("profile.edit")} onPress={() => setEditing(true)} style={styles.button} />
       )}
-      <AppButton title="Sign out" onPress={logout} variant="outline" style={styles.button} />
+      <AppButton title={t("profile.signOut")} onPress={logout} variant="outline" style={styles.button} />
     </ScrollView>
   );
 }

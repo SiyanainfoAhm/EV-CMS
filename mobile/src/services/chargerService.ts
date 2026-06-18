@@ -1,5 +1,7 @@
 import { requireSupabase } from "../utils/supabaseClient";
 import { isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
+import { sortChargersByDistance } from "./locationService";
+import { parseChargeQr } from "../utils/qrParser";
 import type { Charger, ChargerConnector } from "../types";
 
 export interface ChargersQuery {
@@ -28,6 +30,8 @@ function mapCharger(row: Record<string, unknown>): Charger {
     maxPowerKw: Number(row.max_power_kw),
     status: row.status as string,
     location: (row.location as string) ?? "",
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
     lastHeartbeat: (row.last_heartbeat_at as string) ?? null,
     isSimulated: Boolean(row.is_simulated),
     connectors: connectors.map(mapConnector),
@@ -68,9 +72,45 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
   return list;
 }
 
-/** @deprecated use getChargers */
+/** @deprecated use getNearestChargers */
 export async function getNearbyChargers(): Promise<Charger[]> {
   return getChargers({ onlineOnly: true });
+}
+
+export async function getNearestChargers(
+  userLat: number,
+  userLng: number,
+  limit = 20
+): Promise<Charger[]> {
+  const list = await getChargers({ onlineOnly: true });
+  return sortChargersByDistance(list, { latitude: userLat, longitude: userLng }).slice(0, limit);
+}
+
+export interface QrValidationResult {
+  charger: Charger;
+  connectorId: number;
+}
+
+export async function validateQr(raw: string): Promise<QrValidationResult> {
+  const parsed = parseChargeQr(raw);
+  if (!parsed) throw new Error("INVALID_QR");
+
+  let charger: Charger | undefined;
+  if (parsed.chargerId) {
+    charger = await getChargerById(parsed.chargerId);
+  } else if (parsed.chargePointId) {
+    charger = await getChargerByChargePointId(parsed.chargePointId);
+  }
+
+  if (!charger) throw new Error("CHARGER_NOT_FOUND");
+
+  const connector = charger.connectors.find((c) => c.connectorId === parsed.connectorId);
+  if (!connector) throw new Error("CONNECTOR_NOT_FOUND");
+  if (!isConnectorAvailable(connector.status)) {
+    throw new Error("CONNECTOR_NOT_AVAILABLE");
+  }
+
+  return { charger, connectorId: parsed.connectorId };
 }
 
 export async function getChargerById(id: string): Promise<Charger | undefined> {

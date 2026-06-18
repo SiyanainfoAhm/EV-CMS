@@ -1,8 +1,10 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
+import { useTranslation } from "react-i18next";
 import type { Charger } from "../types";
 import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
 import { formatHeartbeatAgo, isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
+import { translateChargerLocation, translateChargerName, translateChargerType, translateEnum } from "../utils/translateRecord";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
@@ -12,12 +14,17 @@ interface Props {
 }
 
 export default function ChargerCard({ charger, onPress }: Props) {
-  const available = charger.connectors.filter((c) => c.status === "Available").length;
-  const connectivity = isOnlineByHeartbeat(charger.lastHeartbeat)
-    ? "Online"
+  const { t } = useTranslation();
+  const available = charger.connectors.filter((c) => c.status.toLowerCase() === "available").length;
+  const connectivityKey = isOnlineByHeartbeat(charger.lastHeartbeat)
+    ? "online"
     : isOfflineByHeartbeat(charger.lastHeartbeat)
-      ? "Offline"
-      : "Unknown";
+      ? "offline"
+      : "unknown";
+  const connectivity = translateEnum(t, "status", connectivityKey);
+  const displayName = translateChargerName(t, charger.chargePointId, charger.name);
+  const displayLocation = translateChargerLocation(t, charger.chargePointId, charger.location);
+
   return (
     <Pressable onPress={onPress}>
       <AppCard style={styles.card}>
@@ -26,17 +33,18 @@ export default function ChargerCard({ charger, onPress }: Props) {
             <Text style={styles.iconText}>⚡</Text>
           </View>
           <View style={styles.flex}>
-            <Text style={styles.name}>{charger.name}</Text>
-            <Text style={styles.meta}>{charger.location}</Text>
+            <Text style={styles.name}>{displayName}</Text>
+            <Text style={styles.meta}>{displayLocation}</Text>
             <Text style={styles.meta}>
-              {charger.type} · {charger.maxPowerKw} kW
+              {translateChargerType(t, charger.type)} · {charger.maxPowerKw} kW
               {charger.distanceKm != null ? ` · ${charger.distanceKm} km` : ""}
             </Text>
           </View>
           <StatusBadge status={charger.status} />
         </View>
         <Text style={styles.connectors}>
-          {connectivity} · {formatHeartbeatAgo(charger.lastHeartbeat)} · {available} available
+          {connectivity} · {formatHeartbeatAgo(charger.lastHeartbeat)} ·{" "}
+          {t("charger.availableCount", { count: available })}
         </Text>
       </AppCard>
     </Pressable>

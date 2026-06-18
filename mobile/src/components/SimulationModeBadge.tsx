@@ -1,18 +1,16 @@
 import { Text, StyleSheet } from "react-native";
+import { useTranslation } from "react-i18next";
 import AppCard from "./AppCard";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 export default function SimulationModeBadge({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation();
+
   return (
     <AppCard style={[styles.card, compact && styles.compact]}>
-      <Text style={styles.title}>Simulation Mode</Text>
-      {!compact && (
-        <Text style={styles.body}>
-          Physical OCPP chargers are not connected. Data is generated through an OCPP-ready simulation. The same
-          workflow will work with real chargers when the gateway is connected.
-        </Text>
-      )}
+      <Text style={styles.title}>{t("simulation.title")}</Text>
+      {!compact && <Text style={styles.body}>{t("simulation.body")}</Text>}
     </AppCard>
   );
 }

@@ -1,40 +1,53 @@
-import { Text, View, StyleSheet } from "react-native";
+import { Pressable, Text, View, StyleSheet } from "react-native";
+import { useTranslation } from "react-i18next";
 import type { ChargingSession } from "../types";
 import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
+import { translateChargerName } from "../utils/translateRecord";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 interface Props {
   session: ChargingSession;
+  onPress?: () => void;
 }
 
-export default function SessionCard({ session }: Props) {
-  return (
+export default function SessionCard({ session, onPress }: Props) {
+  const { t } = useTranslation();
+  const displayName = translateChargerName(t, session.chargePointId, session.chargerName);
+
+  const content = (
     <AppCard style={styles.card}>
       <View style={styles.row}>
-        <Text style={styles.title}>{session.chargerName}</Text>
+        <Text style={styles.title}>{displayName}</Text>
         <StatusBadge status={session.status} />
       </View>
-      <Text style={styles.meta}>{session.chargePointId} · Gun {session.connectorId}</Text>
+      <Text style={styles.meta}>
+        {session.chargePointId} · {t("session.connector")} {session.connectorId}
+      </Text>
       <View style={styles.stats}>
         <View>
-          <Text style={styles.statLabel}>Energy</Text>
+          <Text style={styles.statLabel}>{t("session.kwhConsumed")}</Text>
           <Text style={styles.statValue}>{session.energyKwh} kWh</Text>
         </View>
         <View>
-          <Text style={styles.statLabel}>Duration</Text>
+          <Text style={styles.statLabel}>{t("session.duration")}</Text>
           <Text style={styles.statValue}>{session.duration}</Text>
         </View>
         {session.amount != null && (
           <View>
-            <Text style={styles.statLabel}>Amount</Text>
+            <Text style={styles.statLabel}>{t("payment.amount")}</Text>
             <Text style={styles.statValue}>₹{session.amount}</Text>
           </View>
         )}
       </View>
     </AppCard>
   );
+
+  if (onPress) {
+    return <Pressable onPress={onPress}>{content}</Pressable>;
+  }
+  return content;
 }
 
 const styles = StyleSheet.create({

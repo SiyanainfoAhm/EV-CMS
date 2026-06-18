@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, View, Text, Pressable, ActivityIndicator } from "react-native";
+import { ScrollView, StyleSheet, TextInput, View, Text, Pressable, ActivityIndicator, RefreshControl } from "react-native";
+import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
@@ -16,64 +17,75 @@ type Props = NativeStackScreenProps<RootStackParamList, "Chargers">;
 
 const STATUS_FILTERS = ["all", "online", "offline", "faulted"] as const;
 
+const FILTER_KEYS: Record<(typeof STATUS_FILTERS)[number], string> = {
+  all: "charger.filterAll",
+  online: "status.online",
+  offline: "status.offline",
+  faulted: "status.faulted",
+};
+
 export default function ChargerListScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [chargers, setChargers] = useState<Charger[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await chargerService.getChargers({
-        status,
-        search,
-        onlineOnly: false,
-      });
+      const data = await chargerService.getChargers({ status, search, onlineOnly: false });
       setChargers(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load chargers");
+      setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setLoading(false);
     }
-  }, [search, status]);
+  }, [search, status, t]);
 
   useEffect(() => {
-    const t = setTimeout(load, 300);
-    return () => clearTimeout(t);
+    const timer = setTimeout(load, 300);
+    return () => clearTimeout(timer);
   }, [load]);
 
   useSupabaseRealtime(load);
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Header title="Chargers" subtitle="Live status from EV_Chargers" onBack={() => navigation.goBack()} />
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />}
+    >
+      <Header title={t("charger.listTitle")} subtitle={t("charger.listSubtitle")} onBack={() => navigation.goBack()} />
       {isSimulationEnabled() ? <SimulationModeBadge compact /> : null}
       <TextInput
         style={styles.search}
-        placeholder="Search name, ID, location..."
+        placeholder={t("charger.search")}
         placeholderTextColor={colors.textMuted}
         value={search}
         onChangeText={setSearch}
       />
       <View style={styles.filters}>
         {STATUS_FILTERS.map((s) => (
-          <Pressable
-            key={s}
-            style={[styles.chip, status === s && styles.chipActive]}
-            onPress={() => setStatus(s)}
-          >
-            <Text style={[styles.chipText, status === s && styles.chipTextActive]}>{s}</Text>
+          <Pressable key={s} style={[styles.chip, status === s && styles.chipActive]} onPress={() => setStatus(s)}>
+            <Text style={[styles.chipText, status === s && styles.chipTextActive]}>
+              {t(FILTER_KEYS[s])}
+            </Text>
           </Pressable>
         ))}
       </View>
       {loading ? <ActivityIndicator color={colors.emerald} /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {!loading && chargers.length === 0 ? (
-        <Text style={styles.empty}>No chargers match your filters</Text>
-      ) : null}
+      {!loading && chargers.length === 0 ? <Text style={styles.empty}>{t("charger.noResults")}</Text> : null}
       {chargers.map((c) => (
         <ChargerCard key={c.id} charger={c} onPress={() => navigation.navigate("ChargerDetail", { id: c.id })} />
       ))}

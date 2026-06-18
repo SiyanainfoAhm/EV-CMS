@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Text, TextInput, View, StyleSheet, Alert } from "react-native";
+import { Text, TextInput, View, StyleSheet } from "react-native";
+import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
@@ -12,6 +13,7 @@ import { spacing } from "../theme/spacing";
 type Props = NativeStackScreenProps<RootStackParamList, "Support">;
 
 export default function SupportScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,12 +29,12 @@ export default function SupportScreen({ navigation }: Props) {
         subject,
         description: message,
       });
-      setSuccess(`Ticket created (${id.slice(0, 8)}…)`);
+      setSuccess(t("support.ticketCreated", { id: id.slice(0, 8) }));
       setSubject("");
       setMessage("");
-      setTimeout(() => navigation.goBack(), 1500);
+      setTimeout(() => navigation.navigate("SupportTickets"), 1500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to submit ticket");
+      setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setLoading(false);
     }
@@ -40,21 +42,27 @@ export default function SupportScreen({ navigation }: Props) {
 
   return (
     <View style={styles.root}>
-      <Header title="Support" onBack={() => navigation.goBack()} />
+      <Header title={t("support.createTicket")} onBack={() => navigation.goBack()} />
+      <AppButton
+        title={t("support.viewTickets")}
+        variant="outline"
+        onPress={() => navigation.navigate("SupportTickets")}
+        style={styles.linkBtn}
+      />
       <AppCard style={styles.card}>
-        <Text style={styles.label}>Subject</Text>
+        <Text style={styles.label}>{t("support.subject")}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Charging issue, payment, RFID..."
+          placeholder={t("support.subjectPlaceholder")}
           placeholderTextColor={colors.textMuted}
           value={subject}
           onChangeText={setSubject}
         />
-        <Text style={[styles.label, { marginTop: spacing.md }]}>Message</Text>
+        <Text style={[styles.label, { marginTop: spacing.md }]}>{t("support.description")}</Text>
         <TextInput
           style={[styles.input, styles.area]}
           multiline
-          placeholder="Describe your issue"
+          placeholder={t("support.messagePlaceholder")}
           placeholderTextColor={colors.textMuted}
           value={message}
           onChangeText={setMessage}
@@ -62,7 +70,7 @@ export default function SupportScreen({ navigation }: Props) {
       </AppCard>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {success ? <Text style={styles.success}>{success}</Text> : null}
-      <AppButton title="Submit Ticket" onPress={submit} loading={loading} style={styles.button} />
+      <AppButton title={t("support.submit")} onPress={submit} loading={loading} style={styles.button} />
     </View>
   );
 }
@@ -70,6 +78,7 @@ export default function SupportScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background, padding: spacing.md },
   card: { marginBottom: spacing.sm },
+  linkBtn: { marginBottom: spacing.sm },
   button: { marginTop: spacing.sm },
   label: { fontWeight: "600", color: colors.text, marginBottom: 6 },
   input: {

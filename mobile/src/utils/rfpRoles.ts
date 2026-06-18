@@ -28,15 +28,19 @@ export function getDisplayRoleLabel(role: string): string {
 /** Quick actions shown on mobile home — User vs admin monitoring. */
 export const MOBILE_USER_MENU = [
   "Chargers",
+  "NearestMap",
+  "QRStart",
   "LiveSession",
+  "Wallet",
   "SessionHistory",
   "PaymentHistory",
   "RFIDBinding",
   "Profile",
   "Support",
+  "SupportTickets",
 ] as const;
 
-export const MOBILE_ADMIN_MENU = ["Chargers", "SessionHistory", "Profile", "Support"] as const;
+export const MOBILE_ADMIN_MENU = ["Chargers", "NearestMap", "SessionHistory", "Profile", "Support", "SupportTickets"] as const;
 
 export function getMobileMenuRoutes(role: string): readonly string[] {
   return isMobileEndUser(role) ? MOBILE_USER_MENU : MOBILE_ADMIN_MENU;
