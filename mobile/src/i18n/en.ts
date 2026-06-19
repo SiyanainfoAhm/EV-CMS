@@ -68,6 +68,7 @@ export default {
     powerMax: "{{kw}} kW max",
     lastHeartbeat: "Last heartbeat: {{time}}",
     startFailed: "Could not start charging",
+    userInactive: "Your account is not active. Contact your administrator.",
     availableCount: "{{count}} available",
     headers: {
       chargePointId: "Charge Point ID",

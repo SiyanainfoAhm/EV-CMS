@@ -68,6 +68,7 @@ export default {
     powerMax: "अधिकतम {{kw}} kW",
     lastHeartbeat: "अंतिम हार्टबीट: {{time}}",
     startFailed: "चार्जिंग शुरू नहीं हो सकी",
+    userInactive: "आपका खाता सक्रिय नहीं है। कृपया व्यवस्थापक से संपर्क करें।",
     availableCount: "{{count}} उपलब्ध",
     headers: {
       chargePointId: "चार्ज पॉइंट ID",

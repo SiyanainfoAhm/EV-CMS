@@ -78,7 +78,7 @@ export default function HomeScreen({ navigation }: Props) {
     setError("");
     try {
       const [chargers, active, sessions] = await Promise.all([
-        chargerService.getChargers({ status: "all" }),
+        chargerService.getChargers({ status: "all", availableOnly: false }),
         sessionService.getActiveSession(userId),
         sessionService.getRecentSessions(userId, 3),
       ]);

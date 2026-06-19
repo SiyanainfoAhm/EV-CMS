@@ -99,11 +99,31 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
   };
 
   const download = async () => {
-    if (!receipt?.pdfUrl) return;
+    if (!receipt?.receiptNumber) return;
     setBusy(true);
     try {
-      await receiptService.downloadAndShareReceipt(receipt.pdfUrl, receipt.receiptNumber);
+      await receiptService.downloadReceipt({
+        paymentId: receipt.paymentId,
+        receiptNumber: receipt.receiptNumber,
+        pdfUrl: receipt.pdfUrl,
+      });
       Alert.alert(t("common.success"), t("receipt.downloadSuccess"));
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : t("receipt.downloadFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const share = async () => {
+    if (!receipt?.receiptNumber) return;
+    setBusy(true);
+    try {
+      await receiptService.shareReceipt({
+        paymentId: receipt.paymentId,
+        receiptNumber: receipt.receiptNumber,
+        pdfUrl: receipt.pdfUrl,
+      });
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : t("receipt.downloadFailed"));
     } finally {
@@ -227,12 +247,12 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
         <Text style={styles.muted}>{t("session.paymentNotFound")}</Text>
       )}
 
-      {receipt?.pdfUrl ? (
+      {receipt?.receiptNumber ? (
         <>
           <AppButton title={t("receipt.download")} onPress={download} loading={busy} style={styles.btn} />
           <AppButton
             title={t("receipt.share")}
-            onPress={download}
+            onPress={share}
             variant="outline"
             disabled={busy}
             style={styles.btn}

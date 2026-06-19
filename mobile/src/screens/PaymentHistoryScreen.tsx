@@ -47,11 +47,31 @@ export default function PaymentHistoryScreen({ navigation }: Props) {
   };
 
   const download = async (payment: Payment) => {
-    if (!payment.receiptPdfUrl || !payment.receiptNumber) return;
+    if (!payment.receiptNumber) return;
     setDownloadingId(payment.id);
     try {
-      await receiptService.downloadAndShareReceipt(payment.receiptPdfUrl, payment.receiptNumber);
+      await receiptService.downloadReceipt({
+        paymentId: payment.id,
+        receiptNumber: payment.receiptNumber,
+        pdfUrl: payment.receiptPdfUrl,
+      });
       Alert.alert(t("common.success"), t("receipt.downloadSuccess"));
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : t("receipt.downloadFailed"));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const share = async (payment: Payment) => {
+    if (!payment.receiptNumber) return;
+    setDownloadingId(payment.id);
+    try {
+      await receiptService.shareReceipt({
+        paymentId: payment.id,
+        receiptNumber: payment.receiptNumber,
+        pdfUrl: payment.receiptPdfUrl,
+      });
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : t("receipt.downloadFailed"));
     } finally {
@@ -79,25 +99,19 @@ export default function PaymentHistoryScreen({ navigation }: Props) {
           {p.receiptNumber ? (
             <>
               <Text style={styles.receipt}>{t("receipt.number", { number: p.receiptNumber })}</Text>
-              {p.receiptPdfUrl ? (
-                <>
-                  <AppButton
-                    title={t("receipt.download")}
-                    onPress={() => download(p)}
-                    loading={downloadingId === p.id}
-                    variant="outline"
-                    style={styles.downloadBtn}
-                  />
-                  <AppButton
-                    title={t("receipt.share")}
-                    onPress={() => download(p)}
-                    disabled={downloadingId === p.id}
-                    style={styles.downloadBtn}
-                  />
-                </>
-              ) : (
-                <Text style={styles.receiptMuted}>{t("receipt.noReceipt")}</Text>
-              )}
+              <AppButton
+                title={t("receipt.download")}
+                onPress={() => download(p)}
+                loading={downloadingId === p.id}
+                variant="outline"
+                style={styles.downloadBtn}
+              />
+              <AppButton
+                title={t("receipt.share")}
+                onPress={() => share(p)}
+                disabled={downloadingId === p.id}
+                style={styles.downloadBtn}
+              />
             </>
           ) : (
             <Text style={styles.receiptMuted}>{t("receipt.noReceipt")}</Text>

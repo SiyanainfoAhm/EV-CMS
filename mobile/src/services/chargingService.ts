@@ -6,14 +6,13 @@ import * as walletService from "./walletService";
 import type { ChargingSession } from "../types";
 
 async function assertUserCanCharge(userId: string): Promise<void> {
-  const { data, error } = await requireSupabase()
-    .from("EV_Users")
-    .select("status")
-    .eq("id", userId)
-    .maybeSingle();
+  const { data, error } = await requireSupabase().rpc("get_ev_user_profile", {
+    p_user_id: userId,
+  });
 
   if (error) throw error;
-  if (!data || (data as { status: string }).status !== "active") {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || (row as { status: string }).status !== "active") {
     throw new Error("USER_INACTIVE");
   }
 }

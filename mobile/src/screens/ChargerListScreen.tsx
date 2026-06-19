@@ -37,7 +37,12 @@ export default function ChargerListScreen({ navigation }: Props) {
     setLoading(true);
     setError("");
     try {
-      const data = await chargerService.getChargers({ status, search, onlineOnly: false });
+      const data = await chargerService.getChargers({
+        status,
+        search,
+        onlineOnly: false,
+        availableOnly: true,
+      });
       setChargers(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
