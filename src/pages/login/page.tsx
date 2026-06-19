@@ -4,9 +4,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { canAccessWebAdmin, WEB_USER_DENIED_MESSAGE } from "@/utils/rfpRoles";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { validateEmail, validateLoginPassword } from "@/utils/validation";
+import { sendTestEmail, notifyAdminsUnauthorizedLogin } from "@/services/powerAutomateEmailService";
+import * as userService from "@/services/userService";
+import { clearLoginFailures, recordLoginFailure } from "@/utils/loginAttemptTracker";
 
 /** Login left panel — place your artwork at public/images/login-hero.png */
 const LOGIN_BG = "/images/login-hero.png?v=2";
+/** Test email control — local dev only (`npm run dev`); stripped from production builds. */
+const SHOW_TEST_EMAIL_BUTTON = import.meta.env.DEV;
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -17,6 +22,8 @@ export default function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testEmailMessage, setTestEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     if (isLoading || !isAuthenticated || !user) return;
@@ -48,7 +55,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
 
-    const emailErr = validateEmail(email, { dfccilOnly: true });
+    const emailErr = validateEmail(email);
     const passwordErr = validateLoginPassword(password);
     const errors = {
       ...(emailErr ? { email: emailErr } : {}),
@@ -58,12 +65,51 @@ export default function LoginPage() {
     if (emailErr || passwordErr) return;
 
     setLoading(true);
-    const result = await login({ email: email.trim(), password });
+    const trimmedEmail = email.trim();
+    const result = await login({ email: trimmedEmail, password });
     setLoading(false);
     if (result.success) {
+      clearLoginFailures(trimmedEmail);
       navigate("/dashboard");
     } else {
-      setError(result.error || "Invalid credentials. Use your DFCCIL email.");
+      const reason = result.error || "Invalid email or password.";
+      setError(reason);
+      const { shouldAlertSecurity, count } = recordLoginFailure(trimmedEmail, reason);
+      if (shouldAlertSecurity) {
+        try {
+          const admins = await userService.getUsers({ role: "SuperAdmin", status: "active" });
+          await notifyAdminsUnauthorizedLogin({
+            attemptedEmail: trimmedEmail,
+            failureCount: count,
+            lastReason: reason,
+            adminEmails: admins.map((a) => a.email),
+          });
+        } catch {
+          /* alert is best-effort */
+        }
+      }
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestEmailMessage(null);
+    setError("");
+
+    const recipient = email.trim();
+    const emailErr = validateEmail(recipient);
+    if (emailErr) {
+      setTestEmailMessage({ type: "error", text: emailErr });
+      return;
+    }
+
+    setTestEmailLoading(true);
+    const result = await sendTestEmail({ to: recipient });
+    setTestEmailLoading(false);
+
+    if (result.success) {
+      setTestEmailMessage({ type: "success", text: result.message ?? "Test email sent." });
+    } else {
+      setTestEmailMessage({ type: "error", text: result.error ?? "Failed to send test email." });
     }
   };
 
@@ -137,7 +183,7 @@ export default function LoginPage() {
                     setEmail(e.target.value);
                     if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined }));
                   }}
-                  placeholder="name@dfccil.gov.in"
+                  placeholder="you@example.com"
                   className={`${inputClassName(!!fieldErrors.email)} pl-10`}
                 />
               </div>
@@ -165,7 +211,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (SHOW_TEST_EMAIL_BUTTON && testEmailLoading)}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
             >
               {loading ? (
@@ -177,6 +223,46 @@ export default function LoginPage() {
                 "Sign in"
               )}
             </button>
+
+            {SHOW_TEST_EMAIL_BUTTON && testEmailMessage && (
+              <div
+                className={`px-4 py-3 rounded-lg text-sm flex items-start gap-2 ${
+                  testEmailMessage.type === "success"
+                    ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+                    : "bg-amber-50 border border-amber-200 text-amber-900"
+                }`}
+              >
+                <i
+                  className={
+                    testEmailMessage.type === "success"
+                      ? "ri-checkbox-circle-line mt-0.5"
+                      : "ri-information-line mt-0.5"
+                  }
+                ></i>
+                <span>{testEmailMessage.text}</span>
+              </div>
+            )}
+
+            {SHOW_TEST_EMAIL_BUTTON && (
+              <button
+                type="button"
+                onClick={() => void handleTestEmail()}
+                disabled={loading || testEmailLoading}
+                className="w-full py-3 border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                {testEmailLoading ? (
+                  <>
+                    <i className="ri-loader-4-line animate-spin"></i>
+                    Sending test email...
+                  </>
+                ) : (
+                  <>
+                    <i className="ri-mail-send-line"></i>
+                    Test email
+                  </>
+                )}
+              </button>
+            )}
           </form>
 
           <p className="mt-8 text-center text-xs text-gray-400">

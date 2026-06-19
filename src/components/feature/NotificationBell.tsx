@@ -11,6 +11,18 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const { items, unreadCount, loading, markRead, markAllRead } = useNotifications(user?.id, 6);
+  const [badgePulse, setBadgePulse] = useState(false);
+  const prevUnreadRef = useRef(unreadCount);
+
+  useEffect(() => {
+    if (unreadCount > prevUnreadRef.current) {
+      setBadgePulse(true);
+      const timer = setTimeout(() => setBadgePulse(false), 1200);
+      prevUnreadRef.current = unreadCount;
+      return () => clearTimeout(timer);
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -34,12 +46,16 @@ export default function NotificationBell() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
-        aria-label="Notifications"
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
         aria-expanded={open}
       >
         <i className="ri-notification-3-line text-gray-600 text-lg"></i>
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-emerald-500 text-white text-[10px] font-bold rounded-full">
+          <span
+            className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-emerald-500 text-white text-[10px] font-bold rounded-full transition-transform ${
+              badgePulse ? "scale-125 ring-2 ring-emerald-300" : ""
+            }`}
+          >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}

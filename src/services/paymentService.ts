@@ -124,6 +124,24 @@ export async function markPaymentVerified(paymentId: string, gatewayTxnId: strin
   }
 }
 
+export async function markPaymentFailed(paymentId: string): Promise<void> {
+  const { error } = await requireSupabase()
+    .from("EV_Payments")
+    .update({
+      status: "failed",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", paymentId);
+
+  if (error) {
+    throw new Error(
+      error.message.includes("policy")
+        ? "Cannot update payment: run supabase/payments_admin.sql in Supabase."
+        : error.message
+    );
+  }
+}
+
 export async function markPaymentReconciled(paymentId: string): Promise<void> {
   const { error } = await requireSupabase()
     .from("EV_Payments")

@@ -5,6 +5,7 @@ import { resolveResponse, rejectResponse } from "./pending.js";
 import { config } from "../config.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
+import * as alerts from "../supabase/alerts.js";
 
 function ocppNow(): string {
   return new Date().toISOString();
@@ -139,6 +140,23 @@ async function handleCall(
             powerKw: parsed.powerKw,
             soc: parsed.soc,
           });
+        }
+        sendResult(conn, uniqueId, {});
+        break;
+      }
+
+      case "FirmwareStatusNotification": {
+        const status = String(payload.status ?? "Unknown");
+        if (conn.chargerDbId) {
+          await repo.logEvent(conn.chargerDbId, conn.chargePointId, null, "FirmwareStatusNotification", {
+            status,
+            ...payload,
+          });
+        }
+        if (status === "Installed") {
+          void alerts.notifyFirmwareAlert(conn.chargePointId, "installed", `Firmware status: ${status}`);
+        } else if (status === "DownloadFailed" || status === "InstallationFailed") {
+          void alerts.notifyFirmwareAlert(conn.chargePointId, "failed", `Firmware status: ${status}`);
         }
         sendResult(conn, uniqueId, {});
         break;

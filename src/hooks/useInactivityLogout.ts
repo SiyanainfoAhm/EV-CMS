@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { PREFERENCES_UPDATED_EVENT } from "@/utils/userPreferencesStore";
 import * as authService from "@/services/authService";
 
 const IDLE_TIMEOUT_KEY = "ev_cms_idle_timeout_min";
@@ -23,9 +24,16 @@ export function setIdleTimeoutMinutes(minutes: number): void {
 
 /** Auto-logout after configured inactivity (Settings → Session Timeout). */
 export function useInactivityLogout(onLogout: () => void): void {
+  const [settingsVersion, setSettingsVersion] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onLogoutRef = useRef(onLogout);
   onLogoutRef.current = onLogout;
+
+  useEffect(() => {
+    const onPrefsUpdated = () => setSettingsVersion((v) => v + 1);
+    window.addEventListener(PREFERENCES_UPDATED_EVENT, onPrefsUpdated);
+    return () => window.removeEventListener(PREFERENCES_UPDATED_EVENT, onPrefsUpdated);
+  }, []);
 
   useEffect(() => {
     const reset = () => {
@@ -44,5 +52,5 @@ export function useInactivityLogout(onLogout: () => void): void {
       if (timerRef.current) clearTimeout(timerRef.current);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, []);
+  }, [settingsVersion]);
 }
