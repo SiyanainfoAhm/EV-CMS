@@ -64,16 +64,24 @@ export async function updateRfidStatus(id: string, status: string): Promise<void
 }
 
 export async function bindRfidToUser(cardId: string, userId: string): Promise<void> {
-  const { error } = await requireSupabase()
-    .from("EV_RFIDCards")
-    .update({
-      user_id: userId,
-      status: "active",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", cardId);
+  const { error } = await requireSupabase().rpc("bind_ev_rfid_to_user", {
+    p_card_id: cardId,
+    p_user_id: userId,
+  });
 
-  if (error) throw error;
+  if (error) {
+    const msg = error.message ?? "Failed to bind card";
+    if (msg.includes("already assigned")) {
+      throw new Error("This RFID is already assigned to another user");
+    }
+    if (msg.includes("blocked")) {
+      throw new Error("Cannot bind a blocked RFID card");
+    }
+    if (msg.includes("bind_ev_rfid_to_user")) {
+      throw new Error("Run supabase/rfid_one_per_user.sql on Supabase to enable RFID binding rules");
+    }
+    throw new Error(msg);
+  }
 }
 
 export async function unbindRfid(cardId: string): Promise<void> {
