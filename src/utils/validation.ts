@@ -109,6 +109,8 @@ export interface UserFormFields {
   email: string;
   role: string;
   department: string;
+  joinedDate: string;
+  status: "active" | "inactive";
 }
 
 export function validateUserForm(data: UserFormFields): Partial<Record<keyof UserFormFields, string>> {
@@ -119,6 +121,14 @@ export function validateUserForm(data: UserFormFields): Partial<Record<keyof Use
   if (emailErr) errors.email = emailErr;
   if (!data.role) errors.role = "Role is required";
   if (!data.department) errors.department = "Department is required";
+  if (!data.joinedDate?.trim()) {
+    errors.joinedDate = "Joining date is required";
+  } else if (Number.isNaN(new Date(data.joinedDate).getTime())) {
+    errors.joinedDate = "Invalid joining date";
+  }
+  if (data.status !== "active" && data.status !== "inactive") {
+    errors.status = "Status is required";
+  }
   return errors;
 }
 

@@ -47,7 +47,7 @@ function tariffLabel(charger: Charger): string {
 
 
 
-type StatusFilter = "all" | "online" | "offline" | "faulted";
+type StatusFilter = "all" | "online" | "offline" | "faulted" | "decommissioned";
 
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
 
@@ -98,6 +98,8 @@ export default function ChargersPage() {
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
 
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [decommissionTarget, setDecommissionTarget] = useState<Charger | null>(null);
+  const [decommissionLoading, setDecommissionLoading] = useState(false);
 
   const [editingCharger, setEditingCharger] = useState<Charger | null>(null);
 
@@ -155,6 +157,21 @@ export default function ChargersPage() {
 
   };
 
+  const confirmDecommission = async () => {
+    if (!decommissionTarget) return;
+    setDecommissionLoading(true);
+    try {
+      await chargerService.decommissionCharger(decommissionTarget.id);
+      setDecommissionTarget(null);
+      await reloadChargers();
+      showToast(`${decommissionTarget.name} decommissioned`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Decommission failed");
+    } finally {
+      setDecommissionLoading(false);
+    }
+  };
+
 
 
   useEffect(() => {
@@ -179,7 +196,12 @@ export default function ChargersPage() {
 
 
 
-  const apiStatus = statusFilter === "online" || statusFilter === "offline" ? "all" : statusFilter;
+  const apiStatus =
+    statusFilter === "online" || statusFilter === "offline"
+      ? "all"
+      : statusFilter === "decommissioned"
+        ? "decommissioned"
+        : statusFilter;
 
 
 
@@ -260,6 +282,8 @@ export default function ChargersPage() {
       if (statusFilter === "offline") return isOfflineByHeartbeat(c.lastHeartbeat);
 
       if (statusFilter === "faulted") return c.status === "faulted";
+
+      if (statusFilter === "decommissioned") return c.status === "decommissioned";
 
       return true;
 
@@ -440,7 +464,7 @@ export default function ChargersPage() {
 
               <div className="flex items-center gap-1.5 bg-[#f5f5f3] rounded-lg p-1">
 
-                {(["all", "online", "offline", "faulted"] as StatusFilter[]).map((f) => (
+                {(["all", "online", "offline", "faulted", "decommissioned"] as StatusFilter[]).map((f) => (
 
                   <button
 
@@ -736,6 +760,19 @@ export default function ChargersPage() {
 
                       </button>
 
+                      {charger.status !== "decommissioned" ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDecommissionTarget(charger);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors"
+                          title="Decommission charger"
+                        >
+                          <i className="ri-archive-line text-red-400"></i>
+                        </button>
+                      ) : null}
+
                       <button
 
                         onClick={(e) => {
@@ -847,6 +884,39 @@ export default function ChargersPage() {
           }
         }}
       />
+
+      {decommissionTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => !decommissionLoading && setDecommissionTarget(null)} />
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-md">
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">Decommission charger?</h4>
+              <p className="text-sm text-gray-600 mb-4">
+                <span className="font-medium">{decommissionTarget.name}</span> ({decommissionTarget.chargePointId})
+                will be marked decommissioned and hidden from the active fleet list. Historical sessions are kept.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={decommissionLoading}
+                  onClick={() => setDecommissionTarget(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={decommissionLoading}
+                  onClick={confirmDecommission}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-60 transition-colors"
+                >
+                  {decommissionLoading ? "Decommissioning…" : "Decommission"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
     </div>
 

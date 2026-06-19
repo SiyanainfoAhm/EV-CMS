@@ -1,29 +1,26 @@
 import { useState, useEffect, useMemo } from "react";
 import * as userService from "@/services/userService";
 import type { User } from "@/types/ev";
-import { FormField, inputClassName } from "@/components/ui/FormField";
-import { hasErrors, validateUserForm } from "@/utils/validation";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import {
+  UserDeleteModal,
+  UserFormModal,
+  emptyUserForm,
+  userToForm,
+} from "@/components/users";
 
-interface UserFormData {
-  name: string;
-  email: string;
-  role: string;
-  department: string;
-}
-
-const emptyForm: UserFormData = { name: "", email: "", role: "User", department: "Operations" };
+type UserModalMode = "add" | "edit" | null;
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [formData, setFormData] = useState<UserFormData>(emptyForm);
-  const [formErrors, setFormErrors] = useState<Partial<Record<keyof UserFormData, string>>>({});
+  const [modalMode, setModalMode] = useState<UserModalMode>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [formInitial, setFormInitial] = useState(emptyUserForm);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -46,48 +43,27 @@ export default function UsersPage() {
 
   const filteredUsers = useMemo(() => users, [users]);
 
-  const handleAdd = async () => {
-    const errors = validateUserForm(formData);
-    setFormErrors(errors);
-    if (hasErrors(errors)) return;
-    try {
-      await userService.createUser(formData);
-      await loadUsers();
-      setShowAddModal(false);
-      setFormData(emptyForm);
-      showToast("User added successfully");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to add user. Run supabase/policies_write.sql");
-    }
+  const openAddModal = () => {
+    setEditingUser(null);
+    setFormInitial(emptyUserForm);
+    setModalMode("add");
   };
 
-  const handleEdit = (userId: string) => {
-    const user = users.find((u) => u.id === userId);
-    if (!user) return;
-    setFormData({
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      department: user.department ?? "Operations",
-    });
-    setFormErrors({});
-    setEditingUser(userId);
+  const openEditModal = (user: User) => {
+    setEditingUser(user);
+    setFormInitial(userToForm(user));
+    setModalMode("edit");
   };
 
-  const saveEdit = async () => {
-    if (!editingUser) return;
-    const errors = validateUserForm(formData);
-    setFormErrors(errors);
-    if (hasErrors(errors)) return;
-    try {
-      await userService.updateUser(editingUser, formData);
-      await loadUsers();
-      setEditingUser(null);
-      setFormData(emptyForm);
-      showToast("User updated successfully");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to update user");
-    }
+  const closeModal = () => {
+    setModalMode(null);
+    setEditingUser(null);
+    setFormInitial(emptyUserForm);
+  };
+
+  const handleSaved = () => {
+    void loadUsers();
+    showToast(modalMode === "edit" ? "User updated successfully" : "User added successfully");
   };
 
   const toggleStatus = async (userId: string) => {
@@ -105,13 +81,16 @@ export default function UsersPage() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setDeleteLoading(true);
     try {
-      await userService.deleteUser(deleteTarget);
+      await userService.deleteUser(deleteTarget.id);
       await loadUsers();
       setDeleteTarget(null);
       showToast("User removed");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to remove user");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -131,7 +110,7 @@ export default function UsersPage() {
           <p className="text-sm text-gray-500 mt-1">Manage DFCCIL accounts — RFP roles: User (mobile), Site Admin, Super Admin</p>
         </div>
         <button
-          onClick={() => { setFormData(emptyForm); setFormErrors({}); setShowAddModal(true); }}
+          onClick={openAddModal}
           className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap flex items-center gap-2"
         >
           <div className="w-4 h-4 flex items-center justify-center">
@@ -239,13 +218,13 @@ export default function UsersPage() {
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => handleEdit(user.id)}
+                        onClick={() => openEditModal(user)}
                         className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
                       >
                         <i className="ri-edit-line text-gray-400"></i>
                       </button>
                       <button
-                        onClick={() => setDeleteTarget(user.id)}
+                        onClick={() => setDeleteTarget(user)}
                         className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors"
                       >
                         <i className="ri-delete-bin-line text-gray-400 hover:text-red-500"></i>
@@ -259,101 +238,24 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {(showAddModal || editingUser) && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => { setShowAddModal(false); setEditingUser(null); }}></div>
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                {editingUser ? "Edit User" : "Add New User"}
-              </h3>
-              <div className="space-y-4">
-                <FormField label="Full Name" error={formErrors.name} required>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className={inputClassName(!!formErrors.name)}
-                    placeholder="Enter full name"
-                  />
-                </FormField>
-                <FormField label="Email" error={formErrors.email} required>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className={inputClassName(!!formErrors.email)}
-                    placeholder="name@dfccil.gov.in"
-                  />
-                </FormField>
-                <FormField label="Role" error={formErrors.role} required>
-                  <select
-                    value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                    className={inputClassName(!!formErrors.role)}
-                  >
-                    <option value="User">User (mobile app)</option>
-                    <option value="SiteAdmin">Site Admin</option>
-                    <option value="SuperAdmin">Super Admin</option>
-                  </select>
-                </FormField>
-                <FormField label="Department" error={formErrors.department} required>
-                  <select
-                    value={formData.department}
-                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                    className={inputClassName(!!formErrors.department)}
-                  >
-                    <option value="Operations">Operations</option>
-                    <option value="Logistics">Logistics</option>
-                    <option value="IT">IT</option>
-                    <option value="Management">Management</option>
-                  </select>
-                </FormField>
-              </div>
-              <div className="flex items-center gap-3 mt-6">
-                <button
-                  onClick={() => { setShowAddModal(false); setEditingUser(null); }}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={editingUser ? saveEdit : handleAdd}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap"
-                >
-                  {editingUser ? "Save Changes" : "Add User"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <UserFormModal
+        open={modalMode !== null}
+        mode={modalMode === "edit" ? "edit" : "add"}
+        editingId={editingUser?.id}
+        initialForm={formInitial}
+        boundRfid={editingUser?.rfidBound}
+        onClose={closeModal}
+        onSaved={handleSaved}
+        onError={(msg) => showToast(msg)}
+      />
 
-      {deleteTarget && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setDeleteTarget(null)}></div>
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100">
-                  <i className="ri-delete-bin-line text-red-600 text-lg"></i>
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900">Delete User</h4>
-                  <p className="text-xs text-gray-500">This action cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Are you sure you want to remove this user? All associated sessions and records will be retained.
-              </p>
-              <div className="flex items-center gap-3">
-                <button onClick={() => setDeleteTarget(null)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">Cancel</button>
-                <button onClick={confirmDelete} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors whitespace-nowrap">Delete</button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <UserDeleteModal
+        open={deleteTarget !== null}
+        userName={deleteTarget?.name}
+        deleting={deleteLoading}
+        onClose={() => !deleteLoading && setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }
