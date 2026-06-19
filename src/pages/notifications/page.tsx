@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { supabase } from "@/utils/supabaseClient";
 import * as notificationService from "@/services/notificationService";
 import { formatRelativeTime } from "@/utils/supabaseMappers";
+import { isNotificationEnabled } from "@/utils/notificationPreferences";
 import type { Notification } from "@/types/ev";
 
 type Filter = "all" | "unread";
 
 export default function NotificationsPage() {
   const { user } = useAuth();
+  const { notifications: prefs } = useUserPreferences();
   const [items, setItems] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
@@ -21,13 +24,13 @@ export default function NotificationsPage() {
         limit: 100,
         unreadOnly: filter === "unread",
       });
-      setItems(data);
+      setItems(data.filter((n) => isNotificationEnabled(n, prefs)));
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, filter]);
+  }, [user?.id, filter, prefs]);
 
   useEffect(() => {
     load();
@@ -59,8 +62,11 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (!user?.id) return;
-    notificationService.getUnreadCount(user.id).then(setUnreadTotal).catch(console.error);
-  }, [user?.id, items]);
+    notificationService
+      .getNotifications(user.id, { limit: 100, unreadOnly: true })
+      .then((rows) => setUnreadTotal(rows.filter((n) => isNotificationEnabled(n, prefs)).length))
+      .catch(console.error);
+  }, [user?.id, items, prefs]);
 
   const handleMarkRead = async (id: string) => {
     await notificationService.markAsRead(id);

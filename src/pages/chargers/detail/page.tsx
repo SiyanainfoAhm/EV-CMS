@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as chargerService from "@/services/chargerService";
 import * as ocppService from "@/services/ocppService";
+import { OcppGatewayError } from "@/services/ocppService";
+import { notifyFirmwareAlert } from "@/services/operationalAlertService";
 import * as tariffService from "@/services/tariffService";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
@@ -123,6 +125,8 @@ export default function ChargerDetailPage() {
   const [firmwareLoading, setFirmwareLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [effectiveTariff, setEffectiveTariff] = useState<Tariff | null>(null);
+  const [showDecommissionConfirm, setShowDecommissionConfirm] = useState(false);
+  const [decommissionLoading, setDecommissionLoading] = useState(false);
   useOcppGatewayConfig();
 
   if (!charger) {
@@ -144,7 +148,27 @@ export default function ChargerDetailPage() {
   }
 
   const connectivityLabel: ConnectivityLabel | "faulted" =
-    charger.status === "faulted" ? "faulted" : connectivityFromHeartbeat(charger.lastHeartbeat);
+    charger.status === "decommissioned"
+      ? "offline"
+      : charger.status === "faulted"
+        ? "faulted"
+        : connectivityFromHeartbeat(charger.lastHeartbeat);
+
+  const handleDecommission = async () => {
+    if (!charger) return;
+    setDecommissionLoading(true);
+    try {
+      await chargerService.decommissionCharger(charger.id);
+      setShowDecommissionConfirm(false);
+      setToast("Charger decommissioned");
+      setTimeout(() => navigate("/chargers"), 1200);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Decommission failed");
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setDecommissionLoading(false);
+    }
+  };
 
   const handleFirmwareUpdate = async () => {
     if (!charger || !firmwareUrl.trim()) return;
@@ -156,7 +180,11 @@ export default function ChargerDetailPage() {
       setToast(result.accepted ? "UpdateFirmware accepted by charger" : "Charger rejected firmware update");
       setTimeout(() => setToast(null), 4000);
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Firmware update failed");
+      const message = e instanceof Error ? e.message : "Firmware update failed";
+      if (e instanceof OcppGatewayError && message.includes("not configured")) {
+        void notifyFirmwareAlert(charger.chargePointId, "failed", message).catch(() => {});
+      }
+      setToast(message);
       setTimeout(() => setToast(null), 4000);
     } finally {
       setFirmwareLoading(false);
@@ -274,29 +302,44 @@ export default function ChargerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {charger.status === "decommissioned" ? (
+            <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium">Decommissioned</span>
+          ) : null}
           <button
             onClick={() => setShowEditModal(true)}
-            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2"
+            disabled={charger.status === "decommissioned"}
+            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-50"
           >
             <i className="ri-edit-line"></i>
             Edit
           </button>
           <button
             onClick={() => setShowFirmwareModal(true)}
-            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2"
+            disabled={charger.status === "decommissioned"}
+            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-50"
           >
             <i className="ri-download-cloud-line"></i>
             Firmware
           </button>
           <button
             onClick={() => handleRemoteAction("Reset", 0)}
-            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors whitespace-nowrap flex items-center gap-2"
+            disabled={charger.status === "decommissioned"}
+            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-50"
           >
           <div className="w-4 h-4 flex items-center justify-center">
             <i className="ri-restart-line"></i>
           </div>
           Reset Charger
           </button>
+          {charger.status !== "decommissioned" ? (
+            <button
+              onClick={() => setShowDecommissionConfirm(true)}
+              className="px-4 py-2 bg-white text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors whitespace-nowrap flex items-center gap-2"
+            >
+              <i className="ri-archive-line"></i>
+              Decommission
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -672,6 +715,38 @@ export default function ChargerDetailPage() {
                   className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap disabled:opacity-60"
                 >
                   {actionLoading ? "Sending…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showDecommissionConfirm && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => !decommissionLoading && setShowDecommissionConfirm(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-md">
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">Decommission this charger?</h4>
+              <p className="text-sm text-gray-600 mb-4">
+                {charger.name} will be removed from the active fleet. OCPP remote commands will be disabled. Session history is retained.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={decommissionLoading}
+                  onClick={() => setShowDecommissionConfirm(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={decommissionLoading}
+                  onClick={handleDecommission}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-60 transition-colors"
+                >
+                  {decommissionLoading ? "Decommissioning…" : "Decommission"}
                 </button>
               </div>
             </div>

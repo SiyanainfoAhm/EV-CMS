@@ -110,6 +110,47 @@ export async function changePassword(
   return Boolean(data);
 }
 
+export async function createEmailChangeOtp(userId: string, newEmail: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc("create_ev_email_change_otp", {
+    p_user_id: userId,
+    p_new_email: newEmail.trim(),
+  });
+  if (error) {
+    const msg = error.message ?? "Failed to create verification code";
+    if (msg.includes("already in use")) {
+      throw new Error("This email is already used by another account");
+    }
+    if (msg.includes("create_ev_email_change_otp")) {
+      throw new Error("Run supabase/email_change_otp.sql on Supabase to enable email verification");
+    }
+    throw new Error(msg);
+  }
+  const otp = String(data ?? "").trim();
+  if (!/^\d{6}$/.test(otp)) {
+    throw new Error("Invalid verification code from server");
+  }
+  return otp;
+}
+
+export async function verifyEmailChangeOtp(
+  userId: string,
+  newEmail: string,
+  otp: string
+): Promise<boolean> {
+  const { data, error } = await requireSupabase().rpc("verify_ev_email_change_otp", {
+    p_user_id: userId,
+    p_new_email: newEmail.trim(),
+    p_otp: otp.trim(),
+  });
+  if (error) {
+    if (error.message?.includes("verify_ev_email_change_otp")) {
+      throw new Error("Run supabase/email_change_otp.sql on Supabase to enable email verification");
+    }
+    throw error;
+  }
+  return Boolean(data);
+}
+
 export async function recordLoginAttempt(
   email: string,
   success: boolean,

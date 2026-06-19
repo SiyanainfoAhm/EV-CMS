@@ -176,20 +176,6 @@ BEGIN
     AND connector_id = 1;
 
   PERFORM ev_sim_log_event(p_charger_id, 1, 'StatusNotification', jsonb_build_object('status', p_status));
-
-  IF lower(trim(p_status)) = 'faulted' THEN
-    PERFORM ev_notify_admins(
-      'Charger faulted',
-      (SELECT name FROM "EV_Chargers" WHERE id = p_charger_id) || ' reported Faulted status',
-      'alert'
-    );
-  ELSIF lower(trim(p_status)) = 'offline' THEN
-    PERFORM ev_notify_admins(
-      'Charger offline',
-      (SELECT name FROM "EV_Chargers" WHERE id = p_charger_id) || ' is offline (no recent heartbeat)',
-      'warning'
-    );
-  END IF;
 END;
 $$;
 
@@ -253,11 +239,6 @@ BEGIN
     WHERE user_id = p_user_id AND type = 'charging_started'
     ORDER BY created_at DESC
     LIMIT 1
-  );
-  PERFORM ev_notify_admins(
-    'New session started',
-    (SELECT full_name FROM "EV_Users" WHERE id = p_user_id) || ' started charging (simulator)',
-    'session'
   );
 
   RETURN v_session_id;
@@ -364,7 +345,6 @@ BEGIN
     ORDER BY created_at DESC
     LIMIT 1
   );
-  PERFORM ev_notify_admins('Session completed', 'Charging session ended (simulator)', 'info');
 END;
 $$;
 

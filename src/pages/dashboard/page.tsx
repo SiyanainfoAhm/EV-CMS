@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,9 +10,11 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import * as dashboardService from "@/services/dashboardService";
 import type { RecentActivityItem } from "@/services/dashboardService";
 import type { TimeRange } from "@/types/ev";
+import { connectivityFromHeartbeat } from "@/utils/chargerConnectivity";
 
 const emptyStats = {
   totalChargers: 0,
@@ -32,8 +32,8 @@ const emptyStats = {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  // Default to week so the demo seed (mostly 2026-06-01) shows activity on 2026-06-02.
-  const [timeRange, setTimeRange] = useState<TimeRange>("week");
+  const { formatCurrency, formatEnergy } = useUserPreferences();
+  const [timeRange, setTimeRange] = useState<TimeRange>("today");
   const { stats, chargers, activeSessions } = useDashboardData(timeRange);
   const [energyData, setEnergyData] = useState<{ hour: string; kwh: number }[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
@@ -119,7 +119,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-xs text-gray-500">Energy {rangeLabel}</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{dashboardStats.totalEnergyTodayKwh}</p>
+          <p className="text-2xl font-bold text-gray-900">{formatEnergy(dashboardStats.totalEnergyTodayKwh)}</p>
           <p className="text-xs text-gray-400 mt-1">
             <span className="text-gray-500">kWh consumed</span>
           </p>
@@ -133,7 +133,7 @@ export default function DashboardPage() {
             <span className="text-xs text-gray-500">Revenue {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            &#8377;{dashboardStats.totalRevenueToday.toLocaleString()}
+            {formatCurrency(dashboardStats.totalRevenueToday)}
           </p>
           <p className="text-xs text-gray-400 mt-1">
             <span className="text-gray-500">{dashboardStats.totalSessionsToday} sessions in {rangeLabel}</span>
@@ -244,17 +244,26 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="space-y-3">
-            {chargerList.slice(0, 6).map((charger) => (
+            {chargerList.slice(0, 6).map((charger) => {
+              const connectivity = connectivityFromHeartbeat(charger.lastHeartbeat);
+              return (
               <div key={charger.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      charger.status === "online" ? "bg-emerald-500" : charger.status === "faulted" ? "bg-red-500" : "bg-gray-400"
+                      connectivity === "online"
+                        ? "bg-emerald-500"
+                        : connectivity === "offline"
+                          ? "bg-gray-400"
+                          : "bg-amber-400"
                     }`}
                   ></div>
                   <div>
                     <p className="text-sm font-medium text-gray-900">{charger.name}</p>
-                    <p className="text-xs text-gray-400">{charger.chargePointId} · {charger.location}</p>
+                    <p className="text-xs text-gray-400">
+                      {charger.chargePointId} · {charger.location}
+                      {charger.status === "faulted" ? " · faulted" : ""}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -276,7 +285,8 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
 

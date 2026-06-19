@@ -1,6 +1,5 @@
 /** Shared form validators — return error message or null if valid */
 
-const DFCCIL_EMAIL = /^[a-z0-9._%+-]+@dfccil\.gov\.in$/i;
 const GENERIC_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RFID_UID = /^[A-Za-z0-9-]{6,32}$/;
 const PHONE_IN = /^(\+91[\s-]?)?[6-9]\d{9}$/;
@@ -14,13 +13,10 @@ export function validateRequired(value: string, label: string): ValidationResult
   return null;
 }
 
-export function validateEmail(email: string, options?: { dfccilOnly?: boolean }): ValidationResult {
+export function validateEmail(email: string): ValidationResult {
   const trimmed = email.trim();
   if (!trimmed) return "Email is required";
   if (!GENERIC_EMAIL.test(trimmed)) return "Enter a valid email address";
-  if (options?.dfccilOnly && !DFCCIL_EMAIL.test(trimmed)) {
-    return "Use your @dfccil.gov.in email address";
-  }
   return null;
 }
 
@@ -109,16 +105,26 @@ export interface UserFormFields {
   email: string;
   role: string;
   department: string;
+  joinedDate: string;
+  status: "active" | "inactive";
 }
 
 export function validateUserForm(data: UserFormFields): Partial<Record<keyof UserFormFields, string>> {
   const errors: Partial<Record<keyof UserFormFields, string>> = {};
   const nameErr = validateName(data.name);
   if (nameErr) errors.name = nameErr;
-  const emailErr = validateEmail(data.email, { dfccilOnly: true });
+  const emailErr = validateEmail(data.email);
   if (emailErr) errors.email = emailErr;
   if (!data.role) errors.role = "Role is required";
   if (!data.department) errors.department = "Department is required";
+  if (!data.joinedDate?.trim()) {
+    errors.joinedDate = "Joining date is required";
+  } else if (Number.isNaN(new Date(data.joinedDate).getTime())) {
+    errors.joinedDate = "Invalid joining date";
+  }
+  if (data.status !== "active" && data.status !== "inactive") {
+    errors.status = "Status is required";
+  }
   return errors;
 }
 
@@ -155,7 +161,7 @@ export function validateProfileForm(data: ProfileFormFields): Partial<Record<key
   const errors: Partial<Record<keyof ProfileFormFields, string>> = {};
   const nameErr = validateName(data.name);
   if (nameErr) errors.name = nameErr;
-  const emailErr = validateEmail(data.email, { dfccilOnly: true });
+  const emailErr = validateEmail(data.email);
   if (emailErr) errors.email = emailErr;
   if (!data.department) errors.department = "Department is required";
   const phoneErr = validatePhone(data.phone, false);

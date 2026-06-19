@@ -17,6 +17,7 @@ import AuditLogsPage from "../pages/audit-logs/page";
 import SettingsPage from "../pages/settings/page";
 import SimulatorPage from "../pages/simulator/page";
 import NotificationsPage from "../pages/notifications/page";
+import SupportTicketsPage from "../pages/support-tickets/page";
 
 const routes: RouteObject[] = [
   {
@@ -66,6 +67,10 @@ const routes: RouteObject[] = [
       {
         path: "/payments",
         element: <PaymentsPage />,
+      },
+      {
+        path: "/support-tickets",
+        element: <SupportTicketsPage />,
       },
       {
         path: "/reports",

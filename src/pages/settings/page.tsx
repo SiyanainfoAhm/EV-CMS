@@ -2,12 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import * as profileService from "@/services/profileService";
+import { sendPasswordChangedEmail, sendEmailOtpVerification, sendEmailInBackground } from "@/services/powerAutomateEmailService";
+import EmailOtpModal from "@/components/settings/EmailOtpModal";
 import * as mediaService from "@/services/mediaService";
 import { formatLastLogin } from "@/utils/supabaseMappers";
-import { setIdleTimeoutMinutes } from "@/hooks/useInactivityLogout";
 import * as adminService from "@/services/adminService";
 import { isWebSuperAdmin } from "@/utils/rfpRoles";
-import type { NotificationPreferences, SystemPreferences } from "@/types/profile";
+import type { NotificationPreferences } from "@/types/profile";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { preferenceLabel } from "@/utils/notificationPreferences";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import {
   hasErrors,
@@ -38,6 +41,13 @@ function formatJoined(iso: string): string {
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
+  const {
+    notifications,
+    systemSettings,
+    setNotifications,
+    setSystemSettings,
+    savePreferences,
+  } = useUserPreferences();
   const userId = user?.id ?? "";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,32 +74,16 @@ export default function SettingsPage() {
     newPassword: "",
     confirmPassword: "",
   });
-  const [notifications, setNotifications] = useState<NotificationPreferences>({
-    chargerOffline: true,
-    chargerFaulted: true,
-    sessionStarted: false,
-    sessionStopped: false,
-    paymentReceived: true,
-    firmwareAvailable: true,
-    weeklyReport: true,
-    emailDigest: false,
-  });
-  const [systemSettings, setSystemSettings] = useState<SystemPreferences>({
-    sessionTimeout: 30,
-    autoRefreshInterval: 15,
-    dateFormat: "DD/MM/YYYY",
-    timeFormat: "24h",
-    energyUnit: "kWh",
-    currency: "INR",
-  });
   const [toast, setToast] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
-  const [showTwoFaModal, setShowTwoFaModal] = useState(false);
-  const [twoFaCode, setTwoFaCode] = useState("");
   const [archiving, setArchiving] = useState(false);
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
+  const [pendingNewEmail, setPendingNewEmail] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
 
   useEffect(() => {
     if (activeTab === "security" && userId) {
@@ -105,8 +99,6 @@ export default function SettingsPage() {
       department: profile.department || "IT",
       phone: profile.phone || "",
     });
-    setNotifications(profile.notifications);
-    setSystemSettings(profile.systemSettings);
     setAvatarUrl(profile.avatarUrl);
   }, [profile]);
 
@@ -115,27 +107,124 @@ export default function SettingsPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleProfileSave = async () => {
+  const resetProfileForm = () => {
+    if (!profile) return;
+    setProfileForm({
+      name: profile.name,
+      email: profile.email,
+      department: profile.department || "IT",
+      phone: profile.phone || "",
+    });
+    setProfileErrors({});
+    setShowEmailOtpModal(false);
+    setPendingNewEmail("");
+    setOtpError(null);
+  };
+
+  const persistProfile = async () => {
     if (!userId) return;
+    await profileService.updateProfile(userId, {
+      name: profileForm.name,
+      email: profileForm.email,
+      phone: profileForm.phone,
+      department: profileForm.department,
+      avatarUrl,
+    });
+    await refreshUser();
+    await reloadProfile();
+  };
+
+  const sendEmailChangeOtp = async (newEmail: string): Promise<void> => {
+    if (!userId || !profile) return;
+    setOtpSending(true);
+    setOtpError(null);
+    try {
+      const otp = await profileService.createEmailChangeOtp(userId, newEmail);
+      const result = await sendEmailOtpVerification({
+        name: profileForm.name || profile.name,
+        email: newEmail,
+        otp,
+      });
+      if (!result.success) {
+        throw new Error(result.error ?? "Could not send verification email");
+      }
+      setPendingNewEmail(newEmail);
+      setShowEmailOtpModal(true);
+      showToast(`Verification code sent to ${newEmail}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to send verification code";
+      setOtpError(message);
+      throw e;
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleProfileSave = async () => {
+    if (!userId || !profile) return;
     const errors = validateProfileForm(profileForm);
     setProfileErrors(errors);
     if (hasErrors(errors)) return;
+
+    const emailChanged = profileForm.email.trim().toLowerCase() !== profile.email.trim().toLowerCase();
+    if (emailChanged) {
+      setSaving(true);
+      try {
+        await sendEmailChangeOtp(profileForm.email.trim());
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to start email verification");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     setSaving(true);
     try {
+      await persistProfile();
+      showToast("Profile updated successfully");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to save profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleOtpVerify = async (otp: string) => {
+    if (!userId || !pendingNewEmail) return;
+    setOtpVerifying(true);
+    setOtpError(null);
+    try {
+      const valid = await profileService.verifyEmailChangeOtp(userId, pendingNewEmail, otp);
+      if (!valid) {
+        setOtpError("Invalid or expired code. Try again or resend a new code.");
+        return;
+      }
       await profileService.updateProfile(userId, {
         name: profileForm.name,
-        email: profileForm.email,
+        email: pendingNewEmail,
         phone: profileForm.phone,
         department: profileForm.department,
         avatarUrl,
       });
       await refreshUser();
       await reloadProfile();
-      showToast("Profile updated successfully");
+      setShowEmailOtpModal(false);
+      setPendingNewEmail("");
+      showToast("Email verified and profile updated");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to save profile");
+      setOtpError(e instanceof Error ? e.message : "Verification failed");
     } finally {
-      setSaving(false);
+      setOtpVerifying(false);
+    }
+  };
+
+  const handleOtpResend = async () => {
+    if (!pendingNewEmail) return;
+    try {
+      await sendEmailChangeOtp(pendingNewEmail);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to resend code");
     }
   };
 
@@ -207,6 +296,11 @@ export default function SettingsPage() {
         showToast("Current password is incorrect");
         return;
       }
+      if (profile?.email && profile?.name) {
+        sendEmailInBackground(
+          sendPasswordChangedEmail({ name: profile.name, email: profile.email })
+        );
+      }
       showToast("Password changed successfully");
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
       setPasswordError(null);
@@ -218,21 +312,15 @@ export default function SettingsPage() {
     }
   };
 
-  const persistPreferences = async (
-    nextNotifications = notifications,
-    nextSystem = systemSettings
-  ) => {
-    if (!userId) return;
-    await profileService.savePreferences(userId, nextNotifications, nextSystem);
-  };
-
   const toggleNotification = async (key: keyof NotificationPreferences) => {
     const next = { ...notifications, [key]: !notifications[key] };
+    const prev = notifications;
     setNotifications(next);
     try {
-      await persistPreferences(next, systemSettings);
+      await savePreferences(next, systemSettings);
+      showToast(`${preferenceLabel(key)} ${next[key] ? "enabled" : "disabled"}`);
     } catch {
-      setNotifications(notifications);
+      setNotifications(prev);
       showToast("Could not save notification preference");
     }
   };
@@ -241,9 +329,8 @@ export default function SettingsPage() {
     if (!userId) return;
     setSaving(true);
     try {
-      setIdleTimeoutMinutes(systemSettings.sessionTimeout);
-      await persistPreferences(notifications, systemSettings);
-      showToast("System settings saved");
+      await savePreferences(notifications, systemSettings);
+      showToast("System settings saved and applied");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to save settings");
     } finally {
@@ -263,17 +350,6 @@ export default function SettingsPage() {
     } finally {
       setArchiving(false);
     }
-  };
-
-  const confirmEnable2Fa = () => {
-    if (twoFaCode.trim().length !== 6) {
-      showToast("Enter the 6-digit code from your authenticator app");
-      return;
-    }
-    setTwoFaEnabled(true);
-    setShowTwoFaModal(false);
-    setTwoFaCode("");
-    showToast("Two-factor authentication enabled (demo — full TOTP in Phase 5)");
   };
 
   const displayName = profile?.name ?? user?.name ?? "—";
@@ -421,6 +497,22 @@ export default function SettingsPage() {
                     onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
                     className={inputClassName(!!profileErrors.email)}
                   />
+                  {profile && profileForm.email.trim().toLowerCase() !== profile.email.trim().toLowerCase() ? (
+                    <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                      Changing your email requires a 6-digit verification code sent to the new address.
+                    </p>
+                  ) : null}
+                </FormField>
+                <FormField label="Role">
+                  <input
+                    type="text"
+                    value={displayRole}
+                    readOnly
+                    className={`${inputClassName(false)} bg-gray-50 text-gray-600 cursor-not-allowed`}
+                  />
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    Role is managed by your administrator on the Users page. Contact IT if you need a role change.
+                  </p>
                 </FormField>
                 <FormField label="Department" error={profileErrors.department} required>
                   <select
@@ -452,7 +544,12 @@ export default function SettingsPage() {
                 >
                   {saving ? "Saving…" : "Save Changes"}
                 </button>
-                <button className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={resetProfileForm}
+                  disabled={saving || !profile}
+                  className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors whitespace-nowrap disabled:opacity-50"
+                >
                   Cancel
                 </button>
               </div>
@@ -569,39 +666,6 @@ export default function SettingsPage() {
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-5">Two-Factor Authentication</h3>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">2FA Status</p>
-                <p className="text-xs text-gray-400 mt-0.5">Add an extra layer of security to your account</p>
-              </div>
-              <span className={`text-xs px-3 py-1 rounded-full font-medium ${twoFaEnabled ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                {twoFaEnabled ? "Enabled" : "Disabled"}
-              </span>
-            </div>
-            {twoFaEnabled ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setTwoFaEnabled(false);
-                  showToast("Two-factor authentication disabled");
-                }}
-                className="mt-4 px-4 py-2.5 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
-              >
-                Disable 2FA
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowTwoFaModal(true)}
-                className="mt-4 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
-              >
-                Enable 2FA
-              </button>
-            )}
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-900 mb-4">Login History</h3>
             <div className="space-y-2">
               {(loginHistory ?? []).length === 0 ? (
@@ -640,7 +704,7 @@ export default function SettingsPage() {
             <h3 className="text-sm font-semibold text-gray-900 mb-5">Charger Alerts</h3>
             <div className="space-y-4">
               {[
-                { key: "chargerOffline" as const, label: "Charger goes offline", desc: "Get notified when any charger loses connectivity" },
+                { key: "chargerOffline" as const, label: "Charger offline / back online", desc: "Alert when a charger loses connectivity or comes back online" },
                 { key: "chargerFaulted" as const, label: "Charger fault detected", desc: "Alert when a charger reports a fault condition" },
                 { key: "sessionStarted" as const, label: "New session started", desc: "Notification when a charging session begins on any charger" },
                 { key: "sessionStopped" as const, label: "Session stopped", desc: "Alert when a charging session ends or is stopped" },
@@ -672,7 +736,7 @@ export default function SettingsPage() {
             <div className="space-y-4">
               {[
                 { key: "paymentReceived" as const, label: "Payment received", desc: "Notify when a charging payment is successfully captured" },
-                { key: "firmwareAvailable" as const, label: "Firmware update available", desc: "Alert when new firmware is available for chargers" },
+                { key: "firmwareAvailable" as const, label: "Firmware updates", desc: "Alert when a firmware update is sent, fails, or is installed on a charger" },
                 { key: "weeklyReport" as const, label: "Weekly summary report", desc: "Receive a weekly digest of charger usage and revenue" },
                 { key: "emailDigest" as const, label: "Daily email digest", desc: "Get a daily summary email of all charging activity" },
               ].map((item) => (
@@ -696,6 +760,14 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <p className="text-sm font-medium text-emerald-900">How alerts work</p>
+            <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+              Enabled alerts appear in the notification bell and are emailed to your account address.
+              Weekly summary and daily digest emails are sent on a schedule when those options are on.
+            </p>
           </div>
         </div>
       )}
@@ -802,13 +874,17 @@ export default function SettingsPage() {
                 </select>
               </div>
             </div>
-            <div className="mt-6">
+            <div className="mt-6 flex items-center gap-3">
               <button
                 onClick={handleSystemSave}
-                className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap"
+                disabled={saving}
+                className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap disabled:opacity-50"
               >
-                Save Settings
+                {saving ? "Saving…" : "Save Settings"}
               </button>
+              <p className="text-xs text-gray-500">
+                Session timeout, refresh rate, and display formats apply immediately after save.
+              </p>
             </div>
           </div>
 
@@ -859,43 +935,21 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {showTwoFaModal && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowTwoFaModal(false)} />
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-sm">
-              <h4 className="text-sm font-semibold text-gray-900 mb-1">Enable Two-Factor Authentication</h4>
-              <p className="text-xs text-gray-500 mb-4">
-                Scan this placeholder QR in Google Authenticator, then enter the 6-digit code.
-              </p>
-              <div className="w-32 h-32 mx-auto mb-4 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200">
-                <i className="ri-qr-code-line text-4xl text-gray-400"></i>
-              </div>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={twoFaCode}
-                onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, ""))}
-                placeholder="000000"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-center font-mono mb-4"
-              />
-              <div className="flex gap-3 justify-end">
-                <button type="button" onClick={() => setShowTwoFaModal(false)} className="px-4 py-2 text-sm text-gray-600">
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmEnable2Fa}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium"
-                >
-                  Verify &amp; Enable
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <EmailOtpModal
+        open={showEmailOtpModal}
+        newEmail={pendingNewEmail}
+        sending={otpSending}
+        verifying={otpVerifying}
+        error={otpError}
+        onClose={() => {
+          if (!otpVerifying && !otpSending) {
+            setShowEmailOtpModal(false);
+            setOtpError(null);
+          }
+        }}
+        onResend={() => void handleOtpResend()}
+        onVerify={(otp) => void handleOtpVerify(otp)}
+      />
     </div>
   );
 }
