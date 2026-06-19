@@ -1,6 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import * as supportTicketService from "@/services/supportTicketService";
 import * as userService from "@/services/userService";
+import {
+  sendTicketAssignedEmail,
+  sendTicketClosedEmail,
+  sendTicketStatusUpdatedEmail,
+  sendEmailInBackground,
+} from "@/services/powerAutomateEmailService";
 import type { SupportTicket, User } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { canAccessWebAdmin } from "@/utils/rfpRoles";
@@ -138,7 +144,8 @@ export default function SupportTicketsPage() {
   };
 
   const saveTicket = async () => {
-    if (!selectedId) return;
+    if (!selectedId || !selectedTicket) return;
+    const before = selectedTicket;
     setSaving(true);
     try {
       await supportTicketService.updateSupportTicket(selectedId, {
@@ -146,6 +153,51 @@ export default function SupportTicketsPage() {
         priority: editPriority,
         assignedTo: editAssignee || null,
       });
+
+      const ticketSnapshot = {
+        id: before.id,
+        subject: before.subject,
+        description: before.description,
+        status: editStatus,
+        priority: editPriority,
+        userName: before.userName,
+        userEmail: before.userEmail,
+      };
+
+      if (editAssignee && editAssignee !== (before.assignedTo ?? "")) {
+        const assignee = admins.find((a) => a.id === editAssignee);
+        if (assignee) {
+          sendEmailInBackground(
+            sendTicketAssignedEmail({
+              assigneeName: assignee.name,
+              assigneeEmail: assignee.email,
+              ticket: ticketSnapshot,
+            })
+          );
+        }
+      }
+
+      if (editStatus !== before.status) {
+        if (editStatus === "closed") {
+          sendEmailInBackground(
+            sendTicketClosedEmail({
+              recipientName: before.userName,
+              recipientEmail: before.userEmail,
+              ticket: ticketSnapshot,
+            })
+          );
+        } else {
+          sendEmailInBackground(
+            sendTicketStatusUpdatedEmail({
+              recipientName: before.userName,
+              recipientEmail: before.userEmail,
+              ticket: ticketSnapshot,
+              previousStatus: before.status,
+            })
+          );
+        }
+      }
+
       await loadTickets();
       showToast("Ticket updated");
       closeDetail();

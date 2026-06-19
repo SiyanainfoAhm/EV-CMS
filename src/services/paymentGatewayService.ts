@@ -61,7 +61,17 @@ export async function verifyPayment(paymentId: string): Promise<PaymentVerificat
 
   const res = await fetch(`${paymentUrl}/payments/${paymentId}/verify`);
   if (!res.ok) throw new Error(`Payment verification failed (${res.status})`);
-  return res.json() as Promise<PaymentVerificationResult>;
+  const result = (await res.json()) as PaymentVerificationResult;
+  if (result.verified && result.status === "success") {
+    await paymentService.markPaymentVerified(
+      paymentId,
+      result.gatewayTxnId ?? `GW-${Date.now()}`,
+      undefined
+    );
+  } else if (result.status === "failed" || !result.verified) {
+    await paymentService.markPaymentFailed(paymentId);
+  }
+  return result;
 }
 
 export async function reconcilePayment(paymentId: string): Promise<{ matched: boolean }> {

@@ -69,6 +69,26 @@ export async function markAllAsRead(userId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+export async function notifyUser(
+  userId: string,
+  title: string,
+  message: string,
+  type = "info"
+): Promise<void> {
+  const { error } = await requireSupabase().rpc("ev_notify_user", {
+    p_user_id: userId,
+    p_title: title,
+    p_message: message,
+    p_type: type,
+  });
+  if (error) {
+    if (error.message?.includes("ev_notify_user")) {
+      throw new Error("Run supabase/notifications.sql on Supabase to enable notifications");
+    }
+    throw new Error(error.message);
+  }
+}
+
 export function notificationTypeStyles(type: string): { icon: string; badge: string } {
   switch (type) {
     case "alert":

@@ -4,6 +4,15 @@ import { FormField, inputClassName } from "@/components/ui/FormField";
 import * as userService from "@/services/userService";
 import type { User } from "@/types/ev";
 import { hasErrors, validateUserForm, type UserFormFields } from "@/utils/validation";
+import { sendWelcomeEmail, sendAccountActivatedEmail } from "@/services/powerAutomateEmailService";
+
+export interface UserSavedDetail {
+  mode: "add" | "edit";
+  email?: string;
+  welcomeEmailSent?: boolean;
+  welcomeEmailWarning?: string;
+  activationEmailSent?: boolean;
+}
 
 export const USER_DEPARTMENTS = ["Operations", "Logistics", "IT", "Management"] as const;
 
@@ -48,8 +57,9 @@ interface UserFormModalProps {
   editingId?: string;
   initialForm?: UserFormFields;
   boundRfid?: string | null;
+  previousStatus?: "active" | "inactive";
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (detail: UserSavedDetail) => void;
   onError: (message: string) => void;
 }
 
@@ -59,6 +69,7 @@ export function UserFormModal({
   editingId,
   initialForm = emptyUserForm,
   boundRfid,
+  previousStatus,
   onClose,
   onSaved,
   onError,
@@ -66,13 +77,15 @@ export function UserFormModal({
   const [formData, setFormData] = useState<UserFormFields>(initialForm);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof UserFormFields, string>>>({});
   const [saving, setSaving] = useState(false);
+  const [sendWelcomeEmailOnCreate, setSendWelcomeEmailOnCreate] = useState(true);
 
   useEffect(() => {
     if (open) {
       setFormData(initialForm);
       setFormErrors({});
+      if (mode === "add") setSendWelcomeEmailOnCreate(true);
     }
-  }, [open, initialForm]);
+  }, [open, initialForm, mode]);
 
   if (!open) return null;
 
@@ -87,10 +100,47 @@ export function UserFormModal({
     try {
       if (isEdit && editingId) {
         await userService.updateUser(editingId, formData);
+
+        let activationEmailSent = false;
+        if (previousStatus === "inactive" && formData.status === "active") {
+          const emailResult = await sendAccountActivatedEmail({
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+          });
+          activationEmailSent = emailResult.success;
+        }
+
+        onSaved({ mode: "edit", email: formData.email.trim(), activationEmailSent });
       } else {
         await userService.createUser(formData);
+
+        let welcomeEmailSent = false;
+        let welcomeEmailWarning: string | undefined;
+
+        if (sendWelcomeEmailOnCreate) {
+          const emailResult = await sendWelcomeEmail({
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+            department: formData.department,
+            joinedDate: formData.joinedDate,
+            status: formData.status,
+          });
+          if (emailResult.success) {
+            welcomeEmailSent = true;
+          } else {
+            welcomeEmailWarning = emailResult.error ?? "Welcome email could not be sent.";
+          }
+        }
+
+        onSaved({
+          mode: "add",
+          email: formData.email.trim(),
+          welcomeEmailSent,
+          welcomeEmailWarning,
+        });
       }
-      onSaved();
       onClose();
     } catch (e) {
       const message = e instanceof Error ? e.message : "";
@@ -135,7 +185,7 @@ export function UserFormModal({
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className={inputClassName(!!formErrors.email)}
-                placeholder="name@dfccil.gov.in"
+                placeholder="you@example.com"
                 disabled={saving}
               />
             </FormField>
@@ -206,7 +256,23 @@ export function UserFormModal({
                   page. One user can have only one RFID; one RFID cannot be shared across users.
                 </p>
               </div>
-            ) : null}
+            ) : (
+              <label className="flex items-start gap-3 p-3 bg-emerald-50/60 rounded-lg border border-emerald-100 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sendWelcomeEmailOnCreate}
+                  onChange={(e) => setSendWelcomeEmailOnCreate(e.target.checked)}
+                  disabled={saving}
+                  className="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="text-sm font-medium text-gray-900 block">Send welcome email</span>
+                  <span className="text-[11px] text-gray-500">
+                    Notifies the user that their EV-CMS account was created (via Power Automate).
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-6">
             <button
