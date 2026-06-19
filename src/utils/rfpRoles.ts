@@ -69,6 +69,7 @@ export const WEB_NAV_ITEMS: WebNavItem[] = [
   { label: "RFID Cards", path: "/rfid", icon: "ri-sim-card-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "Tariffs", path: "/tariffs", icon: "ri-money-rupee-circle-line", roles: ["SuperAdmin"] },
   { label: "Payments", path: "/payments", icon: "ri-bank-card-line", roles: ["SuperAdmin", "SiteAdmin"] },
+  { label: "Support Tickets", path: "/support-tickets", icon: "ri-customer-service-2-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "Reports", path: "/reports", icon: "ri-bar-chart-line", roles: ["SuperAdmin"] },
   { label: "Audit Logs", path: "/audit-logs", icon: "ri-file-list-3-line", roles: ["SuperAdmin"] },
   { label: "Simulator", path: "/simulator", icon: "ri-cpu-line", roles: ["SuperAdmin"] },

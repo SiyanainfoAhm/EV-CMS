@@ -54,6 +54,8 @@ export interface CreateUserInput {
   email: string;
   role: string;
   department: string;
+  joinedDate: string;
+  status: "active" | "inactive";
 }
 
 export async function createUser(input: CreateUserInput): Promise<void> {
@@ -62,6 +64,8 @@ export async function createUser(input: CreateUserInput): Promise<void> {
     p_full_name: input.name,
     p_role: mapUiRoleToDb(input.role),
     p_department: input.department,
+    p_joined_date: input.joinedDate,
+    p_status: input.status,
   });
   if (error) throw error;
 }
@@ -76,6 +80,8 @@ export async function updateUser(
     p_full_name: input.name,
     p_role: mapUiRoleToDb(input.role),
     p_department: input.department,
+    p_joined_date: input.joinedDate,
+    p_status: input.status,
   });
   if (error) throw error;
 }

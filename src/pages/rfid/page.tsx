@@ -299,7 +299,10 @@ export default function RfidPage() {
           <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setBindTarget(null)}></div>
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Bind RFID to User</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Bind RFID to User</h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Each RFID can be assigned to only one user. If the user already has a card, it will be replaced.
+              </p>
               <FormField label="Select User" error={bindError} required>
                 <select
                   value={selectedUser}
@@ -311,7 +314,9 @@ export default function RfidPage() {
                 >
                   <option value="">Choose a user...</option>
                   {usersList.filter((u) => u.status === "active").map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.department})</option>
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.department}){u.rfidBound ? ` — current: ${u.rfidBound}` : ""}
+                    </option>
                   ))}
                 </select>
               </FormField>
