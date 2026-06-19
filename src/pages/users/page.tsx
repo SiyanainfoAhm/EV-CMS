@@ -3,10 +3,18 @@ import * as userService from "@/services/userService";
 import type { User } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
+  sendAccountActivatedEmail,
+  sendEmailInBackground,
+} from "@/services/powerAutomateEmailService";
+import {
   UserDeleteModal,
   UserFormModal,
   emptyUserForm,
   userToForm,
+  USER_DEPARTMENTS,
+  USER_ROLE_OPTIONS,
+  USER_STATUS_OPTIONS,
+  type UserSavedDetail,
 } from "@/components/users";
 
 type UserModalMode = "add" | "edit" | null;
@@ -61,9 +69,25 @@ export default function UsersPage() {
     setFormInitial(emptyUserForm);
   };
 
-  const handleSaved = () => {
+  const handleSaved = (detail: UserSavedDetail) => {
     void loadUsers();
-    showToast(modalMode === "edit" ? "User updated successfully" : "User added successfully");
+    if (detail.mode === "edit") {
+      if (detail.activationEmailSent && detail.email) {
+        showToast(`User updated. Activation email sent to ${detail.email}`);
+      } else {
+        showToast("User updated successfully");
+      }
+      return;
+    }
+    if (detail.welcomeEmailSent && detail.email) {
+      showToast(`User added. Welcome email sent to ${detail.email}`);
+      return;
+    }
+    if (detail.welcomeEmailWarning) {
+      showToast(`User added. ${detail.welcomeEmailWarning}`);
+      return;
+    }
+    showToast("User added successfully");
   };
 
   const toggleStatus = async (userId: string) => {
@@ -73,7 +97,18 @@ export default function UsersPage() {
     try {
       await userService.setUserStatus(userId, next);
       await loadUsers();
-      showToast("User status updated");
+      if (next === "active") {
+        sendEmailInBackground(
+          sendAccountActivatedEmail({
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          })
+        );
+        showToast(`User activated. Notification email sent to ${user.email}`);
+      } else {
+        showToast("User status updated");
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to update status");
     }
@@ -244,6 +279,7 @@ export default function UsersPage() {
         editingId={editingUser?.id}
         initialForm={formInitial}
         boundRfid={editingUser?.rfidBound}
+        previousStatus={editingUser?.status === "inactive" ? "inactive" : "active"}
         onClose={closeModal}
         onSaved={handleSaved}
         onError={(msg) => showToast(msg)}

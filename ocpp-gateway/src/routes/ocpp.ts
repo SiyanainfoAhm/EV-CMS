@@ -4,6 +4,7 @@ import { sendOcppCall } from "../ocpp/caller.js";
 import { config } from "../config.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
+import * as alerts from "../supabase/alerts.js";
 
 export const ocppRouter = Router();
 
@@ -283,8 +284,22 @@ ocppRouter.post("/update-firmware", async (req, res) => {
       location: String(location),
       retrieveDate: retrieveDate ?? new Date().toISOString(),
     });
-    res.json({ accepted: acceptedFromResponse(response), response });
+    const accepted = acceptedFromResponse(response);
+    void alerts.notifyFirmwareAlert(
+      cpId,
+      accepted ? "sent" : "failed",
+      accepted ? `Package URL: ${String(location)}` : "Charger rejected UpdateFirmware"
+    );
+    res.json({ accepted, response });
   } catch (err) {
+    const cpId = String((req.body as { chargePointId?: string }).chargePointId ?? "").toUpperCase();
+    if (cpId) {
+      void alerts.notifyFirmwareAlert(
+        cpId,
+        "failed",
+        err instanceof Error ? err.message : "UpdateFirmware failed"
+      );
+    }
     res.status(502).json({
       accepted: false,
       error: err instanceof Error ? err.message : "UpdateFirmware failed",

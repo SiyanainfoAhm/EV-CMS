@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import * as dashboardService from "@/services/dashboardService";
 import type { RecentActivityItem } from "@/services/dashboardService";
 import type { TimeRange } from "@/types/ev";
@@ -31,6 +32,7 @@ const emptyStats = {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const { formatCurrency, formatEnergy } = useUserPreferences();
   const [timeRange, setTimeRange] = useState<TimeRange>("today");
   const { stats, chargers, activeSessions } = useDashboardData(timeRange);
   const [energyData, setEnergyData] = useState<{ hour: string; kwh: number }[]>([]);
@@ -117,7 +119,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-xs text-gray-500">Energy {rangeLabel}</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{dashboardStats.totalEnergyTodayKwh}</p>
+          <p className="text-2xl font-bold text-gray-900">{formatEnergy(dashboardStats.totalEnergyTodayKwh)}</p>
           <p className="text-xs text-gray-400 mt-1">
             <span className="text-gray-500">kWh consumed</span>
           </p>
@@ -131,7 +133,7 @@ export default function DashboardPage() {
             <span className="text-xs text-gray-500">Revenue {rangeLabel}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            &#8377;{dashboardStats.totalRevenueToday.toLocaleString()}
+            {formatCurrency(dashboardStats.totalRevenueToday)}
           </p>
           <p className="text-xs text-gray-400 mt-1">
             <span className="text-gray-500">{dashboardStats.totalSessionsToday} sessions in {rangeLabel}</span>

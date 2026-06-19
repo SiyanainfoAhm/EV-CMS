@@ -3,27 +3,16 @@ import * as paymentService from "@/services/paymentService";
 import * as paymentGatewayService from "@/services/paymentGatewayService";
 import type { Payment } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { isPaymentMockEnabled } from "@/utils/paymentMockMode";
-
-function formatTime(isoStr: string): string {
-  return new Date(isoStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function shortId(value: string, length = 8): string {
   if (!value) return "—";
   return value.length > length ? `${value.slice(0, length)}…` : value;
 }
 
-function formatInr(amount: number): string {
-  return `₹${amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 export default function PaymentsPage() {
+  const { formatCurrency, formatDateTime } = useUserPreferences();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [receipts, setReceipts] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -136,7 +125,7 @@ export default function PaymentsPage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 min-w-0">
           <p className="text-xs text-gray-500 mb-1 truncate">Total Revenue</p>
-          <p className="text-2xl font-bold text-rose-600 truncate">{formatInr(stats.totalRevenue)}</p>
+          <p className="text-2xl font-bold text-rose-600 truncate">{formatCurrency(stats.totalRevenue)}</p>
         </div>
       </div>
 
@@ -229,9 +218,9 @@ export default function PaymentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3.5 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">{formatInr(payment.totalAmount)}</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(payment.totalAmount)}</p>
                       <p className="text-[10px] text-gray-400 truncate">
-                        {formatInr(payment.amount)} + {formatInr(payment.gstAmount)} GST
+                        {formatCurrency(payment.amount)} + {formatCurrency(payment.gstAmount)} GST
                       </p>
                     </td>
                     <td className="px-4 py-3.5 min-w-0">
@@ -269,7 +258,7 @@ export default function PaymentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3.5 min-w-0">
-                      <p className="text-sm text-gray-500 whitespace-nowrap">{formatTime(payment.createdAt)}</p>
+                      <p className="text-sm text-gray-500 whitespace-nowrap">{formatDateTime(payment.createdAt)}</p>
                       {receipts[payment.id] ? (
                         <p className="text-[10px] text-emerald-600 truncate" title={receipts[payment.id]}>
                           {receipts[payment.id]}

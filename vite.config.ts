@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 import AutoImport from "unplugin-auto-import/vite";
 import { evMediaUploadPlugin } from "./vite.ev-media";
+import { powerAutomateProxyPlugin } from "./vite.power-automate-proxy";
 // import { readdyJsxRuntimeProxyPlugin } from "./vite.jsx-runtime-proxy";
 
 const base = process.env.BASE_PATH || "/";
@@ -20,6 +21,7 @@ export default defineConfig({
   plugins: [
     // ...proxyPlugins,
     evMediaUploadPlugin(),
+    powerAutomateProxyPlugin(),
     react(),
     AutoImport({
       imports: [

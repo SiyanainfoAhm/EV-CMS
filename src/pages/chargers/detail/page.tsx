@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as chargerService from "@/services/chargerService";
 import * as ocppService from "@/services/ocppService";
+import { OcppGatewayError } from "@/services/ocppService";
+import { notifyFirmwareAlert } from "@/services/operationalAlertService";
 import * as tariffService from "@/services/tariffService";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
@@ -178,7 +180,11 @@ export default function ChargerDetailPage() {
       setToast(result.accepted ? "UpdateFirmware accepted by charger" : "Charger rejected firmware update");
       setTimeout(() => setToast(null), 4000);
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Firmware update failed");
+      const message = e instanceof Error ? e.message : "Firmware update failed";
+      if (e instanceof OcppGatewayError && message.includes("not configured")) {
+        void notifyFirmwareAlert(charger.chargePointId, "failed", message).catch(() => {});
+      }
+      setToast(message);
       setTimeout(() => setToast(null), 4000);
     } finally {
       setFirmwareLoading(false);
