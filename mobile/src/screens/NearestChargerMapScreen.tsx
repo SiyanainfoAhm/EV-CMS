@@ -42,7 +42,7 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
       } else {
         setError(e instanceof Error ? e.message : t("common.error"));
       }
-      setChargers(await chargerService.getChargers({ onlineOnly: true }));
+      setChargers(await chargerService.getChargers({ onlineOnly: true, availableOnly: true }));
     } finally {
       setLoading(false);
     }

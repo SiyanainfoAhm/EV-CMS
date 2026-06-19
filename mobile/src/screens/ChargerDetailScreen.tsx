@@ -136,11 +136,12 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
             </FieldRow>
           </AppCard>
           <Text style={styles.section}>{t("charger.selectConnector")}</Text>
-          {charger.connectors.map((conn) => {
-            const available = chargerService.isConnectorAvailable(conn.status);
+          {charger.connectors
+            .filter((conn) => chargerService.isConnectorAvailable(conn.status))
+            .map((conn) => {
             const isSelected = selected?.id === conn.id;
             return (
-              <Pressable key={conn.id} onPress={() => available && setSelected(conn)} disabled={!available}>
+              <Pressable key={conn.id} onPress={() => setSelected(conn)}>
                 <AppCard style={[styles.connector, isSelected && styles.connectorSelected]}>
                   <View>
                     <Text style={styles.connTitle}>
@@ -153,6 +154,9 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
               </Pressable>
             );
           })}
+          {charger.connectors.every((conn) => !chargerService.isConnectorAvailable(conn.status)) ? (
+            <Text style={styles.error}>{t("charger.notAvailable")}</Text>
+          ) : null}
           {!canCharge ? <AdminNoticeBanner /> : null}
           {canCharge ? (
             <>

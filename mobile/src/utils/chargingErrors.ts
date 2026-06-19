@@ -30,5 +30,9 @@ export function showChargingErrorAlert(
     Alert.alert(t("common.error"), t("wallet.notFound"));
     return;
   }
+  if (code === "USER_INACTIVE") {
+    Alert.alert(t("common.error"), t("charger.userInactive"));
+    return;
+  }
   Alert.alert(t("common.error"), error instanceof Error ? error.message : t("charger.startFailed"));
 }

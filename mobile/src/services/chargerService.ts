@@ -8,6 +8,8 @@ export interface ChargersQuery {
   status?: string;
   search?: string;
   onlineOnly?: boolean;
+  /** When true, only chargers with at least one Available connector and online heartbeat. */
+  availableOnly?: boolean;
 }
 
 function mapConnector(c: Record<string, unknown>): ChargerConnector {
@@ -69,6 +71,10 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
     list = list.filter((c) => c.status === "Faulted");
   }
 
+  if (query.availableOnly) {
+    list = list.filter(isChargerAvailableForCharging);
+  }
+
   return list;
 }
 
@@ -82,7 +88,7 @@ export async function getNearestChargers(
   userLng: number,
   limit = 20
 ): Promise<Charger[]> {
-  const list = await getChargers({ onlineOnly: true });
+  const list = await getChargers({ onlineOnly: true, availableOnly: true });
   return sortChargersByDistance(list, { latitude: userLat, longitude: userLng }).slice(0, limit);
 }
 
@@ -137,4 +143,17 @@ export async function getChargerByChargePointId(chargePointId: string): Promise<
 
 export function isConnectorAvailable(status: string): boolean {
   return status.toLowerCase() === "available";
+}
+
+export function hasAvailableConnector(charger: Charger): boolean {
+  return charger.connectors.some((c) => isConnectorAvailable(c.status));
+}
+
+const UNAVAILABLE_CHARGER_STATUSES = new Set(["offline", "faulted", "unavailable", "occupied"]);
+
+/** Charger is listed when online and has at least one startable connector. */
+export function isChargerAvailableForCharging(charger: Charger): boolean {
+  if (!isOnlineByHeartbeat(charger.lastHeartbeat)) return false;
+  if (UNAVAILABLE_CHARGER_STATUSES.has(charger.status.toLowerCase())) return false;
+  return hasAvailableConnector(charger);
 }
