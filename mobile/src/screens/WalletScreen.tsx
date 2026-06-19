@@ -114,8 +114,13 @@ export default function WalletScreen({ navigation }: Props) {
 
       {!paymentService.checkGatewayConfigured() ? (
         <AppCard style={styles.infoCard}>
-          <Text style={styles.infoText}>{t("wallet.gatewayPending")}</Text>
+          <Text style={styles.infoText}>{t(paymentService.getGatewayPendingMessage())}</Text>
           <Text style={styles.infoSub}>{t("wallet.infoText")}</Text>
+        </AppCard>
+      ) : paymentService.isRazorpayPaymentEnabled() ? (
+        <AppCard style={styles.infoCard}>
+          <Text style={styles.infoText}>{t("razorpay.title")}</Text>
+          <Text style={styles.infoSub}>{t("razorpay.checkoutHint")}</Text>
         </AppCard>
       ) : (
         <AppCard style={styles.infoCard}>
