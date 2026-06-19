@@ -347,6 +347,11 @@ export default {
     keyMissing: "रेज़रपे Key ID उपलब्ध नहीं है।",
     orderCreateFailed: "भुगतान ऑर्डर बनाने में असमर्थ।",
     gatewayNotConfigured: "पेमेंट गेटवे अभी कॉन्फ़िगर नहीं है।",
+    requiresDevBuild:
+      "रेज़रपे चेकआउट के लिए कस्टम ऐप बिल्ड (EAS APK/IPA) चाहिए। यह Expo Go में काम नहीं करता।",
+    nativeUnavailable: "इस बिल्ड में रेज़रपे मॉड्यूल उपलब्ध नहीं है। EAS से ऐप दोबारा इंस्टॉल करें।",
+    checkoutNotOpened: "पेमेंट गेटवे नहीं खुला। नीचे से पेमेंट पूरा करें या ऐप को दोबारा बिल्ड करें।",
+    completePayment: "पेमेंट पूरा करें",
   },
   ledger: {
     credit: "क्रेडिट",

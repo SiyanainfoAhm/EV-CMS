@@ -11,6 +11,7 @@ import { requireUserId } from "./authService";
 import {
   openRazorpayCheckout,
   isRazorpayUserCancelled,
+  isRazorpayNativeAvailable,
   type CreateRazorpayOrderResponse,
 } from "./razorpayService";
 import * as walletService from "./walletService";
@@ -23,8 +24,61 @@ export type RazorpayTopupResult = {
   status: string;
   walletCredited: boolean;
   cancelled?: boolean;
+  checkoutFailed?: boolean;
   errorMessage?: string;
 };
+
+function mapRazorpayCheckoutError(e: unknown): RazorpayTopupResult {
+  if (isRazorpayUserCancelled(e)) {
+    return {
+      paymentOrderId: "",
+      status: "cancelled",
+      walletCredited: false,
+      cancelled: true,
+    };
+  }
+
+  const message = e instanceof Error ? e.message : "PAYMENT_FAILED";
+  return {
+    paymentOrderId: "",
+    status: "failed",
+    walletCredited: false,
+    checkoutFailed: true,
+    errorMessage: message,
+  };
+}
+
+async function completeRazorpayCheckout(
+  order: CreateRazorpayOrderResponse
+): Promise<RazorpayTopupResult> {
+  try {
+    const checkout = await openRazorpayCheckout(order);
+
+    const verifyPayload = {
+      payment_order_id: order.payment_order_id,
+      razorpay_order_id: checkout.razorpay_order_id ?? order.razorpay_order_id,
+      razorpay_payment_id: checkout.razorpay_payment_id,
+      razorpay_signature: checkout.razorpay_signature ?? "",
+    };
+
+    const verified = await walletService.verifyRazorpayTopupPayment(verifyPayload);
+
+    return {
+      paymentOrderId: verified.payment_order_id,
+      razorpayOrderId: verifyPayload.razorpay_order_id,
+      razorpayPaymentId: verified.gateway_payment_id ?? checkout.razorpay_payment_id,
+      status: verified.status,
+      walletCredited: verified.wallet_credited,
+    };
+  } catch (e) {
+    const failed = mapRazorpayCheckoutError(e);
+    return {
+      ...failed,
+      paymentOrderId: order.payment_order_id,
+      razorpayOrderId: order.razorpay_order_id,
+    };
+  }
+}
 
 export function checkGatewayConfigured(): boolean {
   if (!paymentConfig.gatewayEnabled) return false;
@@ -40,6 +94,10 @@ export function isPaymentMockEnabled(): boolean {
 
 export function isRazorpayPaymentEnabled(): boolean {
   return isRazorpayPaymentReady();
+}
+
+export function canOpenRazorpayCheckout(): boolean {
+  return isRazorpayPaymentReady() && isRazorpayNativeAvailable();
 }
 
 export function getGatewayPendingMessage(): string {
@@ -103,46 +161,31 @@ export async function createTopupPaymentOrder(
 /** Full Razorpay top-up: create order → checkout → backend verify. */
 export async function processRazorpayTopup(amount: number): Promise<RazorpayTopupResult> {
   const order = await walletService.createRazorpayTopupOrder(amount);
+  return completeRazorpayCheckout(order);
+}
 
-  try {
-    const checkout = await openRazorpayCheckout(order);
-
-    const verifyPayload = {
-      payment_order_id: order.payment_order_id,
-      razorpay_order_id: checkout.razorpay_order_id ?? order.razorpay_order_id,
-      razorpay_payment_id: checkout.razorpay_payment_id,
-      razorpay_signature: checkout.razorpay_signature ?? "",
-    };
-
-    const verified = await walletService.verifyRazorpayTopupPayment(verifyPayload);
-
-    return {
-      paymentOrderId: verified.payment_order_id,
-      razorpayOrderId: verifyPayload.razorpay_order_id,
-      razorpayPaymentId: verified.gateway_payment_id ?? checkout.razorpay_payment_id,
-      status: verified.status,
-      walletCredited: verified.wallet_credited,
-    };
-  } catch (e) {
-    if (isRazorpayUserCancelled(e)) {
-      return {
-        paymentOrderId: order.payment_order_id,
-        razorpayOrderId: order.razorpay_order_id,
-        status: "cancelled",
-        walletCredited: false,
-        cancelled: true,
-      };
-    }
-
-    const message = e instanceof Error ? e.message : "PAYMENT_FAILED";
-    return {
-      paymentOrderId: order.payment_order_id,
-      razorpayOrderId: order.razorpay_order_id,
-      status: "failed",
-      walletCredited: false,
-      errorMessage: message,
-    };
+/** Re-open Razorpay checkout for an existing pending order. */
+export async function resumeRazorpayTopup(paymentOrderId: string): Promise<RazorpayTopupResult> {
+  const status = await walletService.getPaymentOrderStatus(paymentOrderId);
+  if (!status?.gatewayOrderId) {
+    throw new Error("RAZORPAY_ORDER_MISSING");
   }
+
+  const order: CreateRazorpayOrderResponse = {
+    payment_order_id: paymentOrderId,
+    razorpay_order_id: status.gatewayOrderId,
+    amount: status.amount,
+    amount_paise: Math.round(status.amount * 100),
+    currency: status.currency || "INR",
+    key_id: paymentConfig.razorpayKeyId,
+    status: status.status,
+  };
+
+  if (!order.key_id) {
+    throw new Error("RAZORPAY_KEY_MISSING");
+  }
+
+  return completeRazorpayCheckout(order);
 }
 
 /** Start top-up flow — Razorpay native checkout or legacy URL gateway. */

@@ -26,9 +26,45 @@ export type TopupPaymentStatusResponse = {
 };
 
 const RAZORPAY_FUNCTION_BY_PATH: Record<string, string> = {
-  "/mobile/wallet/topup/create-razorpay-order": "mobile-wallet-create-razorpay-order",
-  "/mobile/wallet/topup/verify-razorpay-payment": "mobile-wallet-verify-razorpay-payment",
+  "/mobile/wallet/topup/create-razorpay-order": "ev-cms-mobile-wallet-create-razorpay-order",
+  "/mobile/wallet/topup/verify-razorpay-payment": "ev-cms-mobile-wallet-verify-razorpay-payment",
 };
+
+async function readEdgeFunctionError(error: unknown): Promise<string> {
+  if (!error || typeof error !== "object") return "PAYMENT_VERIFY_FAILED";
+
+  const err = error as {
+    message?: string;
+    context?: { json?: () => Promise<unknown>; text?: () => Promise<string> };
+  };
+
+  if (err.context?.json) {
+    try {
+      const body = (await err.context.json()) as { error?: string };
+      if (body?.error) return body.error;
+    } catch {
+      // fall through to text / message
+    }
+  }
+
+  if (err.context?.text) {
+    try {
+      const text = await err.context.text();
+      if (text) {
+        try {
+          const body = JSON.parse(text) as { error?: string };
+          if (body?.error) return body.error;
+        } catch {
+          return text;
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return err.message || "PAYMENT_VERIFY_FAILED";
+}
 
 async function mobileWalletPost<T>(path: string, body: unknown): Promise<T> {
   if (paymentConfig.apiBaseUrl) {
@@ -47,7 +83,7 @@ async function mobileWalletPost<T>(path: string, body: unknown): Promise<T> {
   });
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(await readEdgeFunctionError(error));
   }
 
   if (data && typeof data === "object" && "error" in data) {
@@ -144,6 +180,36 @@ function mapPaymentOrderStatusRow(row: Record<string, unknown>) {
   };
 }
 
+async function getPaymentOrderStatusFromTable(paymentOrderId: string, userId: string) {
+  const { data, error } = await requireSupabase()
+    .from("EV_PaymentOrders")
+    .select(
+      "id, amount, currency, status, wallet_credited, failure_reason, checkout_url, gateway_name, gateway_order_id, gateway_payment_id, created_at, updated_at"
+    )
+    .eq("id", paymentOrderId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const row = data as Record<string, unknown>;
+  return mapPaymentOrderStatusRow({
+    payment_order_id: row.id,
+    amount: row.amount,
+    currency: row.currency,
+    status: row.status,
+    wallet_credited: row.wallet_credited,
+    failure_reason: row.failure_reason,
+    checkout_url: row.checkout_url,
+    gateway_name: row.gateway_name,
+    gateway_order_id: row.gateway_order_id,
+    gateway_payment_id: row.gateway_payment_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  });
+}
+
 export async function getPaymentOrderStatus(
   paymentOrderId: string,
   userId?: string
@@ -161,6 +227,8 @@ export async function getPaymentOrderStatus(
   createdAt: string;
   updatedAt: string;
 } | null> {
+  const uid = userId ?? requireUserId();
+
   if (isRazorpayGateway() && (paymentConfig.apiBaseUrl || paymentConfig.supabaseUrl)) {
     try {
       const apiStatus = await getTopupPaymentStatus(paymentOrderId);
@@ -187,7 +255,9 @@ export async function getPaymentOrderStatus(
     }
   }
 
-  const uid = userId ?? requireUserId();
+  const fromTable = await getPaymentOrderStatusFromTable(paymentOrderId, uid);
+  if (fromTable) return fromTable;
+
   const { data, error } = await requireSupabase().rpc("ev_get_payment_order_status", {
     p_user_id: uid,
     p_payment_order_id: paymentOrderId,

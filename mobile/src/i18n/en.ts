@@ -347,6 +347,11 @@ export default {
     keyMissing: "Razorpay key ID is missing.",
     orderCreateFailed: "Unable to create payment order.",
     gatewayNotConfigured: "Payment gateway is not configured yet.",
+    requiresDevBuild:
+      "Razorpay checkout needs a custom app build (EAS APK/IPA). It does not work in Expo Go.",
+    nativeUnavailable: "Razorpay native module is not available in this build. Reinstall the app from EAS.",
+    checkoutNotOpened: "Payment gateway did not open. Complete payment below or rebuild the app.",
+    completePayment: "Complete Payment",
   },
   ledger: {
     credit: "Credit",

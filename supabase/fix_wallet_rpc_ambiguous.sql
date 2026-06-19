@@ -128,6 +128,8 @@ RETURNS TABLE (
   failure_reason TEXT,
   checkout_url TEXT,
   gateway_name TEXT,
+  gateway_order_id TEXT,
+  gateway_payment_id TEXT,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ
 )
@@ -147,6 +149,8 @@ BEGIN
     o.failure_reason,
     o.checkout_url,
     o.gateway_name,
+    o.gateway_order_id,
+    o.gateway_payment_id,
     o.created_at,
     o.updated_at
   FROM "EV_PaymentOrders" o

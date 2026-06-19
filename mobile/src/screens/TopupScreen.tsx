@@ -23,6 +23,21 @@ const METHOD_LABEL_KEYS: Record<TopupPaymentMethod, string> = {
   gateway: "topup.methodGateway",
 };
 
+function razorpayErrorMessage(t: (key: string) => string, code?: string): string {
+  switch (code) {
+    case "RAZORPAY_REQUIRES_DEV_BUILD":
+      return t("razorpay.requiresDevBuild");
+    case "RAZORPAY_NATIVE_UNAVAILABLE":
+      return t("razorpay.nativeUnavailable");
+    case "RAZORPAY_KEY_MISSING":
+      return t("razorpay.keyMissing");
+    case "PAYMENT_GATEWAY_DISABLED":
+      return t("razorpay.gatewayNotConfigured");
+    default:
+      return code && code !== "PAYMENT_FAILED" ? code : t("razorpay.paymentFailed");
+  }
+}
+
 export default function TopupScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const suggestedAmount = route.params?.suggestedAmount;
@@ -58,10 +73,12 @@ export default function TopupScreen({ navigation, route }: Props) {
           razorpayPaymentId: result.razorpayPaymentId,
           initialStatus: result.status,
           initialWalletCredited: result.walletCredited,
+          initialCheckoutFailed: result.checkoutFailed,
+          initialErrorDetail: result.errorMessage,
           initialMessage: result.cancelled
             ? t("razorpay.paymentCancelled")
-            : result.errorMessage
-              ? t("razorpay.paymentFailed")
+            : result.checkoutFailed
+              ? razorpayErrorMessage(t, result.errorMessage)
               : result.walletCredited
                 ? t("razorpay.verificationSuccess")
                 : result.status === "paid"
@@ -108,6 +125,7 @@ export default function TopupScreen({ navigation, route }: Props) {
 
   const gatewayReady = paymentService.checkGatewayConfigured();
   const razorpayReady = paymentService.isRazorpayPaymentEnabled();
+  const razorpayCheckoutReady = paymentService.canOpenRazorpayCheckout();
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -166,7 +184,11 @@ export default function TopupScreen({ navigation, route }: Props) {
       {!gatewayReady ? (
         <Text style={styles.gatewayNote}>{t(paymentService.getGatewayPendingMessage())}</Text>
       ) : razorpayReady ? (
-        <Text style={styles.gatewayNote}>{t("razorpay.checkoutHint")}</Text>
+        <Text style={styles.gatewayNote}>
+          {razorpayCheckoutReady
+            ? t("razorpay.checkoutHint")
+            : t("razorpay.requiresDevBuild")}
+        </Text>
       ) : paymentService.isPaymentMockEnabled() ? (
         <Text style={styles.gatewayNote}>{t("razorpay.verificationPending")}</Text>
       ) : isRazorpayGateway() ? (

@@ -45,6 +45,8 @@ export type RootStackParamList = {
     initialStatus?: string;
     initialWalletCredited?: boolean;
     initialMessage?: string;
+    initialCheckoutFailed?: boolean;
+    initialErrorDetail?: string;
   };
   WalletTransactions: undefined;
   RFIDBinding: undefined;

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, ActivityIndicator } from "react-native";
+import { ScrollView, StyleSheet, Text, View, ActivityIndicator, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -46,11 +46,15 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
     initialStatus,
     initialWalletCredited,
     initialMessage,
+    initialCheckoutFailed,
+    initialErrorDetail,
   } = route.params;
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
+  const [checkoutFailed, setCheckoutFailed] = useState(Boolean(initialCheckoutFailed));
   const [bannerMessage, setBannerMessage] = useState(initialMessage ?? "");
 
   const load = useCallback(async () => {
@@ -101,7 +105,9 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    setBannerMessage("");
+    if (!checkoutFailed) {
+      setBannerMessage("");
+    }
     await load();
     setRefreshing(false);
   };
@@ -112,6 +118,68 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
   const gatewayPaymentId = displayOrder?.gatewayPaymentId ?? routeRazorpayPaymentId;
   const gatewayConfigured = paymentService.checkGatewayConfigured();
   const gatewayMessageKey = paymentService.getGatewayPendingMessage();
+
+  const canResumeCheckout =
+    paymentService.canOpenRazorpayCheckout() &&
+    Boolean(gatewayOrderId) &&
+    !gatewayPaymentId &&
+    (displayOrder?.status === "pending" || displayOrder?.status === "created" || checkoutFailed);
+
+  const showCheckoutNotOpened =
+    checkoutFailed ||
+    (Boolean(gatewayOrderId) &&
+      !gatewayPaymentId &&
+      (displayOrder?.status === "pending" || displayOrder?.status === "created") &&
+      !paymentService.canOpenRazorpayCheckout());
+
+  const onCompletePayment = async () => {
+    setPaying(true);
+    setError("");
+    try {
+      const result = await paymentService.resumeRazorpayTopup(paymentOrderId);
+      setCheckoutFailed(Boolean(result.checkoutFailed));
+      if (result.cancelled) {
+        setBannerMessage(t("razorpay.paymentCancelled"));
+      } else if (result.checkoutFailed) {
+        const detail =
+          result.errorMessage === "RAZORPAY_REQUIRES_DEV_BUILD"
+            ? t("razorpay.requiresDevBuild")
+            : result.errorMessage === "RAZORPAY_NATIVE_UNAVAILABLE"
+              ? t("razorpay.nativeUnavailable")
+              : result.errorMessage && result.errorMessage !== "PAYMENT_FAILED"
+                ? result.errorMessage
+                : t("razorpay.checkoutNotOpened");
+        setBannerMessage(detail);
+        Alert.alert(t("common.error"), detail);
+      } else if (result.walletCredited || result.status === "paid") {
+        setBannerMessage(t("razorpay.verificationSuccess"));
+        setCheckoutFailed(false);
+      } else {
+        setBannerMessage(t("razorpay.verificationPending"));
+      }
+
+      if (result.razorpayPaymentId) {
+        setOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                gatewayPaymentId: result.razorpayPaymentId ?? prev.gatewayPaymentId,
+                status: result.status,
+                walletCredited: result.walletCredited,
+              }
+            : prev
+        );
+      }
+
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : t("common.error");
+      setError(msg);
+      Alert.alert(t("common.error"), msg);
+    } finally {
+      setPaying(false);
+    }
+  };
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -163,6 +231,15 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
             <Text style={styles.pending}>{t("razorpay.paymentCancelled")}</Text>
           ) : displayOrder.status === "failed" ? (
             <Text style={styles.pending}>{t("razorpay.paymentFailed")}</Text>
+          ) : showCheckoutNotOpened ? (
+            <>
+              <Text style={styles.pending}>{t("razorpay.checkoutNotOpened")}</Text>
+              {!paymentService.canOpenRazorpayCheckout() ? (
+                <Text style={styles.gateway}>{t("razorpay.requiresDevBuild")}</Text>
+              ) : initialErrorDetail ? (
+                <Text style={styles.error}>{initialErrorDetail}</Text>
+              ) : null}
+            </>
           ) : (
             <>
               <Text style={styles.pending}>{t("payment.walletNotCredited")}</Text>
@@ -178,6 +255,15 @@ export default function TopupPaymentStatusScreen({ navigation, route }: Props) {
             <Text style={styles.error}>{displayOrder.failureReason}</Text>
           ) : null}
         </AppCard>
+      ) : null}
+
+      {canResumeCheckout ? (
+        <AppButton
+          title={t("razorpay.completePayment")}
+          onPress={onCompletePayment}
+          loading={paying}
+          style={styles.btn}
+        />
       ) : null}
 
       <AppButton

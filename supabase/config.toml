@@ -1,0 +1,7 @@
+project_id = "fvveqziyusjgqejowkfp"
+
+[functions.ev-cms-mobile-wallet-create-razorpay-order]
+verify_jwt = false
+
+[functions.ev-cms-mobile-wallet-verify-razorpay-payment]
+verify_jwt = false
