@@ -191,7 +191,9 @@ export function mapPayment(
   return {
     id: row.id as string,
     sessionId: row.session_id as string,
+    userId: (row.user_id as string) ?? "",
     userName: user ? (user.full_name as string) : "",
+    userEmail: user ? ((user.email as string) ?? undefined) : undefined,
     amount: Number(row.amount),
     gstAmount: Number(row.gst_amount),
     totalAmount: Number(row.total_amount),
@@ -200,6 +202,7 @@ export function mapPayment(
     gatewayTxnId: (row.gateway_txn_id as string) ?? null,
     reconciliation: (row.reconciliation_status as string) ?? "unmatched",
     createdAt: row.created_at as string,
+    updatedAt: (row.updated_at as string) ?? undefined,
   };
 }
 
