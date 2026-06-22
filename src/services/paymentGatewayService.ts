@@ -84,7 +84,11 @@ export async function reconcilePayment(paymentId: string): Promise<{ matched: bo
 
   const res = await fetch(`${paymentUrl}/payments/${paymentId}/reconcile`, { method: "POST" });
   if (!res.ok) throw new Error(`Payment reconciliation failed (${res.status})`);
-  return res.json() as Promise<{ matched: boolean }>;
+  const result = (await res.json()) as { matched: boolean };
+  if (result.matched) {
+    await paymentService.markPaymentReconciled(paymentId);
+  }
+  return result;
 }
 
 export async function generateReceipt(paymentId: string): Promise<{ receiptNumber: string; pdfUrl?: string }> {
@@ -100,5 +104,6 @@ export async function generateReceipt(paymentId: string): Promise<{ receiptNumbe
     body: JSON.stringify({ paymentId }),
   });
   if (!res.ok) throw new Error(`Receipt generation failed (${res.status})`);
-  return res.json() as Promise<{ receiptNumber: string; pdfUrl?: string }>;
+  const result = (await res.json()) as { receiptNumber: string; pdfUrl?: string };
+  return paymentService.upsertReceiptFromGateway(paymentId, result.receiptNumber, result.pdfUrl ?? null);
 }

@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import * as userService from "@/services/userService";
+import * as walletAdminService from "@/services/walletAdminService";
 import type { User } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   sendAccountActivatedEmail,
   sendEmailInBackground,
@@ -20,7 +23,11 @@ import {
 type UserModalMode = "add" | "edit" | null;
 
 export default function UsersPage() {
+  const { formatCurrency } = useUserPreferences();
   const [users, setUsers] = useState<User[]>([]);
+  const [walletByUserId, setWalletByUserId] = useState<
+    Map<string, { usableBalance: number; balanceAmount: number; status: string }>
+  >(new Map());
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -44,8 +51,15 @@ export default function UsersPage() {
       .then(setUsers)
       .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load users"));
 
+  const loadWallets = () =>
+    walletAdminService
+      .getWalletBalanceMap()
+      .then(setWalletByUserId)
+      .catch(() => setWalletByUserId(new Map()));
+
   useEffect(() => {
     loadUsers();
+    loadWallets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleFilter, statusFilter, debouncedSearch]);
 
@@ -201,6 +215,7 @@ export default function UsersPage() {
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Department</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">RFID</th>
+                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Wallet</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Joined</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Last Login</th>
@@ -233,6 +248,25 @@ export default function UsersPage() {
                   </td>
                   <td className="px-5 py-3.5">
                     <p className="text-sm text-gray-600">{user.rfidBound || <span className="text-gray-300">—</span>}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    {(() => {
+                      const wallet = walletByUserId.get(user.id);
+                      if (!wallet) {
+                        return <span className="text-sm text-gray-300">—</span>;
+                      }
+                      return (
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{formatCurrency(wallet.usableBalance)}</p>
+                          <Link
+                            to={`/payments?tab=wallets&search=${encodeURIComponent(user.email)}`}
+                            className="text-[10px] text-emerald-600 hover:underline"
+                          >
+                            View wallet
+                          </Link>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-5 py-3.5">
                     <button
