@@ -1,4 +1,5 @@
 import type { Charger, ChargingSession, DashboardStats, TimeRange } from "@/types/ev";
+import { resolveDashboardRange, utcRangeStart, type DashboardRange } from "@/utils/dateRanges";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { computeDashboardStats, mapCharger, mapSession } from "@/utils/supabaseMappers";
 
@@ -353,15 +354,14 @@ export async function getChargerEvents(chargerId: string, limit = 50): Promise<C
   });
 }
 
-function getRangeStart(timeRange: TimeRange): Date {
-  const start = new Date();
-  // Use UTC boundaries so server/DB UTC timestamps match the same day buckets.
-  start.setUTCHours(0, 0, 0, 0);
-
-  const days = timeRange === "today" ? 1 : timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
-  // Inclusive range: last `days` including today.
-  start.setUTCDate(start.getUTCDate() - (days - 1));
-  return start;
+function getRangeBounds(range: DashboardRange | TimeRange) {
+  if (typeof range === "string") {
+    const days = range === "today" ? 1 : range === "week" ? 7 : range === "month" ? 30 : 90;
+    const end = new Date();
+    end.setUTCHours(23, 59, 59, 999);
+    return { start: utcRangeStart(days), end, preset: range === "quarter" ? "month" as const : range };
+  }
+  return resolveDashboardRange(range);
 }
 
 function computePeakDemandKw(
@@ -386,25 +386,28 @@ function computePeakDemandKw(
   return Math.max(peak, activeDemand);
 }
 
-export async function getDashboardStats(timeRange: TimeRange = "today"): Promise<DashboardStats> {
+export async function getDashboardStats(range: DashboardRange | TimeRange = "today"): Promise<DashboardStats> {
   const [chargers, activeSessions] = await Promise.all([
     fetchChargersRaw(),
     getActiveSessionsForChargers(),
   ]);
 
-  const rangeStart = getRangeStart(timeRange);
+  const { start: rangeStart, end: rangeEnd } = getRangeBounds(range);
   const rangeStartIso = rangeStart.toISOString();
+  const rangeEndIso = rangeEnd.toISOString();
 
   const [{ data: rangeSessions }, { data: meterRows }] = await Promise.all([
     requireSupabase()
       .from("EV_ChargingSessions")
       .select("energy_kwh, amount, start_time, end_time")
       .eq("status", "completed")
-      .gte("start_time", rangeStartIso),
+      .gte("start_time", rangeStartIso)
+      .lte("start_time", rangeEndIso),
     requireSupabase()
       .from("EV_MeterValues")
       .select("power_kw, sampled_at")
       .gte("sampled_at", rangeStartIso)
+      .lte("sampled_at", rangeEndIso)
       .not("power_kw", "is", null),
   ]);
 

@@ -10,6 +10,7 @@ export interface User {
   rfidBound?: string | null;
   joinedDate?: string;
   lastLogin?: string;
+  lastLoginAt?: string | null;
   phone?: string;
   avatarUrl?: string | null;
   employeeId?: string | null;

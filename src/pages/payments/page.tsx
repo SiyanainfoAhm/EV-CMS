@@ -6,6 +6,7 @@ import type { Payment } from "@/types/ev";
 import type { PaymentOrder, WalletAccount } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { utcTodayKey } from "@/utils/dateRanges";
 import SessionPaymentsTab from "@/components/payments/SessionPaymentsTab";
 import WalletTopupsTab from "@/components/payments/WalletTopupsTab";
 import WalletsTab from "@/components/payments/WalletsTab";
@@ -24,6 +25,8 @@ export default function PaymentsPage() {
   const [receipts, setReceipts] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [dateStart, setDateStart] = useState(() => utcTodayKey());
+  const [dateEnd, setDateEnd] = useState(() => utcTodayKey());
   const [toast, setToast] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
@@ -36,11 +39,18 @@ export default function PaymentsPage() {
     setSearchParams({ tab });
     setSearchQuery("");
     setStatusFilter("all");
+    setDateStart(utcTodayKey());
+    setDateEnd(utcTodayKey());
   };
 
   const loadSessionPayments = useCallback(() => {
     paymentService
-      .getPayments({ status: statusFilter, search: debouncedSearch })
+      .getPayments({
+        status: statusFilter,
+        search: debouncedSearch,
+        dateFrom: dateStart,
+        dateTo: dateEnd,
+      })
       .then(async (rows) => {
         setPayments(rows);
         const receiptMap: Record<string, string> = {};
@@ -55,14 +65,19 @@ export default function PaymentsPage() {
         setReceipts(receiptMap);
       })
       .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load payments"));
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, debouncedSearch, dateStart, dateEnd]);
 
   const loadTopups = useCallback(() => {
     walletAdminService
-      .getPaymentOrders({ status: statusFilter, search: debouncedSearch })
+      .getPaymentOrders({
+        status: statusFilter,
+        search: debouncedSearch,
+        dateFrom: dateStart,
+        dateTo: dateEnd,
+      })
       .then(setOrders)
       .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load top-up orders"));
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, debouncedSearch, dateStart, dateEnd]);
 
   const loadWallets = useCallback(() => {
     walletAdminService
@@ -174,10 +189,14 @@ export default function PaymentsPage() {
             receipts={receipts}
             searchQuery={searchQuery}
             statusFilter={statusFilter}
+            dateStart={dateStart}
+            dateEnd={dateEnd}
             formatCurrency={formatCurrency}
             formatDateTime={formatDateTime}
             onSearchChange={setSearchQuery}
             onStatusChange={setStatusFilter}
+            onDateStartChange={setDateStart}
+            onDateEndChange={setDateEnd}
           />
         </>
       )}
@@ -194,10 +213,14 @@ export default function PaymentsPage() {
             orders={orders}
             searchQuery={searchQuery}
             statusFilter={statusFilter}
+            dateStart={dateStart}
+            dateEnd={dateEnd}
             formatCurrency={formatCurrency}
             formatDateTime={formatDateTime}
             onSearchChange={setSearchQuery}
             onStatusChange={setStatusFilter}
+            onDateStartChange={setDateStart}
+            onDateEndChange={setDateEnd}
           />
         </>
       )}

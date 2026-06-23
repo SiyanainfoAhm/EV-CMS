@@ -1,53 +1,18 @@
-import { initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
+import "firebase/installations";
+import { deleteApp, initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 import { getMessaging, isSupported as isMessagingSupported, type Messaging } from "firebase/messaging";
-
-export interface FirebaseWebConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  storageBucket: string;
-  messagingSenderId: string;
-  appId: string;
-  measurementId?: string;
-}
-
-function readFirebaseConfig(): FirebaseWebConfig | null {
-  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY?.trim();
-  const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.trim();
-  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-  const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET?.trim();
-  const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim();
-  const appId = import.meta.env.VITE_FIREBASE_APP_ID?.trim();
-  const measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID?.trim();
-
-  if (!apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId) {
-    return null;
-  }
-
-  return {
-    apiKey,
-    authDomain,
-    projectId,
-    storageBucket,
-    messagingSenderId,
-    appId,
-    measurementId: measurementId || undefined,
-  };
-}
+import { readFirebaseWebConfig } from "@/utils/firebaseWebConfig";
 
 let firebaseApp: FirebaseApp | null = null;
 let analyticsInstance: Analytics | null = null;
 let messagingInstance: Messaging | null = null;
 
-/** Firebase web app — DFCCIL EV CMS Admin (project: dffcilevcms). */
-export function getFirebaseApp(): FirebaseApp | null {
-  if (firebaseApp) return firebaseApp;
-
-  const config = readFirebaseConfig();
+function buildFirebaseOptions(): FirebaseOptions | null {
+  const config = readFirebaseWebConfig();
   if (!config) return null;
 
-  const options: FirebaseOptions = {
+  return {
     apiKey: config.apiKey,
     authDomain: config.authDomain,
     projectId: config.projectId,
@@ -56,9 +21,28 @@ export function getFirebaseApp(): FirebaseApp | null {
     appId: config.appId,
     measurementId: config.measurementId,
   };
+}
+
+/** Firebase web app — DFCCIL EV CMS Admin (project: dffcilevcms). */
+export function getFirebaseApp(): FirebaseApp | null {
+  if (firebaseApp) return firebaseApp;
+
+  const options = buildFirebaseOptions();
+  if (!options) return null;
 
   firebaseApp = initializeApp(options);
   return firebaseApp;
+}
+
+export async function resetFirebaseClients(): Promise<void> {
+  messagingInstance = null;
+  analyticsInstance = null;
+
+  if (!firebaseApp) return;
+
+  const app = firebaseApp;
+  firebaseApp = null;
+  await deleteApp(app);
 }
 
 export function getFirebaseAnalytics(): Analytics | null {

@@ -9,6 +9,8 @@ import {
 } from "@/services/powerAutomateEmailService";
 import type { SupportTicket, User } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { utcTodayKey } from "@/utils/dateRanges";
 import { canAccessWebAdmin } from "@/utils/rfpRoles";
 import {
   formatAttachmentSize,
@@ -19,15 +21,6 @@ import {
 
 const STATUS_OPTIONS = ["open", "in_progress", "resolved", "closed"] as const;
 const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
-
-function formatTime(isoStr: string): string {
-  return new Date(isoStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function statusBadgeClass(status: string): string {
   switch (status) {
@@ -62,11 +55,14 @@ function labelize(value: string): string {
 }
 
 export default function SupportTicketsPage() {
+  const { formatDateTime } = useUserPreferences();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [admins, setAdmins] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [dateStart, setDateStart] = useState(() => utcTodayKey());
+  const [dateEnd, setDateEnd] = useState(() => utcTodayKey());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailTicket, setDetailTicket] = useState<SupportTicket | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -86,14 +82,20 @@ export default function SupportTicketsPage() {
 
   const loadTickets = () =>
     supportTicketService
-      .getSupportTickets({ status: statusFilter, priority: priorityFilter, search: debouncedSearch })
+      .getSupportTickets({
+        status: statusFilter,
+        priority: priorityFilter,
+        search: debouncedSearch,
+        dateFrom: dateStart,
+        dateTo: dateEnd,
+      })
       .then(setTickets)
       .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load tickets"));
 
   useEffect(() => {
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, priorityFilter, debouncedSearch]);
+  }, [statusFilter, priorityFilter, debouncedSearch, dateStart, dateEnd]);
 
   useEffect(() => {
     userService
@@ -297,6 +299,25 @@ export default function SupportTicketsPage() {
                   </option>
                 ))}
               </select>
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg">
+                <input
+                  type="date"
+                  value={dateStart}
+                  max={dateEnd}
+                  onChange={(e) => setDateStart(e.target.value)}
+                  className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                  aria-label="Filter from date"
+                />
+                <span className="text-gray-400 text-xs">to</span>
+                <input
+                  type="date"
+                  value={dateEnd}
+                  min={dateStart}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                  className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                  aria-label="Filter to date"
+                />
+              </div>
             </div>
             <p className="text-xs text-gray-400 shrink-0">{tickets.length} tickets</p>
           </div>
@@ -375,7 +396,7 @@ export default function SupportTicketsPage() {
                     <p className="text-sm text-gray-600 truncate">{ticket.assignedToName ?? "Unassigned"}</p>
                   </td>
                   <td className="px-4 py-3.5">
-                    <p className="text-sm text-gray-500 whitespace-nowrap">{formatTime(ticket.createdAt)}</p>
+                    <p className="text-sm text-gray-500 whitespace-nowrap">{formatDateTime(ticket.createdAt)}</p>
                   </td>
                   <td className="px-4 py-3.5">
                     <button
@@ -561,8 +582,8 @@ export default function SupportTicketsPage() {
                 </div>
 
                 <div className="text-xs text-gray-400 space-y-1 pt-2 border-t border-gray-100">
-                  <p>Created: {formatTime(selectedTicket.createdAt)}</p>
-                  <p>Updated: {formatTime(selectedTicket.updatedAt)}</p>
+                  <p>Created: {formatDateTime(selectedTicket.createdAt)}</p>
+                  <p>Updated: {formatDateTime(selectedTicket.updatedAt)}</p>
                 </div>
               </div>
 

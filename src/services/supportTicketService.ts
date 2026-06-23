@@ -3,6 +3,7 @@ import * as mediaService from "@/services/mediaService";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapSupportTicket } from "@/utils/supabaseMappers";
 import { MAX_SUPPORT_TICKET_ATTACHMENTS } from "@/utils/supportTicketAttachments";
+import { isoDayEnd, isoDayStart } from "@/utils/dateRanges";
 
 const TICKET_SELECT =
   "*, requester:EV_Users!EV_SupportTickets_user_id_fkey ( full_name, email ), assignee:EV_Users!EV_SupportTickets_assigned_to_fkey ( full_name )";
@@ -11,6 +12,8 @@ export interface SupportTicketsQuery {
   status?: string;
   priority?: string;
   search?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
 }
 
@@ -61,7 +64,7 @@ async function saveTicketAttachments(ticketId: string, attachments: SupportTicke
 }
 
 export async function getSupportTickets(query: SupportTicketsQuery = {}): Promise<SupportTicket[]> {
-  const { status = "all", priority = "all", search = "", limit = 200 } = query;
+  const { status = "all", priority = "all", search = "", dateFrom, dateTo, limit = 200 } = query;
 
   let q = requireSupabase()
     .from("EV_SupportTickets")
@@ -71,6 +74,8 @@ export async function getSupportTickets(query: SupportTicketsQuery = {}): Promis
 
   if (status !== "all") q = q.eq("status", status);
   if (priority !== "all") q = q.eq("priority", priority);
+  if (dateFrom) q = q.gte("created_at", isoDayStart(dateFrom));
+  if (dateTo) q = q.lte("created_at", isoDayEnd(dateTo));
 
   const s = search.trim();
   if (s) {

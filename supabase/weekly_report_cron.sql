@@ -1,0 +1,22 @@
+-- Optional: schedule weekly report emails (Mondays 06:00 UTC).
+-- Prerequisites:
+--   1. Enable pg_cron and pg_net extensions in Supabase Dashboard
+--   2. Deploy: supabase functions deploy send-weekly-reports --no-verify-jwt
+--   3. Set edge secrets: POWER_AUTOMATE_EMAIL_URL, optionally WEEKLY_REPORT_SECRET
+--   4. Replace <PROJECT_REF> and <SERVICE_ROLE_KEY> below
+
+-- SELECT cron.schedule(
+--   'ev-cms-weekly-report',
+--   '0 6 * * 1',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://<PROJECT_REF>.supabase.co/functions/v1/send-weekly-reports',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'Authorization', 'Bearer <SERVICE_ROLE_KEY>',
+--       'x-weekly-report-secret', '<WEEKLY_REPORT_SECRET>'
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );

@@ -3,10 +3,13 @@ import { requireSupabase } from "@/utils/supabaseClient";
 import { getEvUserLookup } from "@/utils/evUserLookup";
 import { mapPayment } from "@/utils/supabaseMappers";
 import { PAYMENT_MOCK_GATEWAY_NAME } from "@/utils/paymentMockMode";
+import { isoDayEnd, isoDayStart } from "@/utils/dateRanges";
 
 export interface PaymentsQuery {
   status?: string; // success | pending | failed | refunded | all
   search?: string; // id / gateway txn / user name
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string; // YYYY-MM-DD
   limit?: number;
 }
 
@@ -23,7 +26,7 @@ function round2(n: number): number {
 }
 
 export async function getPayments(query: PaymentsQuery = {}): Promise<Payment[]> {
-  const { status = "all", search = "", limit = 200 } = query;
+  const { status = "all", search = "", dateFrom, dateTo, limit = 200 } = query;
   let q = requireSupabase()
     .from("EV_Payments")
     .select("*")
@@ -31,6 +34,8 @@ export async function getPayments(query: PaymentsQuery = {}): Promise<Payment[]>
     .limit(limit);
 
   if (status !== "all") q = q.eq("status", status);
+  if (dateFrom) q = q.gte("created_at", isoDayStart(dateFrom));
+  if (dateTo) q = q.lte("created_at", isoDayEnd(dateTo));
 
   const [{ data, error }, userLookup] = await Promise.all([q, getEvUserLookup()]);
   if (error) throw error;
