@@ -1,6 +1,7 @@
 import type { PaymentOrder, WalletAccount, WalletLedgerEntry } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { getEvUserLookup } from "@/utils/evUserLookup";
+import { isoDayEnd, isoDayStart } from "@/utils/dateRanges";
 
 export interface WalletAccountsQuery {
   search?: string;
@@ -11,6 +12,8 @@ export interface WalletAccountsQuery {
 export interface PaymentOrdersQuery {
   search?: string;
   status?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
 }
 
@@ -124,7 +127,7 @@ export async function getWalletLedgerForUser(userId: string, limit = 50): Promis
 }
 
 export async function getPaymentOrders(query: PaymentOrdersQuery = {}): Promise<PaymentOrder[]> {
-  const { search = "", status = "all", limit = 200 } = query;
+  const { search = "", status = "all", dateFrom, dateTo, limit = 200 } = query;
   let q = requireSupabase()
     .from("EV_PaymentOrders")
     .select("*")
@@ -132,6 +135,8 @@ export async function getPaymentOrders(query: PaymentOrdersQuery = {}): Promise<
     .limit(limit);
 
   if (status !== "all") q = q.eq("status", status);
+  if (dateFrom) q = q.gte("created_at", isoDayStart(dateFrom));
+  if (dateTo) q = q.lte("created_at", isoDayEnd(dateTo));
 
   const [{ data, error }, userLookup] = await Promise.all([q, getEvUserLookup()]);
   if (error) {

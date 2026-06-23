@@ -9,6 +9,7 @@ import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
 import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
 import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
@@ -58,6 +59,7 @@ function getConnectivityTextClass(connectivity: ConnectivityLabel | "faulted"): 
 }
 
 export default function ChargerDetailPage() {
+  const { formatEnergy } = useUserPreferences();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [charger, setCharger] = useState<Charger | undefined>();
@@ -601,7 +603,7 @@ export default function ChargerDetailPage() {
                       <p className="text-sm font-medium text-gray-900">{session.userName}</p>
                       <p className="text-xs text-gray-400">Gun {session.connectorId} · {session.connectorType}</p>
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs font-semibold text-gray-700">{session.energyKwh} kWh</span>
+                        <span className="text-xs font-semibold text-gray-700">{formatEnergy(session.energyKwh ?? 0)}</span>
                         <span className="text-xs text-gray-400">{session.duration}</span>
                         <span className="text-xs text-gray-400">SoC {session.soc}%</span>
                       </div>

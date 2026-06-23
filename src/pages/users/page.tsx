@@ -23,7 +23,7 @@ import {
 type UserModalMode = "add" | "edit" | null;
 
 export default function UsersPage() {
-  const { formatCurrency } = useUserPreferences();
+  const { formatCurrency, formatDateTime } = useUserPreferences();
   const [users, setUsers] = useState<User[]>([]);
   const [walletByUserId, setWalletByUserId] = useState<
     Map<string, { usableBalance: number; balanceAmount: number; status: string }>
@@ -282,7 +282,7 @@ export default function UsersPage() {
                     <p className="text-sm text-gray-500">{user.joinedDate}</p>
                   </td>
                   <td className="px-5 py-3.5">
-                    <p className="text-xs text-gray-500">{user.lastLogin || "—"}</p>
+                    <p className="text-xs text-gray-500">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : user.lastLogin || "—"}</p>
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">

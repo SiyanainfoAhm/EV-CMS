@@ -74,6 +74,10 @@ export function formatEnergy(kwh: number, settings?: SystemPreferences): string 
 }
 
 /** Used when a plain locale format is enough (e.g. chart axis). */
+export function energyUnitLabel(settings?: SystemPreferences): string {
+  return (settings ?? DEFAULT_SYSTEM_SETTINGS).energyUnit;
+}
+
 export function localeForCurrency(settings?: SystemPreferences): string {
   const prefs = settings ?? DEFAULT_SYSTEM_SETTINGS;
   return CURRENCY_LOCALE[prefs.currency] ?? "en-IN";

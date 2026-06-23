@@ -74,8 +74,8 @@ export async function notifyUser(
   title: string,
   message: string,
   type = "info"
-): Promise<void> {
-  const { error } = await requireSupabase().rpc("ev_notify_user", {
+): Promise<string> {
+  const { data, error } = await requireSupabase().rpc("ev_notify_user", {
     p_user_id: userId,
     p_title: title,
     p_message: message,
@@ -87,6 +87,7 @@ export async function notifyUser(
     }
     throw new Error(error.message);
   }
+  return data as string;
 }
 
 export function notificationTypeStyles(type: string): { icon: string; badge: string } {

@@ -5,11 +5,15 @@ import type { PaymentDetail } from "@/types/ev";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   buildPaymentReceiptHtml,
-  downloadReceiptHtml,
   isDownloadableReceiptPdf,
   openReceiptPreview,
   resolvePaymentReceipt,
 } from "@/utils/paymentReceipt";
+import {
+  downloadRemoteReceiptPdf,
+  generateAndDownloadPaymentReceiptPdf,
+  receiptPdfFilename,
+} from "@/utils/paymentReceiptPdf";
 
 function displayGateway(gateway: string | null, status: string): string {
   if (gateway) return gateway;
@@ -20,9 +24,10 @@ function displayGateway(gateway: string | null, status: string): string {
 export default function PaymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { formatCurrency, formatDateTime } = useUserPreferences();
+  const { formatCurrency, formatDateTime, formatEnergy } = useUserPreferences();
   const [payment, setPayment] = useState<PaymentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -40,23 +45,31 @@ export default function PaymentDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const downloadReceipt = () => {
-    if (!payment || payment.status !== "success") return;
+  const downloadReceipt = async () => {
+    if (!payment || payment.status !== "success" || downloadingReceipt) return;
     const doc = resolvePaymentReceipt(payment);
-    if (payment.receipt?.pdfUrl && isDownloadableReceiptPdf(payment.receipt.pdfUrl)) {
-      window.open(payment.receipt.pdfUrl, "_blank", "noopener,noreferrer");
-      showToast("Opening receipt PDF");
-      return;
+    const filename = receiptPdfFilename(doc.receiptNumber);
+
+    setDownloadingReceipt(true);
+    try {
+      if (payment.receipt?.pdfUrl && isDownloadableReceiptPdf(payment.receipt.pdfUrl)) {
+        await downloadRemoteReceiptPdf(payment.receipt.pdfUrl, filename);
+        showToast("Receipt PDF downloaded");
+        return;
+      }
+      await generateAndDownloadPaymentReceiptPdf({
+        receiptNumber: doc.receiptNumber,
+        payment,
+        formatCurrency,
+        formatDateTime,
+        issuedAt: doc.issuedAt,
+      });
+      showToast("Receipt PDF downloaded");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to download receipt PDF");
+    } finally {
+      setDownloadingReceipt(false);
     }
-    const html = buildPaymentReceiptHtml({
-      receiptNumber: doc.receiptNumber,
-      payment,
-      formatCurrency,
-      formatDateTime,
-      issuedAt: doc.issuedAt,
-    });
-    downloadReceiptHtml(html, `${doc.receiptNumber}.html`);
-    showToast("Receipt downloaded — open the file and use Print → Save as PDF");
   };
 
   const previewReceipt = () => {
@@ -113,10 +126,11 @@ export default function PaymentDetailPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={downloadReceipt}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
+              onClick={() => void downloadReceipt()}
+              disabled={downloadingReceipt}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors whitespace-nowrap"
             >
-              Download receipt
+              {downloadingReceipt ? "Preparing PDF…" : "Download receipt"}
             </button>
             <button
               type="button"
@@ -158,7 +172,7 @@ export default function PaymentDetailPage() {
           <Section title="Charging session">
             <Row label="Charger" value={`${payment.session.chargerName} (${payment.session.chargePointId})`} />
             <Row label="Connector" value={String(payment.session.connectorId)} />
-            <Row label="Energy" value={`${payment.session.energyKwh.toFixed(2)} kWh`} />
+            <Row label="Energy" value={formatEnergy(payment.session.energyKwh)} />
             <Row label="Started" value={formatDateTime(payment.session.startTime)} />
             <Row label="Ended" value={payment.session.endTime ? formatDateTime(payment.session.endTime) : "—"} />
             <Row label="Session status" value={payment.session.status} />

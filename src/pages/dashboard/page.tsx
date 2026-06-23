@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   XAxis,
   YAxis,
@@ -9,11 +9,14 @@ import {
   Area,
 } from "recharts";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import * as dashboardService from "@/services/dashboardService";
+import * as notificationService from "@/services/notificationService";
 import type { RecentActivityItem } from "@/services/dashboardService";
-import type { TimeRange } from "@/types/ev";
+import type { DashboardPreset, DashboardRange } from "@/utils/dateRanges";
+import { dashboardRangeKey, dashboardRangeLabel, utcDaysAgoKey, utcTodayKey } from "@/utils/dateRanges";
 import { connectivityFromHeartbeat } from "@/utils/chargerConnectivity";
 
 const emptyStats = {
@@ -32,52 +35,128 @@ const emptyStats = {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { formatCurrency, formatEnergy } = useUserPreferences();
-  const [timeRange, setTimeRange] = useState<TimeRange>("today");
-  const { stats, chargers, activeSessions } = useDashboardData(timeRange);
+  const { user } = useAuth();
+  const { formatCurrency, formatEnergy, systemSettings } = useUserPreferences();
+  const [preset, setPreset] = useState<DashboardPreset>("today");
+  const [customStart, setCustomStart] = useState(() => utcDaysAgoKey(7));
+  const [customEnd, setCustomEnd] = useState(() => utcTodayKey());
+  const [testNotifyLoading, setTestNotifyLoading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const dashboardRange = useMemo<DashboardRange>(
+    () =>
+      preset === "custom"
+        ? { preset: "custom", start: customStart, end: customEnd }
+        : { preset },
+    [preset, customStart, customEnd]
+  );
+
+  const rangeKey = dashboardRangeKey(dashboardRange);
+
+  const { stats, chargers, activeSessions } = useDashboardData(dashboardRange);
   const [energyData, setEnergyData] = useState<{ hour: string; kwh: number }[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
 
-  const rangeLabel = timeRange === "today" ? "Today" : timeRange.charAt(0).toUpperCase() + timeRange.slice(1);
+  const rangeLabel = useMemo(() => dashboardRangeLabel(dashboardRange), [dashboardRange]);
 
   useEffect(() => {
     dashboardService
-      .getEnergyChartData(timeRange)
+      .getEnergyChartData(dashboardRange)
       .then(setEnergyData)
       .catch(console.error);
     dashboardService
-      .getRecentActivity(6, timeRange)
+      .getRecentActivity(6, dashboardRange)
       .then(setRecentActivity)
       .catch(console.error);
-  }, [timeRange]);
+  }, [rangeKey, dashboardRange]);
 
   const dashboardStats = stats ?? emptyStats;
   const chargerList = chargers;
   const activeSessionList = activeSessions;
 
+  const sendTestNotification = async () => {
+    if (!user?.id) return;
+    setTestNotifyLoading(true);
+    try {
+      await notificationService.notifyUser(
+        user.id,
+        "Test notification",
+        `Realtime check at ${new Date().toLocaleTimeString()} — the bell should update without refresh.`,
+        "info"
+      );
+      setToast("Test notification sent — check the bell; minimize tab for browser push");
+      setTimeout(() => setToast(null), 3500);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to send test notification");
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setTestNotifyLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {toast && (
+        <div className="fixed top-20 right-6 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg max-w-sm">
+          {toast}
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             Dashboard
           </h1>
           <p className="text-sm text-gray-500 mt-1">Real-time overview of your EV charging infrastructure</p>
         </div>
-        <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
-          {(["today", "week", "month"] as TimeRange[]).map((range) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => void sendTestNotification()}
+            disabled={testNotifyLoading || !user?.id}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors whitespace-nowrap"
+            title="Send a test in-app notification to verify realtime bell updates"
+          >
+            <i className="ri-notification-3-line text-base"></i>
+            {testNotifyLoading ? "Sending…" : "Test notification"}
+          </button>
+          <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
+          {(["today", "week", "month", "custom"] as DashboardPreset[]).map((range) => (
             <button
               key={range}
-              onClick={() => setTimeRange(range)}
+              onClick={() => setPreset(range)}
               className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                timeRange === range
+                preset === range
                   ? "bg-emerald-600 text-white"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {range.charAt(0).toUpperCase() + range.slice(1)}
+              {range === "custom" ? "Custom" : range.charAt(0).toUpperCase() + range.slice(1)}
             </button>
           ))}
+          </div>
+          {preset === "custom" && (
+            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-1.5">
+              <input
+                type="date"
+                value={customStart}
+                max={customEnd}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="text-sm text-gray-700 bg-transparent focus:outline-none"
+                aria-label="Custom range start date"
+              />
+              <span className="text-gray-400 text-sm">to</span>
+              <input
+                type="date"
+                value={customEnd}
+                min={customStart}
+                max={utcTodayKey()}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="text-sm text-gray-700 bg-transparent focus:outline-none"
+                aria-label="Custom range end date"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -121,7 +200,7 @@ export default function DashboardPage() {
           </div>
           <p className="text-2xl font-bold text-gray-900">{formatEnergy(dashboardStats.totalEnergyTodayKwh)}</p>
           <p className="text-xs text-gray-400 mt-1">
-            <span className="text-gray-500">kWh consumed</span>
+            <span className="text-gray-500">{systemSettings.energyUnit} consumed</span>
           </p>
         </div>
 
@@ -170,15 +249,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-semibold text-gray-900">Energy Consumption (kWh)</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Energy Consumption ({systemSettings.energyUnit})</h3>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                <span className="text-xs text-gray-500">Today</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-gray-200"></span>
-                <span className="text-xs text-gray-500">Yesterday</span>
+                <span className="text-xs text-gray-500">
+                  {preset === "today" ? "By hour" : rangeLabel}
+                </span>
               </div>
             </div>
           </div>
@@ -313,7 +390,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-gray-900">{session.energyKwh} kWh</p>
+                  <p className="text-sm font-semibold text-gray-900">{formatEnergy(session.energyKwh ?? 0)}</p>
                   <p className="text-xs text-gray-400">{session.duration}</p>
                 </div>
               </div>

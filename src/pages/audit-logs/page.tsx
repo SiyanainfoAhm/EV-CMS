@@ -2,24 +2,19 @@ import { useState, useMemo, useEffect } from "react";
 import * as auditLogService from "@/services/auditLogService";
 import type { AuditLog } from "@/types/ev";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-
-function formatTime(isoStr: string): string {
-  return new Date(isoStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { utcTodayKey } from "@/utils/dateRanges";
 
 export default function AuditLogsPage() {
+  const { formatDateTime } = useUserPreferences();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [allLogsForFacets, setAllLogsForFacets] = useState<AuditLog[]>([]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [userFilter, setUserFilter] = useState<string>("all");
+  const [dateStart, setDateStart] = useState(() => utcTodayKey());
+  const [dateEnd, setDateEnd] = useState(() => utcTodayKey());
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
@@ -37,12 +32,18 @@ export default function AuditLogsPage() {
   // Fetch filtered logs from server when filters/search change.
   useEffect(() => {
     auditLogService
-      .getAuditLogs({ action: actionFilter, search: debouncedSearch, limit: 500 })
+      .getAuditLogs({
+        action: actionFilter,
+        search: debouncedSearch,
+        dateFrom: dateStart,
+        dateTo: dateEnd,
+        limit: 500,
+      })
       .then((data) =>
         setLogs([...data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
       )
       .catch(console.error);
-  }, [actionFilter, debouncedSearch]);
+  }, [actionFilter, debouncedSearch, dateStart, dateEnd]);
 
   const uniqueUsers = useMemo(() => {
     const names = [...new Set(allLogsForFacets.map((l) => l.userName))];
@@ -118,6 +119,25 @@ export default function AuditLogsPage() {
                   <option key={u} value={u}>{u}</option>
                 ))}
               </select>
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg">
+                <input
+                  type="date"
+                  value={dateStart}
+                  max={dateEnd}
+                  onChange={(e) => { setDateStart(e.target.value); setCurrentPage(1); }}
+                  className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                  aria-label="Filter from date"
+                />
+                <span className="text-gray-400 text-xs">to</span>
+                <input
+                  type="date"
+                  value={dateEnd}
+                  min={dateStart}
+                  onChange={(e) => { setDateEnd(e.target.value); setCurrentPage(1); }}
+                  className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                  aria-label="Filter to date"
+                />
+              </div>
             </div>
             <p className="text-xs text-gray-400">{filteredLogs.length} entries</p>
           </div>
@@ -139,7 +159,7 @@ export default function AuditLogsPage() {
               {paginatedLogs.map((log) => (
                 <tr key={log.id} className="border-b border-gray-50 hover:bg-[#f9faf7] transition-colors">
                   <td className="px-5 py-3">
-                    <p className="text-xs font-mono text-gray-500 whitespace-nowrap">{formatTime(log.createdAt)}</p>
+                    <p className="text-xs font-mono text-gray-500 whitespace-nowrap">{formatDateTime(log.createdAt)}</p>
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">

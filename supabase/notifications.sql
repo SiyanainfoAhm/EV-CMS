@@ -65,4 +65,4 @@ INSERT INTO "EV_Notifications" (user_id, title, message, type, read, created_at)
   ('a0000001-0000-4000-8000-000000000001', 'Charging started', 'Your session on MP Fast Charger Station 1 has begun.', 'success', false, NOW() - INTERVAL '15 minutes'),
   ('a0000001-0000-4000-8000-000000000001', 'Session reminder', 'Active session is still in progress. Open Live Session to monitor energy.', 'info', true, NOW() - INTERVAL '1 day');
 
--- Realtime: enable EV_Notifications on supabase_realtime publication (Dashboard → Database → Replication)
+-- Realtime: run supabase/enable_realtime.sql (or Dashboard → Database → Replication)

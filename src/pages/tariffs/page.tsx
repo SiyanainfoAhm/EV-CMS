@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import * as tariffService from "@/services/tariffService";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import type { Tariff } from "@/types/ev";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { hasErrors, validateTariffForm } from "@/utils/validation";
@@ -15,6 +16,7 @@ interface TariffFormData {
 const emptyTariff: TariffFormData = { name: "", ratePerKwh: 0, sessionFee: 0, gstPercent: 18, appliesTo: "DC Fast" };
 
 export default function TariffsPage() {
+  const { formatCurrency, systemSettings } = useUserPreferences();
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
@@ -155,12 +157,12 @@ export default function TariffsPage() {
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500">Rate per kWh</span>
-                  <span className="text-xs font-semibold text-gray-900">&#8377;{tariff.ratePerKwh.toFixed(2)}</span>
+                  <span className="text-xs font-semibold text-gray-900">{formatCurrency(tariff.ratePerKwh)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500">Session Fee</span>
                   <span className="text-xs font-semibold text-gray-900">
-                    {tariff.sessionFee > 0 ? `₹${tariff.sessionFee.toFixed(2)}` : "Free"}
+                    {tariff.sessionFee > 0 ? formatCurrency(tariff.sessionFee) : "Free"}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -170,7 +172,7 @@ export default function TariffsPage() {
                 <div className="border-t border-gray-100 pt-2 mt-2">
                   <div className="flex justify-between">
                     <span className="text-xs text-gray-400">Example (30 kWh)</span>
-                    <span className="text-xs font-semibold text-emerald-600">&#8377;{example.total}</span>
+                    <span className="text-xs font-semibold text-emerald-600">{formatCurrency(Number(example.total))}</span>
                   </div>
                 </div>
               </div>
@@ -219,7 +221,7 @@ export default function TariffsPage() {
                     <option value="AC Slow">AC Slow</option>
                   </select>
                 </FormField>
-                <FormField label="Rate per kWh (₹)" error={formErrors.ratePerKwh} required>
+                <FormField label={`Rate per kWh (${systemSettings.currency})`} error={formErrors.ratePerKwh} required>
                   <input
                     type="number"
                     value={formData.ratePerKwh}
@@ -229,7 +231,7 @@ export default function TariffsPage() {
                     min="0"
                   />
                 </FormField>
-                <FormField label="Session Fee (₹)" error={formErrors.sessionFee} required>
+                <FormField label={`Session Fee (${systemSettings.currency})`} error={formErrors.sessionFee} required>
                   <input
                     type="number"
                     value={formData.sessionFee}

@@ -25,10 +25,14 @@ interface SessionPaymentsTabProps {
   receipts: Record<string, string>;
   searchQuery: string;
   statusFilter: string;
+  dateStart: string;
+  dateEnd: string;
   formatCurrency: (n: number) => string;
   formatDateTime: (iso: string) => string;
   onSearchChange: (v: string) => void;
   onStatusChange: (v: string) => void;
+  onDateStartChange: (v: string) => void;
+  onDateEndChange: (v: string) => void;
 }
 
 /** Read-only session payment history (payments happen on mobile / simulator). */
@@ -37,10 +41,14 @@ export default function SessionPaymentsTab({
   receipts,
   searchQuery,
   statusFilter,
+  dateStart,
+  dateEnd,
   formatCurrency,
   formatDateTime,
   onSearchChange,
   onStatusChange,
+  onDateStartChange,
+  onDateEndChange,
 }: SessionPaymentsTabProps) {
   const navigate = useNavigate();
 
@@ -70,6 +78,25 @@ export default function SessionPaymentsTab({
               <option value="failed">Failed</option>
               <option value="refunded">Refunded</option>
             </select>
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg">
+              <input
+                type="date"
+                value={dateStart}
+                max={dateEnd}
+                onChange={(e) => onDateStartChange(e.target.value)}
+                className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                aria-label="Filter from date"
+              />
+              <span className="text-gray-400 text-xs">to</span>
+              <input
+                type="date"
+                value={dateEnd}
+                min={dateStart}
+                onChange={(e) => onDateEndChange(e.target.value)}
+                className="text-xs text-gray-600 bg-transparent focus:outline-none"
+                aria-label="Filter to date"
+              />
+            </div>
           </div>
           <p className="text-xs text-gray-400 shrink-0">{payments.length} records</p>
         </div>

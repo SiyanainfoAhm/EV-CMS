@@ -56,9 +56,18 @@ export function useAuthState(): AuthContextValue {
   }, []);
 
   const logout = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (userId) {
+      try {
+        const { deactivateWebPush } = await import("@/services/webPushService");
+        await deactivateWebPush(userId);
+      } catch {
+        /* ignore */
+      }
+    }
     await authService.logout();
     setSession(null);
-  }, []);
+  }, [session]);
 
   const hasRole = useCallback(
     (roles: UserRole[]) => authService.hasRole(session?.user ?? null, roles),
