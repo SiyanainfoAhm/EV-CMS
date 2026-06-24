@@ -1,8 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import * as chargerService from "@/services/chargerService";
+import * as chargerSessionControl from "@/services/chargerSessionControl";
 import * as ocppService from "@/services/ocppService";
 import { OcppGatewayError } from "@/services/ocppService";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 import { notifyFirmwareAlert } from "@/services/operationalAlertService";
 import * as tariffService from "@/services/tariffService";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
@@ -211,35 +214,37 @@ export default function ChargerDetailPage() {
           setActionResult({ success: false, message: "Remote start cancelled — idTag required" });
           return;
         }
-        const result = await ocppService.remoteStartTransaction({
+        const result = await chargerSessionControl.startChargingSession({
+          chargerId: charger.id,
           chargePointId: charger.chargePointId,
           connectorId,
           idTag: idTag.trim(),
+          ocppConnected: ocppSocketLive,
+          isSimulated: charger.isSimulated,
         });
         setActionResult({
-          success: result.accepted,
-          message: result.accepted
-            ? `RemoteStart sent to Gun ${connectorId}. Awaiting charger response…`
-            : `RemoteStart rejected by charger on Gun ${connectorId}`,
+          success: result.success,
+          message: result.message,
         });
       } else if (type === "RemoteStop") {
         const session = sessions.find((s) => s.connectorId === connectorId);
-        if (!session?.transactionId) {
+        if (!session?.transactionId || !session.id) {
           setActionResult({
             success: false,
             message: `No active session on Gun ${connectorId} to stop`,
           });
           return;
         }
-        const result = await ocppService.remoteStopTransaction({
+        const result = await chargerSessionControl.stopChargingSession({
           chargePointId: charger.chargePointId,
           transactionId: session.transactionId,
+          sessionId: session.id,
+          ocppConnected: ocppSocketLive,
+          isSimulated: charger.isSimulated,
         });
         setActionResult({
-          success: result.accepted,
-          message: result.accepted
-            ? `RemoteStop sent for transaction ${session.transactionId}`
-            : `RemoteStop rejected by charger`,
+          success: result.success,
+          message: result.message,
         });
       } else if (type === "Reset") {
         await ocppService.resetCharger(charger.chargePointId, connectorId === 0 ? "Hard" : "Soft");
@@ -350,6 +355,10 @@ export default function ChargerDetailPage() {
           {toast}
         </div>
       )}
+
+      {isSimulationEnabled() && !ocppSocketLive ? (
+        <SimulationModeBadge compact />
+      ) : null}
 
       <ChargerFormModal
         open={showEditModal}
@@ -567,21 +576,33 @@ export default function ChargerDetailPage() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {connectorActions.map((action) => (
+                    {connectorActions.map((action) => {
+                      const gunBusy = conn.status === "Charging" && action.type === "RemoteStart";
+                      const noSession = action.type === "RemoteStop" && !sessions.some((s) => s.connectorId === conn.connectorId);
+                      const needsSocket =
+                        !charger.isSimulated && (action.type === "RemoteStart" || action.type === "RemoteStop");
+                      const disabled =
+                        charger.status === "decommissioned" ||
+                        gunBusy ||
+                        noSession ||
+                        (needsSocket && !ocppSocketLive);
+                      return (
                       <button
                         key={action.type}
+                        disabled={disabled}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoteAction(action.type, conn.connectorId);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${action.color}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${action.color}`}
                       >
                         <div className="w-3.5 h-3.5 flex items-center justify-center">
                           <i className={action.icon}></i>
                         </div>
                         {action.label}
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

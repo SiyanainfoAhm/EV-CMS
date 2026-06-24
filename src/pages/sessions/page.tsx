@@ -2,8 +2,8 @@ import { useState, useMemo } from "react";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
+import * as chargerSessionControl from "@/services/chargerSessionControl";
 import * as sessionService from "@/services/sessionService";
-import * as ocppService from "@/services/ocppService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { isUtcToday } from "@/utils/dateRanges";
@@ -74,15 +74,16 @@ export default function SessionsPage() {
     if (!stopModal) return;
     setStopLoading(true);
     try {
-      const result = await ocppService.remoteStopTransaction({
+      const result = await chargerSessionControl.stopChargingSession({
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
+        sessionId: stopModal.id,
       });
       setStopModal(null);
       setStopResult(
-        result.accepted
-          ? `RemoteStop sent for session #${stopModal.transactionId}`
-          : `Charger rejected RemoteStop for session #${stopModal.transactionId}`,
+        result.success
+          ? result.message
+          : `Stop failed for session #${stopModal.transactionId}`,
       );
       await reloadActive();
     } catch (e) {
