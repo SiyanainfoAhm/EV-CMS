@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getConnection, isConnected, listConnections } from "../ocpp/connections.js";
 import { sendOcppCall } from "../ocpp/caller.js";
 import { config } from "../config.js";
+import { ADMIN_BYPASS_ID_TAG, enableAdminRfidBypass } from "../ocpp/adminBypass.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
 import * as alerts from "../supabase/alerts.js";
@@ -68,31 +69,44 @@ ocppRouter.get("/connected", (_req, res) => {
 
 ocppRouter.post("/remote-start", async (req, res) => {
   try {
-    const { chargePointId, connectorId, idTag } = req.body as {
+    const { chargePointId, connectorId, idTag, bypassRfid } = req.body as {
       chargePointId?: string;
       connectorId?: number;
       idTag?: string;
+      bypassRfid?: boolean;
     };
-    if (!chargePointId || !connectorId || !idTag) {
-      res.status(400).json({ accepted: false, error: "chargePointId, connectorId, idTag required" });
+    if (!chargePointId || !connectorId) {
+      res.status(400).json({ accepted: false, error: "chargePointId, connectorId required" });
       return;
     }
     const cpId = String(chargePointId).toUpperCase();
+    const adminBypass = Boolean(bypassRfid) || config.bypassRfidAuth;
+    if (adminBypass) {
+      enableAdminRfidBypass(cpId);
+    }
+    const resolvedIdTag = adminBypass
+      ? ADMIN_BYPASS_ID_TAG
+      : idTag?.trim() || "";
+    if (!resolvedIdTag) {
+      res.status(400).json({ accepted: false, error: "idTag required" });
+      return;
+    }
     const response = await sendOcppCall(cpId, "RemoteStartTransaction", {
       connectorId: Number(connectorId),
-      idTag: String(idTag),
+      idTag: resolvedIdTag,
     });
     const accepted = acceptedFromResponse(response);
     if (isSupabaseConfigured()) {
       const charger = await repo.findChargerByChargePointId(cpId);
       if (charger) {
         await repo.logEvent(charger.id, cpId, Number(connectorId), "RemoteStartTransaction", {
-          idTag,
+          idTag: resolvedIdTag,
           response,
+          bypassRfid: adminBypass,
         });
       }
     }
-    res.json({ accepted, response });
+    res.json({ accepted, response, bypassRfid: adminBypass });
   } catch (err) {
     res.status(502).json({
       accepted: false,
@@ -103,15 +117,19 @@ ocppRouter.post("/remote-start", async (req, res) => {
 
 ocppRouter.post("/remote-stop", async (req, res) => {
   try {
-    const { chargePointId, transactionId } = req.body as {
+    const { chargePointId, transactionId, bypassRfid } = req.body as {
       chargePointId?: string;
       transactionId?: number;
+      bypassRfid?: boolean;
     };
     if (!chargePointId || transactionId == null) {
       res.status(400).json({ accepted: false, error: "chargePointId, transactionId required" });
       return;
     }
     const cpId = String(chargePointId).toUpperCase();
+    if (bypassRfid || config.bypassRfidAuth) {
+      enableAdminRfidBypass(cpId);
+    }
     const response = await sendOcppCall(cpId, "RemoteStopTransaction", {
       transactionId: Number(transactionId),
     });

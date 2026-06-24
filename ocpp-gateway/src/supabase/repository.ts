@@ -1,3 +1,5 @@
+import { config } from "../config.js";
+import { isAdminRfidBypassActive } from "../ocpp/adminBypass.js";
 import { getSupabase } from "./client.js";
 
 export interface ChargerRow {
@@ -194,7 +196,13 @@ export async function getFallbackUserId(): Promise<string> {
   return data.id;
 }
 
-export async function authorizeIdTag(idTag: string): Promise<"Accepted" | "Invalid" | "Blocked"> {
+export async function authorizeIdTag(
+  idTag: string,
+  chargePointId?: string
+): Promise<"Accepted" | "Invalid" | "Blocked"> {
+  if (config.bypassRfidAuth || (chargePointId && isAdminRfidBypassActive(chargePointId))) {
+    return "Accepted";
+  }
   const { data, error } = await getSupabase()
     .from("EV_RFIDCards")
     .select("id, status, user_id")

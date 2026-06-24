@@ -69,7 +69,7 @@ async function handleCall(
 
       case "Authorize": {
         const idTag = String(payload.idTag ?? "");
-        const authStatus = await repo.authorizeIdTag(idTag);
+        const authStatus = await repo.authorizeIdTag(idTag, conn.chargePointId);
         if (conn.chargerDbId) {
           await repo.logEvent(conn.chargerDbId, conn.chargePointId, null, "Authorize", { idTag, status: authStatus });
         }
@@ -88,7 +88,7 @@ async function handleCall(
           break;
         }
         const idTag = String(payload.idTag ?? "");
-        const authStatus = await repo.authorizeIdTag(idTag);
+        const authStatus = await repo.authorizeIdTag(idTag, conn.chargePointId);
         if (authStatus !== "Accepted") {
           sendResult(conn, uniqueId, { idTagInfo: { status: authStatus } });
           break;

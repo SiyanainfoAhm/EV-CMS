@@ -86,6 +86,25 @@ $env:OCPP_GATEWAY_WS="wss://ev-cms-ocpp-dfccil.fly.dev"
 node scripts/ocpp-test-client.mjs DL-SI-001
 ```
 
+### Temporary RFID bypass (lab testing only)
+
+Accept any idTag on `Authorize` / `StartTransaction` without checking `EV_RFIDCards`:
+
+```powershell
+fly secrets set OCPP_BYPASS_RFID_AUTH=true -a ev-cms-ocpp-dfccil
+fly deploy
+curl.exe https://ev-cms-ocpp-dfccil.fly.dev/health
+```
+
+Health should show `"bypassRfidAuth": true`. **Turn off after testing:**
+
+```powershell
+fly secrets unset OCPP_BYPASS_RFID_AUTH -a ev-cms-ocpp-dfccil
+fly deploy
+```
+
+This does **not** bypass RFID checks inside the physical charger firmware.
+
 ## Custom domain (optional)
 
 ```powershell

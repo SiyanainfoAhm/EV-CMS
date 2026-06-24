@@ -78,6 +78,7 @@ export default function SessionsPage() {
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
         sessionId: stopModal.id,
+        bypassRfid: true,
       });
       setStopModal(null);
       setStopResult(
