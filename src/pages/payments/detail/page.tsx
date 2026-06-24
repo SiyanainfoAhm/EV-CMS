@@ -3,12 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import * as paymentService from "@/services/paymentService";
 import type { PaymentDetail } from "@/types/ev";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import {
-  buildPaymentReceiptHtml,
-  isDownloadableReceiptPdf,
-  openReceiptPreview,
-  resolvePaymentReceipt,
-} from "@/utils/paymentReceipt";
+import { isDownloadableReceiptPdf, resolvePaymentReceipt, formatGstLabel } from "@/utils/paymentReceipt";
 import {
   downloadRemoteReceiptPdf,
   generateAndDownloadPaymentReceiptPdf,
@@ -72,19 +67,6 @@ export default function PaymentDetailPage() {
     }
   };
 
-  const previewReceipt = () => {
-    if (!payment || payment.status !== "success") return;
-    const doc = resolvePaymentReceipt(payment);
-    const html = buildPaymentReceiptHtml({
-      receiptNumber: doc.receiptNumber,
-      payment,
-      formatCurrency,
-      formatDateTime,
-      issuedAt: doc.issuedAt,
-    });
-    openReceiptPreview(html);
-  };
-
   if (loading) {
     return <p className="text-sm text-gray-500">Loading payment…</p>;
   }
@@ -132,13 +114,6 @@ export default function PaymentDetailPage() {
             >
               {downloadingReceipt ? "Preparing PDF…" : "Download receipt"}
             </button>
-            <button
-              type="button"
-              onClick={previewReceipt}
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
-            >
-              Preview
-            </button>
           </div>
         ) : null}
       </div>
@@ -155,7 +130,7 @@ export default function PaymentDetailPage() {
         </Section>
         <Section title="Amount">
           <Row label="Base" value={formatCurrency(payment.amount)} />
-          <Row label="GST" value={formatCurrency(payment.gstAmount)} />
+          <Row label={formatGstLabel(payment.gstAmount, payment.amount)} value={formatCurrency(payment.gstAmount)} />
           <Row label="Total" value={formatCurrency(payment.totalAmount)} bold />
         </Section>
         <Section title="Gateway">

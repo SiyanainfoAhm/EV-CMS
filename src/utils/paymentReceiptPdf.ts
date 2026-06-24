@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { PaymentDetail } from "@/types/ev";
 import type { ReceiptDocumentInput } from "@/utils/paymentReceipt";
+import { deriveGstPercent } from "@/utils/paymentReceipt";
 
 export type InvoiceDetails = {
   receiptNumber: string;
@@ -8,6 +9,7 @@ export type InvoiceDetails = {
   sessionId: string;
   amount: number;
   gstAmount: number;
+  gstPercent: number;
   totalAmount: number;
   status: string;
   issuedAt: string;
@@ -152,6 +154,7 @@ export function paymentDetailToInvoiceDetails(input: ReceiptDocumentInput): Invo
     sessionId: payment.sessionId,
     amount: payment.amount,
     gstAmount: payment.gstAmount,
+    gstPercent: deriveGstPercent(payment.amount, payment.gstAmount),
     totalAmount: payment.totalAmount,
     status: payment.status,
     issuedAt: issuedAt ?? payment.updatedAt ?? payment.createdAt,
@@ -248,7 +251,13 @@ export async function buildPaymentReceiptPdf(details: InvoiceDetails): Promise<U
       amount: details.amount,
     },
     ...(details.gstAmount > 0
-      ? [{ desc: "GST", sub: undefined as string | undefined, amount: details.gstAmount }]
+      ? [
+          {
+            desc: details.gstPercent > 0 ? `GST (${details.gstPercent}%)` : "GST",
+            sub: "Applied on base amount" as string | undefined,
+            amount: details.gstAmount,
+          },
+        ]
       : []),
   ];
 

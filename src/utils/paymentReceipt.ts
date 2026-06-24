@@ -13,6 +13,19 @@ export function deriveReceiptNumber(paymentId: string): string {
   return `RCP-${paymentId.slice(0, 8).toUpperCase()}-${paymentId.slice(9, 13).toUpperCase()}`;
 }
 
+export function deriveGstPercent(amount: number, gstAmount: number): number {
+  if (amount <= 0 || gstAmount <= 0) return 0;
+  const percent = (gstAmount / amount) * 100;
+  const nearestInt = Math.round(percent);
+  if (Math.abs(percent - nearestInt) < 0.15) return nearestInt;
+  return Math.round(percent * 10) / 10;
+}
+
+export function formatGstLabel(gstAmount: number, amount: number): string {
+  const pct = deriveGstPercent(amount, gstAmount);
+  return pct > 0 ? `GST (${pct}%)` : "GST";
+}
+
 export function resolvePaymentReceipt(payment: PaymentDetail): { receiptNumber: string; issuedAt: string } {
   return {
     receiptNumber: payment.receipt?.receiptNumber ?? deriveReceiptNumber(payment.id),
@@ -63,7 +76,7 @@ export function buildPaymentReceiptHtml(input: ReceiptDocumentInput): string {
     ["Charger", session ? `${session.chargerName} (${session.chargePointId})` : "—"],
     ["Energy", session ? `${session.energyKwh.toFixed(2)} kWh` : "—"],
     ["Base amount", formatCurrency(payment.amount)],
-    ["GST", formatCurrency(payment.gstAmount)],
+    [formatGstLabel(payment.gstAmount, payment.amount), formatCurrency(payment.gstAmount)],
     ["Total paid", formatCurrency(payment.totalAmount)],
     ["Gateway", displayGateway(payment.gateway, payment.status)],
     ["Reference", paymentReference(payment)],
