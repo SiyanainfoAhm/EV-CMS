@@ -209,16 +209,11 @@ export default function ChargerDetailPage() {
 
     try {
       if (type === "RemoteStart") {
-        const idTag = prompt("Enter RFID idTag for remote start:", "RFID-DFCCIL-001");
-        if (!idTag?.trim()) {
-          setActionResult({ success: false, message: "Remote start cancelled — idTag required" });
-          return;
-        }
         const result = await chargerSessionControl.startChargingSession({
           chargerId: charger.id,
           chargePointId: charger.chargePointId,
           connectorId,
-          idTag: idTag.trim(),
+          bypassRfid: true,
           ocppConnected: ocppSocketLive,
           isSimulated: charger.isSimulated,
         });
@@ -239,6 +234,7 @@ export default function ChargerDetailPage() {
           chargePointId: charger.chargePointId,
           transactionId: session.transactionId,
           sessionId: session.id,
+          bypassRfid: true,
           ocppConnected: ocppSocketLive,
           isSimulated: charger.isSimulated,
         });

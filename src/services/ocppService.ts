@@ -37,12 +37,15 @@ async function gatewayFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export interface RemoteStartParams {
   chargePointId: string;
   connectorId: number;
-  idTag: string;
+  idTag?: string;
+  /** Web admin remote start — skip RFID DB check on gateway Authorize/StartTransaction. */
+  bypassRfid?: boolean;
 }
 
 export interface RemoteStopParams {
   chargePointId: string;
   transactionId: number;
+  bypassRfid?: boolean;
 }
 
 export async function remoteStartTransaction(params: RemoteStartParams): Promise<{ accepted: boolean }> {
