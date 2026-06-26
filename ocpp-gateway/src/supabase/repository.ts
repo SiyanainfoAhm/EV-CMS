@@ -16,17 +16,21 @@ export interface RfidLookup {
   uid: string;
 }
 
-const OCPP_TO_CONNECTOR_STATUS: Record<string, string> = {
-  Available: "Available",
-  Preparing: "Available",
-  Charging: "Charging",
-  SuspendedEVSE: "Unavailable",
-  SuspendedEV: "Unavailable",
-  Finishing: "Available",
-  Reserved: "Unavailable",
-  Unavailable: "Unavailable",
-  Faulted: "Faulted",
-};
+const OCPP_CONNECTOR_STATUSES = new Set([
+  "Available",
+  "Preparing",
+  "Charging",
+  "SuspendedEVSE",
+  "SuspendedEV",
+  "Finishing",
+  "Reserved",
+  "Unavailable",
+  "Faulted",
+]);
+
+function mapOcppConnectorStatus(ocppStatus: string): string {
+  return OCPP_CONNECTOR_STATUSES.has(ocppStatus) ? ocppStatus : "Unavailable";
+}
 
 const OCPP_STOP_REASON: Record<string, string> = {
   EmergencyStop: "EmergencyStop",
@@ -142,7 +146,7 @@ export async function recordStatusNotification(
   ocppStatus: string,
   payload: Record<string, unknown>
 ): Promise<void> {
-  const connectorStatus = OCPP_TO_CONNECTOR_STATUS[ocppStatus] ?? "Unavailable";
+  const connectorStatus = mapOcppConnectorStatus(ocppStatus);
   const now = new Date().toISOString();
 
   if (connectorId > 0) {
@@ -151,6 +155,12 @@ export async function recordStatusNotification(
       .update({ status: connectorStatus, updated_at: now })
       .eq("charger_id", chargerId)
       .eq("connector_id", connectorId);
+    if (error) throw error;
+  } else if (ocppStatus === "Faulted") {
+    const { error } = await getSupabase()
+      .from("EV_ChargerConnectors")
+      .update({ status: "Faulted", updated_at: now })
+      .eq("charger_id", chargerId);
     if (error) throw error;
   }
 

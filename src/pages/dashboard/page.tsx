@@ -18,6 +18,7 @@ import type { RecentActivityItem } from "@/services/dashboardService";
 import type { DashboardPreset, DashboardRange } from "@/utils/dateRanges";
 import { dashboardRangeKey, dashboardRangeLabel, utcDaysAgoKey, utcTodayKey } from "@/utils/dateRanges";
 import { connectivityFromHeartbeat } from "@/utils/chargerConnectivity";
+import { connectorStatusBadgeClass, connectorStatusLabel } from "@/utils/connectorStatus";
 
 const emptyStats = {
   totalChargers: 0,
@@ -347,17 +348,9 @@ export default function DashboardPage() {
                   {charger.connectors.map((conn) => (
                     <span
                       key={conn.id}
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        conn.status === "Charging"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : conn.status === "Available"
-                          ? "bg-gray-100 text-gray-600"
-                          : conn.status === "Faulted"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-gray-100 text-gray-400"
-                      }`}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${connectorStatusBadgeClass(conn.status)}`}
                     >
-                      Gun {conn.connectorId}: {conn.status}
+                      Gun {conn.connectorId}: {connectorStatusLabel(conn.status)}
                     </span>
                   ))}
                 </div>
