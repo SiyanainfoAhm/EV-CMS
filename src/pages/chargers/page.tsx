@@ -38,6 +38,12 @@ import {
 
 } from "@/utils/chargerConnectivity";
 
+import {
+  connectorStatusBadgeClass,
+  connectorStatusLabel,
+  isConnectorCharging,
+} from "@/utils/connectorStatus";
+
 import type { Charger } from "@/types/ev";
 
 function tariffLabel(charger: Charger): string {
@@ -50,38 +56,6 @@ function tariffLabel(charger: Charger): string {
 type StatusFilter = "all" | "online" | "offline" | "faulted" | "decommissioned";
 
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
-
-
-
-function getConnectorBadge(status: string): string {
-
-  switch (status) {
-
-    case "Charging":
-
-      return "bg-emerald-100 text-emerald-700";
-
-    case "Available":
-
-      return "bg-gray-100 text-gray-600";
-
-    case "Faulted":
-
-      return "bg-red-100 text-red-700";
-
-    case "Unavailable":
-
-      return "bg-gray-100 text-gray-400";
-
-    default:
-
-      return "bg-gray-100 text-gray-500";
-
-  }
-
-}
-
-
 
 export default function ChargersPage() {
 
@@ -261,7 +235,7 @@ export default function ChargersPage() {
 
     const chargingConnectors = mockChargers.reduce(
 
-      (acc, c) => acc + c.connectors.filter((conn) => conn.status === "Charging").length,
+      (acc, c) => acc + c.connectors.filter((conn) => isConnectorCharging(conn.status)).length,
 
       0,
 
@@ -718,9 +692,9 @@ export default function ChargersPage() {
 
                       {charger.connectors.map((conn) => (
 
-                        <span key={conn.id} className={`text-xs px-2 py-0.5 rounded-full font-medium ${getConnectorBadge(conn.status)}`}>
+                        <span key={conn.id} className={`text-xs px-2 py-0.5 rounded-full font-medium ${connectorStatusBadgeClass(conn.status)}`}>
 
-                          G{conn.connectorId}: {conn.status}
+                          G{conn.connectorId}: {connectorStatusLabel(conn.status)}
 
                         </span>
 

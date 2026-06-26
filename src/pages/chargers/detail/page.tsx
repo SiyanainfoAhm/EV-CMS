@@ -18,6 +18,12 @@ import {
   formatHeartbeatAgo,
   type ConnectivityLabel,
 } from "@/utils/chargerConnectivity";
+import {
+  canRemoteStartConnector,
+  connectorStatusBadgeClass,
+  connectorStatusLabel,
+  isConnectorCharging,
+} from "@/utils/connectorStatus";
 import type { Charger, ChargingSession, Tariff } from "@/types/ev";
 
 function getRelativeTime(isoStr: string): string {
@@ -544,23 +550,15 @@ export default function ChargerDetailPage() {
                         </p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              conn.status === "Charging"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : conn.status === "Available"
-                                ? "bg-gray-100 text-gray-600"
-                                : conn.status === "Faulted"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-gray-100 text-gray-400"
-                            }`}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${connectorStatusBadgeClass(conn.status)}`}
                           >
-                            {conn.status}
+                            {connectorStatusLabel(conn.status)}
                           </span>
                           <span className="text-xs text-gray-400">{conn.maxPowerKw} kW max</span>
                         </div>
                       </div>
                     </div>
-                    {conn.status === "Charging" && (
+                    {isConnectorCharging(conn.status) && (
                       <div className="flex items-center gap-1">
                         <span className="relative flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -573,14 +571,17 @@ export default function ChargerDetailPage() {
 
                   <div className="flex items-center gap-2 flex-wrap">
                     {connectorActions.map((action) => {
-                      const gunBusy = conn.status === "Charging" && action.type === "RemoteStart";
+                      const gunBusy = isConnectorCharging(conn.status) && action.type === "RemoteStart";
                       const noSession = action.type === "RemoteStop" && !sessions.some((s) => s.connectorId === conn.connectorId);
                       const needsSocket =
                         !charger.isSimulated && (action.type === "RemoteStart" || action.type === "RemoteStop");
+                      const startBlocked =
+                        action.type === "RemoteStart" && !canRemoteStartConnector(conn.status);
                       const disabled =
                         charger.status === "decommissioned" ||
                         gunBusy ||
                         noSession ||
+                        startBlocked ||
                         (needsSocket && !ocppSocketLive);
                       return (
                       <button
