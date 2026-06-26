@@ -44,15 +44,23 @@ Charger detail page remote commands call the gateway REST API.
 
 ## Test without physical charger
 
-1. Register a charger in admin (e.g. charge point `MP-TEST-001`)
-2. Start gateway with Supabase credentials
-3. Run test client:
+1. Register a charger in admin (e.g. charge point `MP-TEST-001`, DC Fast with Gun 1 + Gun 2)
+2. Start gateway with Supabase credentials (or use Fly.io production URL)
+3. Run test client (simulates full OCPP session after admin Remote Start):
 
 ```bash
+# Local gateway
 node scripts/ocpp-test-client.mjs MP-TEST-001
+
+# Production Fly.io
+OCPP_GATEWAY_WS=wss://ev-cms-ocpp-dfccil.fly.dev node scripts/ocpp-test-client.mjs MP-TEST-001
 ```
 
-4. Use admin **Remote Start** on that charger (requires connected test client)
+4. In admin: open **MP-TEST-001** → **Gun 1 → Start**  
+   Test client will send: `Preparing` → `StartTransaction` → `Charging` → `MeterValues`  
+5. **Gun 1 → Stop** ends the session (`StopTransaction` → `Finishing` → `Available`)
+
+Keep the terminal open while testing — closing it disconnects the simulated charger.
 
 ## Docker
 
