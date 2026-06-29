@@ -130,7 +130,7 @@ export default {
     gst: "GST",
     totalDue: "Total due",
     paymentDueHint: "Pay this charging session from your wallet balance.",
-    payFromWallet: "Pay from wallet",
+    payFromWallet: "Pay",
     topUpToPay: "Top up wallet to pay",
     paymentSuccess: "Session payment completed.",
     paymentFailed: "Could not complete session payment.",

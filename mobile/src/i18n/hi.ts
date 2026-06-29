@@ -130,7 +130,7 @@ export default {
     gst: "जीएसटी",
     totalDue: "कुल देय",
     paymentDueHint: "अपने वॉलेट बैलेंस से इस चार्जिंग सेशन का भुगतान करें।",
-    payFromWallet: "वॉलेट से भुगतान करें",
+    payFromWallet: "भुगतान करें",
     topUpToPay: "भुगतान के लिए वॉलेट टॉप-अप करें",
     paymentSuccess: "सेशन भुगतान पूरा हुआ।",
     paymentFailed: "सेशन भुगतान पूरा नहीं हो सका।",
