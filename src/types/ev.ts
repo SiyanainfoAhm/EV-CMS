@@ -10,6 +10,7 @@ export interface User {
   rfidBound?: string | null;
   joinedDate?: string;
   lastLogin?: string;
+  lastLoginAt?: string | null;
   phone?: string;
   avatarUrl?: string | null;
   employeeId?: string | null;
@@ -93,7 +94,9 @@ export interface Tariff {
 export interface Payment {
   id: string;
   sessionId: string;
+  userId: string;
   userName: string;
+  userEmail?: string;
   amount: number;
   gstAmount: number;
   totalAmount: number;
@@ -102,6 +105,75 @@ export interface Payment {
   gatewayTxnId: string | null;
   reconciliation: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PaymentSessionSummary {
+  id: string;
+  chargerName: string;
+  chargePointId: string;
+  connectorId: number;
+  energyKwh: number;
+  startTime: string;
+  endTime?: string | null;
+  status: string;
+}
+
+export interface PaymentReceiptInfo {
+  receiptNumber: string;
+  pdfUrl: string | null;
+  issuedAt: string;
+}
+
+export interface PaymentDetail extends Payment {
+  session?: PaymentSessionSummary;
+  receipt?: PaymentReceiptInfo;
+}
+
+export interface WalletAccount {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  balanceAmount: number;
+  holdAmount: number;
+  usableBalance: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletLedgerEntry {
+  id: string;
+  walletAccountId: string;
+  userId: string;
+  transactionType: string;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  referenceType: string;
+  referenceId: string | null;
+  remarks: string | null;
+  createdAt: string;
+}
+
+export interface PaymentOrder {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  amount: number;
+  currency: string;
+  gatewayName: string | null;
+  gatewayOrderId: string | null;
+  gatewayPaymentId: string | null;
+  checkoutUrl: string | null;
+  status: string;
+  walletCredited: boolean;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MeterValue {

@@ -61,6 +61,22 @@ docker build -t ev-cms-ocpp-gateway .
 docker run -p 4040:4040 --env-file .env ev-cms-ocpp-gateway
 ```
 
+## Deploy on Fly.io (recommended, ~$4/mo, Mumbai)
+
+Full guide: **[FLY_DEPLOY.md](./FLY_DEPLOY.md)**
+
+```powershell
+fly auth login
+fly secrets set SUPABASE_URL="https://fvveqziyusjgqejowkfp.supabase.co" SUPABASE_SERVICE_ROLE_KEY="<key>"
+fly deploy
+```
+
+- REST: `https://ev-cms-ocpp-dfccil.fly.dev`
+- Charger: `wss://ev-cms-ocpp-dfccil.fly.dev/ocpp/<CHARGE_POINT_ID>`
+- Vercel: `VITE_OCPP_GATEWAY_API_URL=https://ev-cms-ocpp-dfccil.fly.dev`
+
+No local PC or Cloudflare tunnel required in production.
+
 ## Still TODO (Phase 1 tail)
 
 - TLS 1.2/1.3 WSS in production (`TLS_CERT_PATH`, `TLS_KEY_PATH`)

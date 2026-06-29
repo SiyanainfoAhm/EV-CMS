@@ -9,6 +9,7 @@ import { isSimulationEnabled } from "@/utils/simulationMode";
 import { getWebNavItemsForRole, normalizeRfpRole } from "@/utils/rfpRoles";
 import { useInactivityLogout } from "@/hooks/useInactivityLogout";
 import { useAdminOperationalAlertEmail } from "@/hooks/useAdminOperationalAlertEmail";
+import { useWebPush } from "@/hooks/useWebPush";
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -56,6 +57,7 @@ export default function AdminLayout() {
 
   useInactivityLogout(() => navigate("/login", { state: { sessionExpired: true } }));
   useAdminOperationalAlertEmail();
+  useWebPush();
 
   return (
     <div className="min-h-screen bg-[#f5f5f3] flex">

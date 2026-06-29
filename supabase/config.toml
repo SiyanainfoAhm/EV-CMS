@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.ev-cms-mobile-wallet-verify-razorpay-payment]
 verify_jwt = false
+
+[functions.send-push-notification]
+verify_jwt = false

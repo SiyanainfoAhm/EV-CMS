@@ -12,6 +12,7 @@ import UsersPage from "../pages/users/page";
 import RfidPage from "../pages/rfid/page";
 import TariffsPage from "../pages/tariffs/page";
 import PaymentsPage from "../pages/payments/page";
+import PaymentDetailPage from "../pages/payments/detail/page";
 import ReportsPage from "../pages/reports/page";
 import AuditLogsPage from "../pages/audit-logs/page";
 import SettingsPage from "../pages/settings/page";
@@ -67,6 +68,10 @@ const routes: RouteObject[] = [
       {
         path: "/payments",
         element: <PaymentsPage />,
+      },
+      {
+        path: "/payments/:id",
+        element: <PaymentDetailPage />,
       },
       {
         path: "/support-tickets",

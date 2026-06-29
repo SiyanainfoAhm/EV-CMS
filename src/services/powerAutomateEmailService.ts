@@ -15,7 +15,8 @@ export type PowerAutomateEmailType =
   | "ticket_closed"
   | "unauthorized_login_alert"
   | "email_otp"
-  | "admin_alert";
+  | "admin_alert"
+  | "weekly_report";
 
 export interface PowerAutomateEmailPayload {
   emailType: PowerAutomateEmailType;
@@ -479,6 +480,52 @@ export async function sendAdminAlertEmail(
 
   return sendBuiltEmail("admin_alert", input.email, built, "ev-cms-notifications", {
     fullName: input.name,
+  });
+}
+
+export interface WeeklyReportEmailInput {
+  name: string;
+  email: string;
+  rangeLabel: string;
+  totalEnergyKwh: number;
+  totalSessions: number;
+  totalRevenue: number;
+  energyUnit: string;
+  currency: string;
+  topChargers: { name: string; energyKwh: number }[];
+}
+
+export async function sendWeeklyReportEmail(
+  input: WeeklyReportEmailInput
+): Promise<PowerAutomateEmailResult> {
+  const chargerLines =
+    input.topChargers.length > 0
+      ? input.topChargers.map((c) => `${c.name}: ${c.energyKwh} ${input.energyUnit}`)
+      : ["No charging activity in this period."];
+
+  const built = buildTransactionalEmail({
+    preheader: `Weekly EV-CMS summary — ${input.rangeLabel}`,
+    headline: "Weekly charging summary",
+    greeting: `Hello ${input.name},`,
+    intro: `Here is your DFCCIL EV-CMS digest for ${input.rangeLabel}.`,
+    tone: "info",
+    badge: "Weekly report",
+    details: [
+      { label: "Total energy", value: `${input.totalEnergyKwh} ${input.energyUnit}` },
+      { label: "Completed sessions", value: String(input.totalSessions) },
+      { label: "Revenue (successful payments)", value: `${input.currency} ${input.totalRevenue.toLocaleString("en-IN")}` },
+      { label: "Period", value: input.rangeLabel },
+    ],
+    bullets: chargerLines.slice(0, 5),
+    ctaLabel: "Open reports",
+    ctaUrl: PORTAL_URL.replace("/login", "/reports"),
+    footerNote: "Disable weekly reports under Settings → Notifications → Financial & Reports.",
+  });
+  built.subject = `DFCCIL EV-CMS weekly report — ${input.rangeLabel}`;
+
+  return sendBuiltEmail("weekly_report", input.email, built, "ev-cms-reports", {
+    fullName: input.name,
+    rangeLabel: input.rangeLabel,
   });
 }
 

@@ -2,24 +2,17 @@ import { useState, useMemo } from "react";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
+import * as chargerSessionControl from "@/services/chargerSessionControl";
 import * as sessionService from "@/services/sessionService";
-import * as ocppService from "@/services/ocppService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { isUtcToday } from "@/utils/dateRanges";
 import type { ChargingSession } from "@/types/ev";
 
 type TabType = "active" | "history";
 
-function formatTime(isoStr: string): string {
-  return new Date(isoStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function SessionsPage() {
+  const { formatDateTime, formatCurrency, formatEnergy } = useUserPreferences();
   const { data: activeData, reload: reloadActive } = useAsyncData(() => sessionService.getActiveSessions(), []);
   useAsyncData(() => chargerService.getChargers(), []);
   const mockActiveSessions = activeData ?? [];
@@ -81,15 +74,17 @@ export default function SessionsPage() {
     if (!stopModal) return;
     setStopLoading(true);
     try {
-      const result = await ocppService.remoteStopTransaction({
+      const result = await chargerSessionControl.stopChargingSession({
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
+        sessionId: stopModal.id,
+        bypassRfid: true,
       });
       setStopModal(null);
       setStopResult(
-        result.accepted
-          ? `RemoteStop sent for session #${stopModal.transactionId}`
-          : `Charger rejected RemoteStop for session #${stopModal.transactionId}`,
+        result.success
+          ? result.message
+          : `Stop failed for session #${stopModal.transactionId}`,
       );
       await reloadActive();
     } catch (e) {
@@ -165,14 +160,14 @@ export default function SessionsPage() {
             <i className="ri-flashlight-fill text-amber-600 text-sm"></i>
             <span className="text-xs text-gray-500">Energy Today</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{stats.energyToday} kWh</p>
+          <p className="text-2xl font-bold text-gray-900">{formatEnergy(Number(stats.energyToday))}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-2">
             <i className="ri-money-rupee-circle-line text-rose-600 text-sm"></i>
             <span className="text-xs text-gray-500">Revenue Today</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">&#8377;{stats.revenueToday.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.revenueToday)}</p>
         </div>
       </div>
 
@@ -216,13 +211,13 @@ export default function SessionsPage() {
                       <span className="text-xs text-gray-600">{session.authMethod ?? "RFID"}</span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <p className="text-sm text-gray-600">{formatTime(session.startTime)}</p>
+                      <p className="text-sm text-gray-600">{formatDateTime(session.startTime)}</p>
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-medium text-gray-900">{session.duration}</p>
                     </td>
                     <td className="px-5 py-3.5">
-                      <p className="text-sm font-semibold text-gray-900">{session.energyKwh} kWh</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatEnergy(session.energyKwh ?? 0)}</p>
                       <p className="text-xs text-gray-400">SoC {session.soc}%</p>
                     </td>
                     <td className="px-5 py-3.5">
@@ -332,11 +327,11 @@ export default function SessionsPage() {
                       <span className="text-xs text-gray-600">{session.authMethod ?? "—"}</span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <p className="text-sm text-gray-600">{formatTime(session.startTime)}</p>
+                      <p className="text-sm text-gray-600">{formatDateTime(session.startTime)}</p>
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-600">
-                        {session.endTime ? formatTime(session.endTime) : <span className="text-gray-400">—</span>}
+                        {session.endTime ? formatDateTime(session.endTime) : <span className="text-gray-400">—</span>}
                       </p>
                     </td>
                     <td className="px-5 py-3.5">
@@ -344,12 +339,12 @@ export default function SessionsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-semibold text-gray-900">
-                        {session.energyKwh != null ? `${session.energyKwh} kWh` : "—"}
+                        {session.energyKwh != null ? formatEnergy(session.energyKwh) : "—"}
                       </p>
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-semibold text-gray-900">
-                        {session.amount != null ? `₹${session.amount}` : "—"}
+                        {session.amount != null ? formatCurrency(session.amount) : "—"}
                       </p>
                     </td>
                     <td className="px-5 py-3.5">

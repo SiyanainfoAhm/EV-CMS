@@ -1,6 +1,12 @@
 import * as sessionService from "@/services/sessionService";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { formatRelativeTime } from "@/utils/supabaseMappers";
+import {
+  dashboardRangeLabel,
+  resolveDashboardRange,
+  utcRangeStart,
+  type DashboardRange,
+} from "@/utils/dateRanges";
 import type { TimeRange } from "@/types/ev";
 
 export interface RecentActivityItem {
@@ -10,18 +16,17 @@ export interface RecentActivityItem {
   type: string;
 }
 
-function getRangeStart(timeRange: TimeRange): Date {
-  const start = new Date();
-  start.setUTCHours(0, 0, 0, 0);
-
-  const days = timeRange === "today" ? 1 : timeRange === "week" ? 7 : timeRange === "month" ? 30 : 90;
-  // Inclusive range: last `days` including today.
-  start.setUTCDate(start.getUTCDate() - (days - 1));
-  return start;
+function getRangeBounds(range: DashboardRange | TimeRange) {
+  if (typeof range === "string") {
+    const days = range === "today" ? 1 : range === "week" ? 7 : range === "month" ? 30 : 90;
+    const end = new Date();
+    end.setUTCHours(23, 59, 59, 999);
+    return { start: utcRangeStart(days), end, preset: range === "today" ? "today" as const : range === "week" ? "week" as const : "month" as const };
+  }
+  return resolveDashboardRange(range);
 }
 
 function formatDayLabelFromISODate(isoDate: string): string {
-  // isoDate is expected to be `YYYY-MM-DD` in UTC.
   const d = new Date(`${isoDate}T00:00:00Z`);
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const weekday = days[d.getUTCDay()];
@@ -29,13 +34,19 @@ function formatDayLabelFromISODate(isoDate: string): string {
   return `${weekday} ${day}`;
 }
 
-export async function getRecentActivity(limit = 6, timeRange: TimeRange = "today"): Promise<RecentActivityItem[]> {
-  const rangeStart = getRangeStart(timeRange).toISOString();
+export async function getRecentActivity(
+  limit = 6,
+  range: DashboardRange | TimeRange = "today"
+): Promise<RecentActivityItem[]> {
+  const { start: rangeStart, end: rangeEnd } = getRangeBounds(range);
+  const rangeStartIso = rangeStart.toISOString();
+  const rangeEndIso = rangeEnd.toISOString();
 
   const { data: events, error } = await requireSupabase()
     .from("EV_ChargerEvents")
     .select("id, event_type, payload, created_at, EV_Chargers ( name, charge_point_id )")
-    .gte("created_at", rangeStart)
+    .gte("created_at", rangeStartIso)
+    .lte("created_at", rangeEndIso)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -62,10 +73,14 @@ export async function getRecentActivity(limit = 6, timeRange: TimeRange = "today
     sessionService.getActiveSessions(),
     sessionService.getSessionHistory(),
   ]);
-  const rangeMs = new Date(rangeStart).getTime();
+  const rangeMsStart = rangeStart.getTime();
+  const rangeMsEnd = rangeEnd.getTime();
 
   const sessions = [...active, ...history]
-    .filter((s) => new Date(s.startTime).getTime() >= rangeMs || (s.endTime ? new Date(s.endTime).getTime() >= rangeMs : false))
+    .filter((s) => {
+      const t = new Date(s.startTime).getTime();
+      return t >= rangeMsStart && t <= rangeMsEnd;
+    })
     .sort((a, b) => {
       const at = new Date(a.endTime ?? a.startTime).getTime();
       const bt = new Date(b.endTime ?? b.startTime).getTime();
@@ -91,17 +106,24 @@ export async function getRecentActivity(limit = 6, timeRange: TimeRange = "today
   });
 }
 
-export async function getEnergyChartData(timeRange: TimeRange = "today"): Promise<{ hour: string; kwh: number }[]> {
+export async function getEnergyChartData(
+  range: DashboardRange | TimeRange = "today"
+): Promise<{ hour: string; kwh: number }[]> {
   const [active, history] = await Promise.all([
     sessionService.getActiveSessions(),
     sessionService.getSessionHistory(),
   ]);
   const sessions = [...active, ...history];
-  const rangeStart = getRangeStart(timeRange).getTime();
-  const inRange = sessions.filter((s) => new Date(s.startTime).getTime() >= rangeStart);
+  const { start: rangeStart, end: rangeEnd, preset } = getRangeBounds(range);
+  const rangeStartMs = rangeStart.getTime();
+  const rangeEndMs = rangeEnd.getTime();
+  const inRange = sessions.filter((s) => {
+    const t = new Date(s.startTime).getTime();
+    return t >= rangeStartMs && t <= rangeEndMs;
+  });
   const buckets = new Map<string, number>();
 
-  if (timeRange === "today") {
+  if (preset === "today") {
     for (const s of inRange) {
       const d = new Date(s.startTime);
       const hour = `${String(d.getUTCHours()).padStart(2, "0")}:00`;
@@ -116,18 +138,18 @@ export async function getEnergyChartData(timeRange: TimeRange = "today"): Promis
       ];
     }
 
-    // Keep original “dense-ish” shape for the daily chart.
     return Array.from(buckets.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([hour, kwh]) => ({ hour, kwh: Math.round(kwh * 10) / 10 }));
   }
 
-  // Week/month: bucket by day.
   const dayKeys: string[] = [];
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
-  for (let d = new Date(rangeStart); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
-    dayKeys.push(d.toISOString().slice(0, 10));
+  const cursor = new Date(rangeStart);
+  cursor.setUTCHours(0, 0, 0, 0);
+  const endDay = new Date(rangeEnd);
+  endDay.setUTCHours(0, 0, 0, 0);
+  for (; cursor.getTime() <= endDay.getTime(); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    dayKeys.push(cursor.toISOString().slice(0, 10));
   }
 
   for (const s of inRange) {
@@ -141,3 +163,5 @@ export async function getEnergyChartData(timeRange: TimeRange = "today"): Promis
     kwh: Math.round((buckets.get(key) ?? 0) * 10) / 10,
   }));
 }
+
+export { dashboardRangeLabel };

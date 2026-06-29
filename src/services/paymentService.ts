@@ -1,11 +1,15 @@
-import type { Payment } from "@/types/ev";
+import type { Payment, PaymentDetail, PaymentReceiptInfo, PaymentSessionSummary } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
+import { getEvUserLookup } from "@/utils/evUserLookup";
 import { mapPayment } from "@/utils/supabaseMappers";
 import { PAYMENT_MOCK_GATEWAY_NAME } from "@/utils/paymentMockMode";
+import { isoDayEnd, isoDayStart } from "@/utils/dateRanges";
 
 export interface PaymentsQuery {
   status?: string; // success | pending | failed | refunded | all
   search?: string; // id / gateway txn / user name
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string; // YYYY-MM-DD
   limit?: number;
 }
 
@@ -22,41 +26,87 @@ function round2(n: number): number {
 }
 
 export async function getPayments(query: PaymentsQuery = {}): Promise<Payment[]> {
-  const { status = "all", search = "", limit = 200 } = query;
+  const { status = "all", search = "", dateFrom, dateTo, limit = 200 } = query;
   let q = requireSupabase()
     .from("EV_Payments")
-    .select("*, EV_Users!left ( full_name )")
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
 
   if (status !== "all") q = q.eq("status", status);
+  if (dateFrom) q = q.gte("created_at", isoDayStart(dateFrom));
+  if (dateTo) q = q.lte("created_at", isoDayEnd(dateTo));
 
-  const s = search.trim();
+  const [{ data, error }, userLookup] = await Promise.all([q, getEvUserLookup()]);
+  if (error) throw error;
+
+  let rows = (data ?? []).map((row) => {
+    const r = row as Record<string, unknown>;
+    const user = userLookup.get(r.user_id as string);
+    return mapPayment(r, user ?? null);
+  });
+  const s = search.trim().toLowerCase();
   if (s) {
-    // Supabase OR supports simple columns; keep it robust across environments.
-    q = q.or(`id.ilike.%${s}%,gateway_txn_id.ilike.%${s}%,gateway.ilike.%${s}%`);
+    rows = rows.filter(
+      (p) =>
+        p.id.toLowerCase().includes(s) ||
+        (p.gatewayTxnId ?? "").toLowerCase().includes(s) ||
+        (p.gateway ?? "").toLowerCase().includes(s) ||
+        p.userName.toLowerCase().includes(s) ||
+        (p.userEmail ?? "").toLowerCase().includes(s) ||
+        p.sessionId.toLowerCase().includes(s)
+    );
   }
 
-  const { data, error } = await q;
-
-  if (error) throw error;
-  return (data ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    return mapPayment(r, r.EV_Users as Record<string, unknown> | null);
-  });
+  return rows;
 }
 
 export async function getPaymentById(id: string): Promise<Payment | undefined> {
-  const { data, error } = await requireSupabase()
-    .from("EV_Payments")
-    .select("*, EV_Users!left ( full_name )")
-    .eq("id", id)
-    .maybeSingle();
+  const [{ data, error }, userLookup] = await Promise.all([
+    requireSupabase().from("EV_Payments").select("*").eq("id", id).maybeSingle(),
+    getEvUserLookup(),
+  ]);
 
   if (error) throw error;
   if (!data) return undefined;
   const r = data as Record<string, unknown>;
-  return mapPayment(r, r.EV_Users as Record<string, unknown> | null);
+  const user = userLookup.get(r.user_id as string);
+  return mapPayment(r, user ?? null);
+}
+export async function getPaymentDetail(id: string): Promise<PaymentDetail | undefined> {
+  const payment = await getPaymentById(id);
+  if (!payment) return undefined;
+
+  const [{ data: sessionData }, receipt] = await Promise.all([
+    requireSupabase()
+      .from("EV_ChargingSessions")
+      .select("id, energy_kwh, start_time, end_time, status, connector_id, EV_Chargers!left ( name, charge_point_id )")
+      .eq("id", payment.sessionId)
+      .maybeSingle(),
+    getReceiptForPayment(id),
+  ]);
+
+  let session: PaymentSessionSummary | undefined;
+  if (sessionData) {
+    const s = sessionData as Record<string, unknown>;
+    const charger = s.EV_Chargers as Record<string, unknown> | null;
+    session = {
+      id: s.id as string,
+      chargerName: (charger?.name as string) ?? "—",
+      chargePointId: (charger?.charge_point_id as string) ?? "—",
+      connectorId: Number(s.connector_id ?? 0),
+      energyKwh: Number(s.energy_kwh ?? 0),
+      startTime: s.start_time as string,
+      endTime: (s.end_time as string) ?? null,
+      status: s.status as string,
+    };
+  }
+
+  const receiptInfo: PaymentReceiptInfo | undefined = receipt
+    ? { receiptNumber: receipt.receiptNumber, pdfUrl: receipt.pdfUrl, issuedAt: receipt.issuedAt }
+    : undefined;
+
+  return { ...payment, session, receipt: receiptInfo };
 }
 
 export async function paymentExistsForSession(sessionId: string): Promise<boolean> {
@@ -160,17 +210,46 @@ export async function markPaymentReconciled(paymentId: string): Promise<void> {
   }
 }
 
-export async function getReceiptForPayment(paymentId: string): Promise<{ receiptNumber: string; pdfUrl: string | null } | null> {
+export async function getReceiptForPayment(
+  paymentId: string
+): Promise<{ receiptNumber: string; pdfUrl: string | null; issuedAt: string } | null> {
   const { data, error } = await requireSupabase()
     .from("EV_Receipts")
-    .select("receipt_number, pdf_url")
+    .select("receipt_number, pdf_url, issued_at")
     .eq("payment_id", paymentId)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) return null;
-  const row = data as { receipt_number: string; pdf_url: string | null };
-  return { receiptNumber: row.receipt_number, pdfUrl: row.pdf_url };
+  const row = data as { receipt_number: string; pdf_url: string | null; issued_at: string };
+  return { receiptNumber: row.receipt_number, pdfUrl: row.pdf_url, issuedAt: row.issued_at };
+}
+
+export async function upsertReceiptFromGateway(
+  paymentId: string,
+  receiptNumber: string,
+  pdfUrl?: string | null
+): Promise<{ receiptNumber: string; pdfUrl?: string }> {
+  const existing = await getReceiptForPayment(paymentId);
+  if (existing) {
+    return { receiptNumber: existing.receiptNumber, pdfUrl: existing.pdfUrl ?? undefined };
+  }
+
+  const { error } = await requireSupabase().from("EV_Receipts").insert({
+    payment_id: paymentId,
+    receipt_number: receiptNumber,
+    pdf_url: pdfUrl ?? null,
+  });
+
+  if (error) {
+    throw new Error(
+      error.message.includes("policy")
+        ? "Cannot create receipt: run supabase/payments_admin.sql in Supabase."
+        : error.message
+    );
+  }
+
+  return { receiptNumber, pdfUrl: pdfUrl ?? undefined };
 }
 
 export async function createReceiptForPayment(paymentId: string): Promise<{ receiptNumber: string; pdfUrl?: string }> {

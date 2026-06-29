@@ -11,6 +11,7 @@ import type {
   User,
 } from "@/types/ev";
 import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
+import { formatDateTime } from "@/utils/formatPreferences";
 import { parseSupportTicketAttachments } from "@/utils/supportTicketAttachments";
 import { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb } from "@/utils/rfpRoles";
 
@@ -36,15 +37,7 @@ export function formatAvgDurationMs(avgMs: number): string {
 }
 
 export function formatLastLogin(iso?: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString("en-IN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 export function formatRelativeTime(iso: string): string {
@@ -151,7 +144,7 @@ export function mapUser(row: Record<string, unknown>): User {
     joinedDate: row.created_at
       ? new Date(row.created_at as string).toISOString().slice(0, 10)
       : undefined,
-    lastLogin: formatLastLogin(row.last_login_at as string),
+    lastLoginAt: (row.last_login_at as string) ?? null,
   };
 }
 
@@ -191,7 +184,9 @@ export function mapPayment(
   return {
     id: row.id as string,
     sessionId: row.session_id as string,
+    userId: (row.user_id as string) ?? "",
     userName: user ? (user.full_name as string) : "",
+    userEmail: user ? ((user.email as string) ?? undefined) : undefined,
     amount: Number(row.amount),
     gstAmount: Number(row.gst_amount),
     totalAmount: Number(row.total_amount),
@@ -200,6 +195,7 @@ export function mapPayment(
     gatewayTxnId: (row.gateway_txn_id as string) ?? null,
     reconciliation: (row.reconciliation_status as string) ?? "unmatched",
     createdAt: row.created_at as string,
+    updatedAt: (row.updated_at as string) ?? undefined,
   };
 }
 

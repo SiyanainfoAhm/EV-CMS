@@ -18,6 +18,7 @@ app.get("/health", (_req, res) => {
     phase: "1-core",
     supabase: isSupabaseConfigured(),
     ocppPath: `${config.ocppWsPath}/{chargePointId}`,
+    bypassRfidAuth: config.bypassRfidAuth,
   });
 });
 
@@ -26,7 +27,10 @@ app.use("/ocpp", ocppRouter);
 const httpServer = createServer(app);
 attachOcppWebSocket(httpServer);
 
-httpServer.listen(config.port, () => {
-  console.log(`[ev-cms-ocpp-gateway] REST  http://localhost:${config.port}`);
-  console.log(`[ev-cms-ocpp-gateway] OCPP  ws://localhost:${config.port}${config.ocppWsPath}/<CHARGE_POINT_ID>`);
+httpServer.listen(config.port, "0.0.0.0", () => {
+  console.log(`[ev-cms-ocpp-gateway] REST  http://0.0.0.0:${config.port}`);
+  console.log(`[ev-cms-ocpp-gateway] OCPP  ws://0.0.0.0:${config.port}${config.ocppWsPath}/<CHARGE_POINT_ID>`);
+  if (config.bypassRfidAuth) {
+    console.warn("[ev-cms-ocpp-gateway] OCPP_BYPASS_RFID_AUTH is ON — all idTags accepted (testing only)");
+  }
 });

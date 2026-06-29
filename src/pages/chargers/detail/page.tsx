@@ -1,19 +1,29 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import * as chargerService from "@/services/chargerService";
+import * as chargerSessionControl from "@/services/chargerSessionControl";
 import * as ocppService from "@/services/ocppService";
 import { OcppGatewayError } from "@/services/ocppService";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 import { notifyFirmwareAlert } from "@/services/operationalAlertService";
 import * as tariffService from "@/services/tariffService";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFormModal";
 import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
 import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
   type ConnectivityLabel,
 } from "@/utils/chargerConnectivity";
+import {
+  canRemoteStartConnector,
+  connectorStatusBadgeClass,
+  connectorStatusLabel,
+  isConnectorCharging,
+} from "@/utils/connectorStatus";
 import type { Charger, ChargingSession, Tariff } from "@/types/ev";
 
 function getRelativeTime(isoStr: string): string {
@@ -58,6 +68,7 @@ function getConnectivityTextClass(connectivity: ConnectivityLabel | "faulted"): 
 }
 
 export default function ChargerDetailPage() {
+  const { formatEnergy } = useUserPreferences();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [charger, setCharger] = useState<Charger | undefined>();
@@ -204,40 +215,38 @@ export default function ChargerDetailPage() {
 
     try {
       if (type === "RemoteStart") {
-        const idTag = prompt("Enter RFID idTag for remote start:", "RFID-DFCCIL-001");
-        if (!idTag?.trim()) {
-          setActionResult({ success: false, message: "Remote start cancelled — idTag required" });
-          return;
-        }
-        const result = await ocppService.remoteStartTransaction({
+        const result = await chargerSessionControl.startChargingSession({
+          chargerId: charger.id,
           chargePointId: charger.chargePointId,
           connectorId,
-          idTag: idTag.trim(),
+          bypassRfid: true,
+          ocppConnected: ocppSocketLive,
+          isSimulated: charger.isSimulated,
         });
         setActionResult({
-          success: result.accepted,
-          message: result.accepted
-            ? `RemoteStart sent to Gun ${connectorId}. Awaiting charger response…`
-            : `RemoteStart rejected by charger on Gun ${connectorId}`,
+          success: result.success,
+          message: result.message,
         });
       } else if (type === "RemoteStop") {
         const session = sessions.find((s) => s.connectorId === connectorId);
-        if (!session?.transactionId) {
+        if (!session?.transactionId || !session.id) {
           setActionResult({
             success: false,
             message: `No active session on Gun ${connectorId} to stop`,
           });
           return;
         }
-        const result = await ocppService.remoteStopTransaction({
+        const result = await chargerSessionControl.stopChargingSession({
           chargePointId: charger.chargePointId,
           transactionId: session.transactionId,
+          sessionId: session.id,
+          bypassRfid: true,
+          ocppConnected: ocppSocketLive,
+          isSimulated: charger.isSimulated,
         });
         setActionResult({
-          success: result.accepted,
-          message: result.accepted
-            ? `RemoteStop sent for transaction ${session.transactionId}`
-            : `RemoteStop rejected by charger`,
+          success: result.success,
+          message: result.message,
         });
       } else if (type === "Reset") {
         await ocppService.resetCharger(charger.chargePointId, connectorId === 0 ? "Hard" : "Soft");
@@ -348,6 +357,10 @@ export default function ChargerDetailPage() {
           {toast}
         </div>
       )}
+
+      {isSimulationEnabled() && !ocppSocketLive ? (
+        <SimulationModeBadge compact />
+      ) : null}
 
       <ChargerFormModal
         open={showEditModal}
@@ -537,23 +550,15 @@ export default function ChargerDetailPage() {
                         </p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              conn.status === "Charging"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : conn.status === "Available"
-                                ? "bg-gray-100 text-gray-600"
-                                : conn.status === "Faulted"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-gray-100 text-gray-400"
-                            }`}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${connectorStatusBadgeClass(conn.status)}`}
                           >
-                            {conn.status}
+                            {connectorStatusLabel(conn.status)}
                           </span>
                           <span className="text-xs text-gray-400">{conn.maxPowerKw} kW max</span>
                         </div>
                       </div>
                     </div>
-                    {conn.status === "Charging" && (
+                    {isConnectorCharging(conn.status) && (
                       <div className="flex items-center gap-1">
                         <span className="relative flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -565,21 +570,36 @@ export default function ChargerDetailPage() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {connectorActions.map((action) => (
+                    {connectorActions.map((action) => {
+                      const gunBusy = isConnectorCharging(conn.status) && action.type === "RemoteStart";
+                      const noSession = action.type === "RemoteStop" && !sessions.some((s) => s.connectorId === conn.connectorId);
+                      const needsSocket =
+                        !charger.isSimulated && (action.type === "RemoteStart" || action.type === "RemoteStop");
+                      const startBlocked =
+                        action.type === "RemoteStart" && !canRemoteStartConnector(conn.status);
+                      const disabled =
+                        charger.status === "decommissioned" ||
+                        gunBusy ||
+                        noSession ||
+                        startBlocked ||
+                        (needsSocket && !ocppSocketLive);
+                      return (
                       <button
                         key={action.type}
+                        disabled={disabled}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoteAction(action.type, conn.connectorId);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${action.color}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${action.color}`}
                       >
                         <div className="w-3.5 h-3.5 flex items-center justify-center">
                           <i className={action.icon}></i>
                         </div>
                         {action.label}
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -601,7 +621,7 @@ export default function ChargerDetailPage() {
                       <p className="text-sm font-medium text-gray-900">{session.userName}</p>
                       <p className="text-xs text-gray-400">Gun {session.connectorId} · {session.connectorType}</p>
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs font-semibold text-gray-700">{session.energyKwh} kWh</span>
+                        <span className="text-xs font-semibold text-gray-700">{formatEnergy(session.energyKwh ?? 0)}</span>
                         <span className="text-xs text-gray-400">{session.duration}</span>
                         <span className="text-xs text-gray-400">SoC {session.soc}%</span>
                       </div>

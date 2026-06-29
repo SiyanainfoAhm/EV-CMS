@@ -5,12 +5,12 @@ import * as profileService from "@/services/profileService";
 import { sendPasswordChangedEmail, sendEmailOtpVerification, sendEmailInBackground } from "@/services/powerAutomateEmailService";
 import EmailOtpModal from "@/components/settings/EmailOtpModal";
 import * as mediaService from "@/services/mediaService";
-import { formatLastLogin } from "@/utils/supabaseMappers";
 import * as adminService from "@/services/adminService";
 import { isWebSuperAdmin } from "@/utils/rfpRoles";
 import type { NotificationPreferences } from "@/types/profile";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { preferenceLabel } from "@/utils/notificationPreferences";
+import { useWebPush } from "@/hooks/useWebPush";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import {
   hasErrors,
@@ -31,14 +31,6 @@ interface PasswordForm {
   confirmPassword: string;
 }
 
-function formatJoined(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
   const {
@@ -47,7 +39,12 @@ export default function SettingsPage() {
     setNotifications,
     setSystemSettings,
     savePreferences,
+    formatDate,
+    formatDateTime,
   } = useUserPreferences();
+  const { status: webPushStatus, enableWebPush, disableWebPush, isEnabled: webPushEnabled, configured: webPushConfigured, refreshStatus } =
+    useWebPush();
+  const [webPushBusy, setWebPushBusy] = useState(false);
   const userId = user?.id ?? "";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -355,12 +352,8 @@ export default function SettingsPage() {
   const displayName = profile?.name ?? user?.name ?? "—";
   const displayRole = profile?.role ?? user?.role ?? "—";
   const employeeId = profile?.employeeId ?? user?.employeeId ?? "—";
-  const joined = profile?.joinedAt ? formatJoined(profile.joinedAt) : "—";
-  const lastLogin = profile?.lastLoginAt
-    ? formatLastLogin(profile.lastLoginAt)
-    : user
-      ? "—"
-      : "—";
+  const joined = profile?.joinedAt ? formatDate(profile.joinedAt) : "—";
+  const lastLogin = profile?.lastLoginAt ? formatDateTime(profile.lastLoginAt) : "—";
   const initials = displayName
     .split(" ")
     .map((n) => n[0])
@@ -563,7 +556,7 @@ export default function SettingsPage() {
                 ) : (
                   (loginHistory ?? []).map((entry, idx) => {
                     const isSuccess = entry.action === "login";
-                    const time = formatLastLogin(entry.createdAt);
+                    const time = formatDateTime(entry.createdAt);
                     return (
                       <div
                         key={entry.id}
@@ -684,7 +677,7 @@ export default function SettingsPage() {
                             isSuccess ? "bg-emerald-500" : "bg-red-500"
                           }`}
                         ></div>
-                        <span className="text-sm text-gray-700">{formatLastLogin(entry.createdAt)}</span>
+                        <span className="text-sm text-gray-700">{formatDateTime(entry.createdAt)}</span>
                       </div>
                       <span className="text-xs text-gray-400">
                         {entry.ipAddress ? `IP: ${entry.ipAddress}` : entry.details || "—"}
@@ -700,6 +693,62 @@ export default function SettingsPage() {
 
       {activeTab === "notifications" && (
         <div className="max-w-2xl space-y-5">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Browser push (FCM)</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              OS-level notifications when this admin portal is in the background or closed. In-app bell alerts still work
+              while you are logged in.
+            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {webPushEnabled ? "Browser push enabled" : "Browser push disabled"}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {!webPushConfigured
+                    ? "Add VITE_FIREBASE_VAPID_KEY to .env, then restart the dev server."
+                    : webPushStatus === "denied"
+                      ? "Permission blocked — allow notifications in browser site settings."
+                      : webPushStatus === "unsupported"
+                        ? "Not supported in this browser."
+                        : webPushEnabled
+                          ? "This browser is registered for FCM web push."
+                          : "Enable to receive alerts outside the open tab."}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={webPushBusy || !webPushConfigured}
+                onClick={() => {
+                  setWebPushBusy(true);
+                  void (async () => {
+                    try {
+                      if (webPushEnabled) {
+                        await disableWebPush();
+                        showToast("Browser push disabled on this device");
+                      } else {
+                        const result = await enableWebPush();
+                        showToast(
+                          result.ok
+                            ? "Browser push enabled — use Dashboard → Test notification"
+                            : result.message ?? "Could not enable browser push"
+                        );
+                      }
+                      refreshStatus();
+                    } catch (e) {
+                      showToast(e instanceof Error ? e.message : "Browser push update failed");
+                    } finally {
+                      setWebPushBusy(false);
+                    }
+                  })();
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap"
+              >
+                {webPushBusy ? "Please wait…" : webPushEnabled ? "Disable browser push" : "Enable browser push"}
+              </button>
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-900 mb-5">Charger Alerts</h3>
             <div className="space-y-4">
@@ -765,7 +814,8 @@ export default function SettingsPage() {
           <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
             <p className="text-sm font-medium text-emerald-900">How alerts work</p>
             <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
-              Enabled alerts appear in the notification bell and are emailed to your account address.
+              Enabled alerts appear in the notification bell, are emailed to your account address, and are sent as browser
+              push when browser push is enabled above.
               Weekly summary and daily digest emails are sent on a schedule when those options are on.
             </p>
           </div>

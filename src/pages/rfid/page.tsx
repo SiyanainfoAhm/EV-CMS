@@ -5,18 +5,10 @@ import type { RFIDCard, User } from "@/types/ev";
 import { FormField, inputClassName } from "@/components/ui/FormField";
 import { validateRfidUid, validateRequired } from "@/utils/validation";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-
-function formatTime(isoStr: string | null): string {
-  if (!isoStr) return "—";
-  return new Date(isoStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 
 export default function RfidPage() {
+  const { formatDateTime } = useUserPreferences();
   const [cards, setCards] = useState<RFIDCard[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -242,7 +234,7 @@ export default function RfidPage() {
                     <p className="text-sm text-gray-500">{card.createdAt}</p>
                   </td>
                   <td className="px-5 py-3.5">
-                    <p className="text-sm text-gray-500">{formatTime(card.lastUsed)}</p>
+                    <p className="text-sm text-gray-500">{formatDateTime(card.lastUsed)}</p>
                   </td>
                   <td className="px-5 py-3.5">
                     <p className="text-sm font-semibold text-gray-900">{card.totalSessions}</p>
