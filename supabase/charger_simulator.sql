@@ -202,7 +202,10 @@ BEGIN
     RAISE EXCEPTION 'Connector already has an active session';
   END IF;
 
-  SELECT id INTO v_tariff_id FROM "EV_Tariffs" WHERE is_active = true ORDER BY created_at LIMIT 1;
+  SELECT ev_get_default_tariff_id() INTO v_tariff_id;
+  IF v_tariff_id IS NULL THEN
+    SELECT id INTO v_tariff_id FROM "EV_Tariffs" WHERE is_active = true ORDER BY created_at LIMIT 1;
+  END IF;
   SELECT id INTO v_rfid_id FROM "EV_RFIDCards" WHERE user_id = p_user_id AND status = 'active' LIMIT 1;
 
   v_txn := (EXTRACT(EPOCH FROM NOW())::INTEGER % 2000000000);
@@ -287,30 +290,24 @@ SET search_path = public
 AS $$
 DECLARE
   v_sess RECORD;
-  v_rate NUMERIC := 15;
-  v_fee NUMERIC := 20;
-  v_amount NUMERIC;
-  v_gst NUMERIC;
-  v_total NUMERIC;
+  v_bill RECORD;
 BEGIN
-  SELECT s.*, t.rate_per_kwh, t.session_fee
+  SELECT s.*
   INTO v_sess
   FROM "EV_ChargingSessions" s
-  LEFT JOIN "EV_Tariffs" t ON t.id = s.tariff_id
   WHERE s.id = p_session_id;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Session not found';
   END IF;
 
-  v_rate := COALESCE(v_sess.rate_per_kwh, 15);
-  v_fee := COALESCE(v_sess.session_fee, 20);
-  v_amount := ROUND(COALESCE(v_sess.energy_kwh, 0) * v_rate + v_fee, 2);
-  v_gst := ROUND(v_amount * 0.18, 2);
-  v_total := v_amount + v_gst;
+  SELECT *
+  INTO v_bill
+  FROM ev_calculate_session_bill(COALESCE(v_sess.energy_kwh, 0), v_sess.tariff_id)
+  LIMIT 1;
 
   UPDATE "EV_ChargingSessions"
-  SET status = 'completed', end_time = NOW(), amount = v_amount,
+  SET status = 'completed', end_time = NOW(), amount = v_bill.amount,
       current_power_kw = 0, stop_reason = 'Local', updated_at = NOW()
   WHERE id = p_session_id;
 
@@ -323,9 +320,15 @@ BEGIN
   WHERE id = v_sess.charger_id;
 
   INSERT INTO "EV_Payments" (session_id, user_id, amount, gst_amount, total_amount, status, gateway, reconciliation_status)
-  VALUES (p_session_id, v_sess.user_id, v_amount, v_gst, v_total, 'pending', 'wallet', 'unmatched');
+  VALUES (
+    p_session_id, v_sess.user_id, v_bill.amount, v_bill.gst_amount, v_bill.total_amount,
+    'pending', 'razorpay', 'unmatched'
+  );
 
-  PERFORM ev_sim_log_event(v_sess.charger_id, v_sess.connector_id, 'StopTransaction', jsonb_build_object('sessionId', p_session_id, 'amount', v_total));
+  PERFORM ev_sim_log_event(
+    v_sess.charger_id, v_sess.connector_id, 'StopTransaction',
+    jsonb_build_object('sessionId', p_session_id, 'amount', v_bill.total_amount)
+  );
 
   INSERT INTO "EV_AuditLogs" (user_id, action, entity_type, entity_id, details)
   VALUES (v_sess.user_id, 'Remote Stop', 'Session', p_session_id::text, 'Simulator StopTransaction');
@@ -333,7 +336,7 @@ BEGIN
   PERFORM ev_notify_user(
     v_sess.user_id,
     'Charging completed',
-    'Session finished. Pay ₹' || ROUND(v_total, 2)::text || ' from your wallet.',
+    'Session finished. Pay ₹' || ROUND(v_bill.total_amount, 2)::text || ' to complete your session.',
     'charging_stopped'
   );
 

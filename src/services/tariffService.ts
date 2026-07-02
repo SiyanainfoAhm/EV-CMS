@@ -1,6 +1,7 @@
 import type { Tariff } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapTariff } from "@/utils/supabaseMappers";
+import { calculateSessionBillFromTariff } from "@/utils/tariffBilling";
 
 export async function getTariffs(): Promise<Tariff[]> {
   const { data, error } = await requireSupabase()
@@ -24,6 +25,44 @@ export interface TariffInput {
   gstPercent: number;
   appliesTo: string;
   isActive?: boolean;
+}
+
+export async function getDefaultTariff(): Promise<Tariff | null> {
+  const { data, error } = await requireSupabase()
+    .from("EV_Tariffs")
+    .select("*")
+    .eq("is_active", true)
+    .eq("is_default", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return mapTariff(data as Record<string, unknown>);
+}
+
+export async function calculateBillForEnergy(
+  energyKwh: number,
+  tariffId?: string | null
+): Promise<ReturnType<typeof calculateSessionBillFromTariff> & { tariffId: string }> {
+  let tariff: Tariff | null = null;
+  if (tariffId) {
+    tariff = await getTariffById(tariffId);
+  }
+  if (!tariff?.isActive) {
+    tariff = await getDefaultTariff();
+  }
+  if (!tariff) {
+    throw new Error("No active tariff configured");
+  }
+  return {
+    tariffId: tariff.id,
+    ...calculateSessionBillFromTariff(energyKwh, {
+      ratePerKwh: tariff.ratePerKwh,
+      gstPercent: tariff.gstPercent,
+    }),
+  };
 }
 
 export async function getTariffById(id: string): Promise<Tariff | null> {

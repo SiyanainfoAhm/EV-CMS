@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS "EV_Tariffs" (
   gst_percent NUMERIC(5, 2) NOT NULL DEFAULT 18,
   applies_to TEXT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  region TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

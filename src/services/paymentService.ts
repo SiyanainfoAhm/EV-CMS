@@ -18,6 +18,7 @@ export interface CreatePendingPaymentInput {
   userId: string;
   amount: number;
   gstAmount?: number;
+  totalAmount?: number;
   gateway?: string;
 }
 
@@ -125,8 +126,11 @@ export async function createPendingPayment(input: CreatePendingPaymentInput): Pr
   if (exists) throw new Error("A payment record already exists for this session");
 
   const amount = round2(input.amount);
-  const gstAmount = round2(input.gstAmount ?? amount * 0.18);
-  const totalAmount = round2(amount + gstAmount);
+  const gstAmount =
+    input.gstAmount != null
+      ? round2(input.gstAmount)
+      : 0;
+  const totalAmount = round2(input.totalAmount ?? amount + gstAmount);
 
   const { data, error } = await requireSupabase()
     .from("EV_Payments")

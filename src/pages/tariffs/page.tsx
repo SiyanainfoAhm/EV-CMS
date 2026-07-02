@@ -132,6 +132,11 @@ export default function TariffsPage() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">{tariff.name}</h3>
+                  {tariff.isDefault ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200 mr-1">
+                      Default
+                    </span>
+                  ) : null}
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     tariff.appliesTo === "DC Fast"
                       ? "bg-amber-50 text-amber-700 border border-amber-200"
@@ -139,6 +144,9 @@ export default function TariffsPage() {
                   }`}>
                     {tariff.appliesTo}
                   </span>
+                  {tariff.region ? (
+                    <p className="text-xs text-gray-500 mt-1">{tariff.region}</p>
+                  ) : null}
                 </div>
                 <button
                   onClick={() => toggleActive(tariff.id)}

@@ -31,7 +31,6 @@ export const MOBILE_USER_MENU = [
   "NearestMap",
   "QRStart",
   "LiveSession",
-  "Wallet",
   "SessionHistory",
   "PaymentHistory",
   "RFIDBinding",

@@ -50,7 +50,16 @@ export type CreateRazorpayOrderResponse = {
   };
 };
 
-export async function openRazorpayCheckout(order: CreateRazorpayOrderResponse) {
+export type RazorpayCheckoutOptions = {
+  description?: string;
+  purpose?: string;
+  sessionId?: string;
+};
+
+export async function openRazorpayCheckout(
+  order: CreateRazorpayOrderResponse,
+  options: RazorpayCheckoutOptions = {}
+) {
   if (!paymentConfig.gatewayEnabled) {
     throw new Error("PAYMENT_GATEWAY_DISABLED");
   }
@@ -69,7 +78,7 @@ export async function openRazorpayCheckout(order: CreateRazorpayOrderResponse) {
       amount: order.amount_paise,
       currency: order.currency || "INR",
       name: "EV CMS",
-      description: "Wallet Top-up",
+      description: options.description ?? "EV charging payment",
       order_id: order.razorpay_order_id,
       prefill: order.prefill,
       theme: {
@@ -77,7 +86,8 @@ export async function openRazorpayCheckout(order: CreateRazorpayOrderResponse) {
       },
       notes: {
         payment_order_id: order.payment_order_id,
-        purpose: "wallet_topup",
+        purpose: options.purpose ?? "session_payment",
+        ...(options.sessionId ? { session_id: options.sessionId } : {}),
       },
       retry: {
         enabled: true,

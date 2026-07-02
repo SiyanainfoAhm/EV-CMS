@@ -2,7 +2,6 @@ import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
 import * as rfidService from "./rfidService";
 import * as sessionService from "./sessionService";
-import * as walletService from "./walletService";
 import type { ChargingSession } from "../types";
 
 async function assertUserCanCharge(userId: string): Promise<void> {
@@ -26,8 +25,8 @@ async function assertRfidOrMobileAuth(userId: string): Promise<void> {
   }
 }
 
-async function assertPaymentReadiness(userId: string): Promise<void> {
-  await walletService.assertWalletReadyForCharging(userId);
+async function assertPaymentReadiness(_userId: string): Promise<void> {
+  // Direct post-session payment — no prepaid wallet balance required.
 }
 
 export async function startCharging(
