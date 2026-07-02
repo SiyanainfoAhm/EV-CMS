@@ -80,11 +80,21 @@ INSERT INTO "EV_ChargerConnectors" (id, charger_id, connector_id, connector_type
   ('c0000001-0000-4000-8000-000000000017', 'b0000001-0000-4000-8000-000000000012', 1, 'Type2', 7.4, 'Available')
 ON CONFLICT (charger_id, connector_id) DO UPDATE SET status = EXCLUDED.status;
 
-INSERT INTO "EV_Tariffs" (id, name, rate_per_kwh, session_fee, gst_percent, applies_to, is_active, created_at) VALUES
-  ('e0000001-0000-4000-8000-000000000001', 'DC Fast Charging - Standard', 15.00, 20.00, 18, 'DC Fast', true, '2026-01-01'),
-  ('e0000001-0000-4000-8000-000000000002', 'AC Slow Charging - Standard', 8.00, 0, 18, 'AC Slow', true, '2026-01-01'),
-  ('e0000001-0000-4000-8000-000000000003', 'DC Fast - Peak Hours', 18.00, 30.00, 18, 'DC Fast', false, '2026-03-15')
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO "EV_Tariffs" (id, name, rate_per_kwh, session_fee, gst_percent, applies_to, is_active, is_default, region, created_at) VALUES
+  ('e0000001-0000-4000-8000-000000000010', 'Noida / UP — Standard (Temporary)', 7.70, 0, 18, 'All', true, true, 'Noida, Uttar Pradesh', '2026-06-01'),
+  ('e0000001-0000-4000-8000-000000000001', 'DC Fast Charging - Standard', 15.00, 20.00, 18, 'DC Fast', true, false, NULL, '2026-01-01'),
+  ('e0000001-0000-4000-8000-000000000002', 'AC Slow Charging - Standard', 8.00, 0, 18, 'AC Slow', true, false, NULL, '2026-01-01'),
+  ('e0000001-0000-4000-8000-000000000003', 'DC Fast - Peak Hours', 18.00, 30.00, 18, 'DC Fast', false, false, NULL, '2026-03-15')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  rate_per_kwh = EXCLUDED.rate_per_kwh,
+  session_fee = EXCLUDED.session_fee,
+  gst_percent = EXCLUDED.gst_percent,
+  applies_to = EXCLUDED.applies_to,
+  is_active = EXCLUDED.is_active,
+  is_default = EXCLUDED.is_default,
+  region = EXCLUDED.region,
+  updated_at = NOW();
 
 INSERT INTO "EV_RFIDCards" (id, uid, user_id, status, last_used_at, total_sessions, created_at) VALUES
   ('d0000001-0000-4000-8000-000000000001', 'RFID-DFCCIL-001', 'a0000001-0000-4000-8000-000000000001', 'active', '2026-06-01 08:15:00+00', 47, '2026-01-15'),

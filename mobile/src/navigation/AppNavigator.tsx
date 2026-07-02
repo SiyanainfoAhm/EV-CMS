@@ -11,10 +11,7 @@ import LiveSessionScreen from "../screens/LiveSessionScreen";
 import SessionSummaryScreen from "../screens/SessionSummaryScreen";
 import SessionHistoryScreen from "../screens/SessionHistoryScreen";
 import PaymentHistoryScreen from "../screens/PaymentHistoryScreen";
-import WalletScreen from "../screens/WalletScreen";
-import TopupScreen from "../screens/TopupScreen";
-import TopupPaymentStatusScreen from "../screens/TopupPaymentStatusScreen";
-import WalletTransactionHistoryScreen from "../screens/WalletTransactionHistoryScreen";
+import SessionPaymentStatusScreen from "../screens/SessionPaymentStatusScreen";
 import RFIDBindingScreen from "../screens/RFIDBindingScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import SupportScreen from "../screens/SupportScreen";
@@ -35,20 +32,18 @@ export type RootStackParamList = {
   SessionSummary: { sessionId: string; focusPayment?: boolean };
   SessionHistory: undefined;
   PaymentHistory: undefined;
-  Wallet: undefined;
-  Topup: { suggestedAmount?: number; returnSessionId?: string } | undefined;
-  TopupPaymentStatus: {
-    paymentOrderId: string;
-    returnSessionId?: string;
+  SessionPaymentStatus: {
+    sessionId: string;
+    paymentId: string;
     razorpayOrderId?: string;
     razorpayPaymentId?: string;
+    amount: number;
     initialStatus?: string;
-    initialWalletCredited?: boolean;
     initialMessage?: string;
     initialCheckoutFailed?: boolean;
     initialErrorDetail?: string;
+    receiptNumber?: string;
   };
-  WalletTransactions: undefined;
   RFIDBinding: undefined;
   Profile: undefined;
   Support: undefined;
@@ -84,10 +79,7 @@ function MainStack() {
       <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
       <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
       <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
-      <Stack.Screen name="Wallet" component={WalletScreen} />
-      <Stack.Screen name="Topup" component={TopupScreen} />
-      <Stack.Screen name="TopupPaymentStatus" component={TopupPaymentStatusScreen} />
-      <Stack.Screen name="WalletTransactions" component={WalletTransactionHistoryScreen} />
+      <Stack.Screen name="SessionPaymentStatus" component={SessionPaymentStatusScreen} />
       <Stack.Screen name="RFIDBinding" component={RFIDBindingScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="Support" component={SupportScreen} />

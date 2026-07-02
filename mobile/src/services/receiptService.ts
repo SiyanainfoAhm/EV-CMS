@@ -69,8 +69,8 @@ async function getReceiptPdfDetails(paymentId: string): Promise<ReceiptPdfDetail
     paymentId,
     sessionId: row.session_id as string,
     amount: Number(row.amount),
-    gstAmount: Number(row.gst_amount),
-    totalAmount: Number(row.total_amount),
+    gstAmount: Number(row.gst_amount ?? 0),
+    totalAmount: Number(row.total_amount ?? row.amount),
     status: String(row.status),
     issuedAt: String(receipt?.issued_at ?? row.created_at),
     userName: user?.name ?? "EV CMS User",
@@ -166,7 +166,7 @@ export async function getReceiptBySessionId(
   const uid = userId ?? requireUserId();
   const { data, error } = await requireSupabase()
     .from("EV_Payments")
-    .select("id, session_id, total_amount, status, created_at, EV_Receipts ( id, receipt_number, pdf_url, issued_at )")
+    .select("id, session_id, amount, status, created_at, EV_Receipts ( id, receipt_number, pdf_url, issued_at )")
     .eq("user_id", uid)
     .eq("session_id", sessionId)
     .order("created_at", { ascending: false })
@@ -187,7 +187,7 @@ export async function getReceiptBySessionId(
     sessionId: row.session_id as string,
     receiptNumber: receipt.receipt_number as string,
     pdfUrl: (receipt.pdf_url as string) ?? null,
-    amount: Number(row.total_amount),
+    amount: Number(row.amount),
     issuedAt: (receipt.issued_at as string) ?? undefined,
   };
 }

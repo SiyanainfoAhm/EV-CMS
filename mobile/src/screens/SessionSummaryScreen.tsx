@@ -10,13 +10,13 @@ import StatusBadge from "../components/StatusBadge";
 import * as sessionService from "../services/sessionService";
 import * as receiptService from "../services/receiptService";
 import * as paymentService from "../services/paymentService";
+import * as sessionPaymentService from "../services/sessionPaymentService";
 import { formatCurrency } from "../utils/format";
 import { translateChargerName } from "../utils/translateRecord";
 import type { ChargingSession, Receipt } from "../types";
 import type { SessionPaymentSummary } from "../services/paymentService";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
-import { TOPUP_MIN_AMOUNT } from "../config/walletConfig";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SessionSummary">;
 
@@ -59,40 +59,59 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
     load();
   }, [load]);
 
-  const payFromWallet = async () => {
+  const paySession = async () => {
     if (!payment || payment.amountDue <= 0) return;
+
+    if (!paymentService.checkGatewayConfigured()) {
+      Alert.alert(t("common.error"), t(paymentService.getGatewayPendingMessage()));
+      return;
+    }
+
+    if (!paymentService.canOpenRazorpayCheckout()) {
+      Alert.alert(t("common.error"), t("razorpay.requiresDevBuild"));
+      return;
+    }
+
     setBusy(true);
     try {
-      const result = await paymentService.paySessionFromWallet(sessionId);
-      setPayment(result);
-      Alert.alert(t("common.success"), t("session.paymentSuccess"));
-      await load();
+      const result = await paymentService.processRazorpaySessionPayment(sessionId);
+
+      navigation.navigate("SessionPaymentStatus", {
+        sessionId,
+        paymentId: result.paymentId || payment.paymentId,
+        razorpayOrderId: result.razorpayOrderId,
+        razorpayPaymentId: result.razorpayPaymentId,
+        amount: payment.amountDue,
+        initialStatus: result.status,
+        initialMessage:
+          result.cancelled
+            ? t("razorpay.paymentCancelled")
+            : result.checkoutFailed
+              ? t("razorpay.checkoutNotOpened")
+              : result.status === "success" || result.status === "paid"
+                ? t("session.paymentSuccess")
+                : undefined,
+        initialCheckoutFailed: result.checkoutFailed,
+        initialErrorDetail: result.errorMessage,
+        receiptNumber: result.receiptNumber ?? undefined,
+      });
+
+      if (result.status === "success" || result.status === "paid") {
+        await load();
+      }
     } catch (e) {
       const code = e instanceof Error ? e.message : "UNKNOWN";
-      if (code === "WALLET_LOW_BALANCE") {
-        const shortfall = Math.max(
-          TOPUP_MIN_AMOUNT,
-          Math.ceil((payment.amountDue - payment.walletBalance) / 100) * 100
-        );
-        Alert.alert(t("common.error"), t("session.insufficientWallet"), [
-          { text: t("common.cancel"), style: "cancel" },
-          {
-            text: t("wallet.topUp"),
-            onPress: () =>
-              navigation.navigate("Topup", { suggestedAmount: shortfall, returnSessionId: sessionId }),
-          },
-        ]);
-        return;
-      }
-      if (code === "WALLET_BLOCKED") {
-        Alert.alert(t("common.error"), t("wallet.walletBlocked"));
-        return;
-      }
-      if (code === "PAYMENT_NOT_FOUND") {
+      const messageKey = sessionPaymentService.mapSessionPaymentErrorMessage(code);
+      const message = messageKey.startsWith("session.") || messageKey.startsWith("razorpay.")
+        ? t(messageKey)
+        : e instanceof Error
+          ? e.message
+          : t("session.paymentFailed");
+      if (code === "PAYMENT_NOT_FOUND" || messageKey === "session.paymentNotFound") {
         Alert.alert(t("common.error"), t("session.paymentNotFound"));
         return;
       }
-      Alert.alert(t("common.error"), e instanceof Error ? e.message : t("session.paymentFailed"));
+      Alert.alert(t("common.error"), message);
     } finally {
       setBusy(false);
     }
@@ -150,7 +169,6 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
   }
 
   const paymentDue = payment && payment.amountDue > 0 && !isPaymentPaid(payment.status);
-  const canPayFromWallet = paymentDue && payment.walletBalance >= payment.amountDue;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -195,10 +213,12 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
               <Text style={styles.label}>{t("payment.amount")}</Text>
               <Text style={styles.paymentValue}>{formatCurrency(payment.amount)}</Text>
             </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.label}>{t("session.gst")}</Text>
-              <Text style={styles.paymentValue}>{formatCurrency(payment.gstAmount)}</Text>
-            </View>
+            {payment.gstAmount > 0 ? (
+              <View style={styles.paymentRow}>
+                <Text style={styles.label}>{t("session.gst")}</Text>
+                <Text style={styles.paymentValue}>{formatCurrency(payment.gstAmount)}</Text>
+              </View>
+            ) : null}
             <View style={styles.paymentRow}>
               <Text style={styles.label}>{t("session.totalDue")}</Text>
               <Text style={styles.totalDue}>{formatCurrency(payment.totalAmount)}</Text>
@@ -207,31 +227,27 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
               <Text style={styles.label}>{t("session.paymentStatus")}</Text>
               <StatusBadge status={payment.status} />
             </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.label}>{t("wallet.usableBalance")}</Text>
-              <Text style={styles.paymentValue}>{formatCurrency(payment.walletBalance)}</Text>
-            </View>
 
             {paymentDue ? (
               <>
                 <Text style={styles.paymentHint}>{t("session.paymentDueHint")}</Text>
                 <AppButton
-                  title={t("session.payFromWallet")}
-                  onPress={payFromWallet}
+                  title={t("session.payNow")}
+                  onPress={paySession}
                   loading={busy}
                   style={styles.btn}
                 />
-                {!canPayFromWallet ? (
+                {payment.gatewayOrderId ? (
                   <AppButton
-                    title={t("session.topUpToPay")}
+                    title={t("razorpay.completePayment")}
                     variant="outline"
                     onPress={() =>
-                      navigation.navigate("Topup", {
-                        suggestedAmount: Math.max(
-                          TOPUP_MIN_AMOUNT,
-                          Math.ceil((payment.amountDue - payment.walletBalance) / 100) * 100
-                        ),
-                        returnSessionId: sessionId,
+                      navigation.navigate("SessionPaymentStatus", {
+                        sessionId,
+                        paymentId: payment.paymentId,
+                        razorpayOrderId: payment.gatewayOrderId ?? undefined,
+                        amount: payment.amountDue,
+                        initialStatus: payment.status,
                       })
                     }
                     style={styles.btn}

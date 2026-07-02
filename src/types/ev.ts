@@ -88,6 +88,8 @@ export interface Tariff {
   gstPercent: number;
   appliesTo: string;
   isActive: boolean;
+  isDefault?: boolean;
+  region?: string | null;
   createdAt: string;
 }
 

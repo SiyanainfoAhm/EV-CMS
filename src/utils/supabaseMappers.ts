@@ -173,6 +173,8 @@ export function mapTariff(row: Record<string, unknown>): Tariff {
     gstPercent: Number(row.gst_percent),
     appliesTo: row.applies_to as string,
     isActive: Boolean(row.is_active),
+    isDefault: row.is_default != null ? Boolean(row.is_default) : undefined,
+    region: row.region != null ? String(row.region) : undefined,
     createdAt: new Date(row.created_at as string).toISOString().slice(0, 10),
   };
 }

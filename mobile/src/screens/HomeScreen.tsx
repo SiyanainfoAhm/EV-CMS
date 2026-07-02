@@ -32,7 +32,6 @@ const MENU_LABEL_KEYS: Record<string, string> = {
   LiveSession: "dashboard.activeSession",
   SessionHistory: "dashboard.sessionHistory",
   PaymentHistory: "dashboard.paymentHistory",
-  Wallet: "dashboard.wallet",
   RFIDBinding: "dashboard.rfidDetails",
   Profile: "dashboard.profile",
   Support: "dashboard.support",
@@ -44,7 +43,6 @@ const ALL_MENU_ITEMS: { route: keyof RootStackParamList }[] = [
   { route: "NearestMap" },
   { route: "QRStart" },
   { route: "LiveSession" },
-  { route: "Wallet" },
   { route: "SessionHistory" },
   { route: "PaymentHistory" },
   { route: "RFIDBinding" },
@@ -144,9 +142,6 @@ export default function HomeScreen({ navigation }: Props) {
         break;
       case "PaymentHistory":
         navigation.navigate("PaymentHistory");
-        break;
-      case "Wallet":
-        navigation.navigate("Wallet");
         break;
       case "RFIDBinding":
         navigation.navigate("RFIDBinding");

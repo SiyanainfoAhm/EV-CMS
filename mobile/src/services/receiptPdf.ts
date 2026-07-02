@@ -6,7 +6,7 @@ export type InvoiceDetails = {
   paymentId: string;
   sessionId: string;
   amount: number;
-  gstAmount: number;
+  gstAmount?: number;
   totalAmount: number;
   status: string;
   issuedAt: string;
@@ -181,7 +181,7 @@ export async function buildInvoicePdf(details: InvoiceDetails): Promise<Uint8Arr
     font: regular,
     color: HEADER_SUB,
   });
-  drawRightText(page, bold, "TAX INVOICE", textRight, topY - 34, 16, WHITE);
+  drawRightText(page, bold, "INVOICE", textRight, topY - 34, 16, WHITE);
   topY -= HEADER_H + 18;
 
   // Bill to | Invoice meta (two equal columns)
@@ -235,7 +235,9 @@ export async function buildInvoicePdf(details: InvoiceDetails): Promise<Uint8Arr
   drawRightText(page, bold, "AMOUNT", textRight, topY - 16, 8, WHITE);
   topY -= TABLE_HEAD_H;
 
-  const chargingFee = details.totalAmount;
+  const chargingFee = details.amount;
+  const gstAmount = details.gstAmount ?? 0;
+  const totalPaid = details.totalAmount ?? chargingFee + gstAmount;
 
   const lineItems = [
     {
@@ -243,6 +245,9 @@ export async function buildInvoicePdf(details: InvoiceDetails): Promise<Uint8Arr
       sub: details.energyKwh != null ? `Energy delivered: ${details.energyKwh} kWh` : undefined,
       amount: chargingFee,
     },
+    ...(gstAmount > 0
+      ? [{ desc: "GST", sub: undefined as string | undefined, amount: gstAmount }]
+      : []),
   ];
 
   for (const item of lineItems) {
@@ -269,7 +274,7 @@ export async function buildInvoicePdf(details: InvoiceDetails): Promise<Uint8Arr
   const TOTAL_H = 30;
   drawContentRect(page, topY, TOTAL_H, { fill: TOTAL_BG });
   page.drawText("TOTAL PAID", { x: textLeft, y: topY - 20, size: 10, font: bold, color: BRAND });
-  drawRightText(page, bold, formatInrForPdf(chargingFee), textRight, topY - 21, 12, BRAND);
+  drawRightText(page, bold, formatInrForPdf(totalPaid), textRight, topY - 21, 12, BRAND);
   topY -= TOTAL_H + 16;
 
   page.drawText(pdfText(`Payment status: ${details.status.toUpperCase()}`), {
@@ -285,7 +290,7 @@ export async function buildInvoicePdf(details: InvoiceDetails): Promise<Uint8Arr
   topY -= 14;
 
   page.drawText(
-    truncateToWidth(regular, "This is a computer-generated tax invoice / receipt from EV CMS.", 8, textWidthMax),
+    truncateToWidth(regular, "This is a computer-generated invoice / receipt from EV CMS.", 8, textWidthMax),
     { x: textLeft, y: topY, size: 8, font: regular, color: MUTED }
   );
   page.drawText(

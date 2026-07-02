@@ -124,7 +124,7 @@ export function navigateFromNotificationData(data: Record<string, unknown> | und
       }
       break;
     case "wallet_low_balance":
-      navigationRef.navigate("Topup", { suggestedAmount: undefined });
+      navigationRef.navigate("PaymentHistory");
       break;
     case "support_ticket_updated":
       if (refStr) navigationRef.navigate("SupportTicketDetail", { id: refStr });
