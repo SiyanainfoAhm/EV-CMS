@@ -198,6 +198,7 @@ async function handleIncomingCall(uniqueId, action, payload) {
 
   if (action === "RemoteStopTransaction") {
     ws.send(JSON.stringify([3, uniqueId, { status: "Accepted" }]));
+    stopMeterLoop();
     try {
       await sleep(300);
       await endChargingSession("Remote");
@@ -282,7 +283,9 @@ ws.on("open", async () => {
 ws.on("message", (data) => handleMessage(data.toString()));
 ws.on("close", () => {
   stopMeterLoop();
-  console.log("[test-cp] Disconnected");
+  activeTransactionId = null;
+  activeConnectorId = null;
+  console.log("[test-cp] Disconnected — meter loop stopped");
 });
 ws.on("error", (err) => console.error("[test-cp] Error:", err.message));
 

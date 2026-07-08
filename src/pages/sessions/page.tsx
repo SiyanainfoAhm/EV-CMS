@@ -3,6 +3,7 @@ import { useAsyncData } from "@/hooks/useAsyncData";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
 import * as chargerSessionControl from "@/services/chargerSessionControl";
+import * as ocppService from "@/services/ocppService";
 import * as sessionService from "@/services/sessionService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -14,7 +15,8 @@ type TabType = "active" | "history";
 export default function SessionsPage() {
   const { formatDateTime, formatCurrency, formatEnergy } = useUserPreferences();
   const { data: activeData, reload: reloadActive } = useAsyncData(() => sessionService.getActiveSessions(), []);
-  useAsyncData(() => chargerService.getChargers(), []);
+  const { data: chargersData } = useAsyncData(() => chargerService.getChargers(), []);
+  const chargers = chargersData ?? [];
   const mockActiveSessions = activeData ?? [];
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,11 +76,21 @@ export default function SessionsPage() {
     if (!stopModal) return;
     setStopLoading(true);
     try {
+      const charger = chargers.find((c) => c.chargePointId === stopModal.chargePointId);
+      let ocppConnected = false;
+      try {
+        const status = await ocppService.getChargerStatus(stopModal.chargePointId);
+        ocppConnected = Boolean(status.connected);
+      } catch {
+        ocppConnected = false;
+      }
       const result = await chargerSessionControl.stopChargingSession({
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
         sessionId: stopModal.id,
         bypassRfid: true,
+        ocppConnected,
+        isSimulated: charger?.isSimulated ?? false,
       });
       setStopModal(null);
       setStopResult(
