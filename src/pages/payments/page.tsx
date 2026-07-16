@@ -140,22 +140,23 @@ export default function PaymentsPage() {
           Payments &amp; Wallets
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          Read-only history and wallet balances. Top-ups and payments are processed in the mobile app.
+          Prepaid charging payments only (pay before start). No postpaid / pay-later product path.
         </p>
       </div>
 
       <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-[#f9faf7] px-4 py-3">
         <i className="ri-information-line text-gray-500 text-lg mt-0.5"></i>
         <p className="text-xs text-gray-600">
-          This admin view does not process payments. Wallet top-ups use Razorpay on mobile only; use the tabs below to review
-          session billing, top-up orders, and per-user wallet balances.
+          Session payments are prepaid collections and refunds. Configure amount/time presets under{" "}
+          <strong>Prepaid Plans</strong>. Lab admin Start without pay requires charger{" "}
+          <strong>Lab admin bypass</strong>.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {(
           [
-            { id: "sessions" as const, label: "Session payments", icon: "ri-bank-card-line" },
+            { id: "sessions" as const, label: "Prepaid session payments", icon: "ri-bank-card-line" },
             { id: "topups" as const, label: "Wallet top-ups", icon: "ri-wallet-3-line" },
             { id: "wallets" as const, label: "User wallets", icon: "ri-account-box-line" },
           ] as const

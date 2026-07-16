@@ -2,6 +2,7 @@ import type { ChargePointConnection } from "./connections.js";
 import { setChargerDbId } from "./connections.js";
 import { buildCallResult, buildCallError, parseMessage } from "./protocol.js";
 import { resolveResponse, rejectResponse } from "./pending.js";
+import { sendOcppCallFireAndForget } from "./caller.js";
 import { config } from "../config.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
@@ -130,7 +131,7 @@ async function handleCall(
         const connectorId = Number(payload.connectorId ?? 1);
         const parsed = repo.parseMeterSampledValues(payload.meterValue);
         if (transactionId > 0) {
-          await repo.recordMeterValues({
+          const autoStop = await repo.recordMeterValues({
             transactionId,
             chargerId: conn.chargerDbId,
             chargePointId: conn.chargePointId,
@@ -142,6 +143,18 @@ async function handleCall(
             soc: parsed.soc,
             rawSamples: parsed.rawSamples,
           });
+          if (autoStop?.shouldRemoteStop) {
+            try {
+              sendOcppCallFireAndForget(conn.chargePointId, "RemoteStopTransaction", {
+                transactionId: autoStop.transactionId,
+              });
+              console.log(
+                `[ocpp] Prepaid auto-stop ${autoStop.reason} tx=${autoStop.transactionId} on ${conn.chargePointId}`
+              );
+            } catch (err) {
+              console.warn("[ocpp] Prepaid auto-stop failed:", err);
+            }
+          }
         }
         sendResult(conn, uniqueId, {});
         break;

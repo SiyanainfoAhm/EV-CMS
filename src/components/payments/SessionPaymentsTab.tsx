@@ -106,7 +106,7 @@ export default function SessionPaymentsTab({
         <table className="w-full min-w-[800px] table-fixed">
           <thead>
             <tr className="border-b border-gray-100">
-              {["User", "Session", "Amount", "Gateway", "Reference", "Status", "Recon", "Date"].map((h) => (
+              {["User", "Session", "Kind", "Amount", "Gateway", "Reference", "Status", "Recon", "Date"].map((h) => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">
                   {h}
                 </th>
@@ -128,6 +128,17 @@ export default function SessionPaymentsTab({
                 </td>
                 <td className="px-4 py-3.5">
                   <span className="text-xs font-mono text-gray-500">{shortId(payment.sessionId, 10)}</span>
+                </td>
+                <td className="px-4 py-3.5">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      payment.paymentKind === "refund"
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {payment.paymentKind === "refund" ? "Refund" : "Prepaid"}
+                  </span>
                 </td>
                 <td className="px-4 py-3.5">
                   <p className="text-sm font-semibold text-gray-900">{formatCurrency(payment.totalAmount)}</p>

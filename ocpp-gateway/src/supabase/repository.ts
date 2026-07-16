@@ -8,6 +8,7 @@ export interface ChargerRow {
   name: string;
   charger_type: string;
   status: string;
+  allow_admin_bypass?: boolean;
 }
 
 export interface RfidLookup {
@@ -50,7 +51,7 @@ let fallbackUserId: string | null = null;
 export async function findChargerByChargePointId(chargePointId: string): Promise<ChargerRow | null> {
   const { data, error } = await getSupabase()
     .from("EV_Chargers")
-    .select("id, charge_point_id, name, charger_type, status")
+    .select("id, charge_point_id, name, charger_type, status, allow_admin_bypass")
     .eq("charge_point_id", chargePointId.toUpperCase())
     .maybeSingle();
   if (error) throw error;
@@ -385,6 +386,18 @@ export async function stopTransaction(params: {
     "StopTransaction",
     { transactionId: params.transactionId, meterStop: params.meterStop, reason: stopReason }
   );
+
+  // Prepaid settlement (amount/time pay-before-charge)
+  try {
+    const { error: settleError } = await getSupabase().rpc("ev_settle_prepaid_session", {
+      p_session_id: session.id,
+    });
+    if (settleError) {
+      console.warn("[ocpp] prepaid settle failed:", settleError.message);
+    }
+  } catch (err) {
+    console.warn("[ocpp] prepaid settle error:", err);
+  }
 }
 
 export async function recordMeterValues(params: {
@@ -399,15 +412,17 @@ export async function recordMeterValues(params: {
   /** Absolute energy register in kWh (Energy.Active.Import.Register), if present. */
   energyRegisterKwh?: number | null;
   rawSamples?: unknown;
-}): Promise<void> {
+}): Promise<{ shouldRemoteStop: boolean; transactionId: number; reason: string } | null> {
   const { data: session, error: findError } = await getSupabase()
     .from("EV_ChargingSessions")
-    .select("id, start_meter, energy_kwh")
+    .select(
+      "id, start_meter, energy_kwh, prepaid_mode, prepaid_energy_cap_kwh, prepaid_expires_at, prepaid_total_inr, tariff_id, transaction_id"
+    )
     .eq("transaction_id", params.transactionId)
     .eq("status", "active")
     .maybeSingle();
   if (findError) throw findError;
-  if (!session) return;
+  if (!session) return null;
 
   const startMeterKwh = Number(session.start_meter ?? 0);
   const prevEnergyKwh = Number(session.energy_kwh ?? 0);
@@ -458,6 +473,30 @@ export async function recordMeterValues(params: {
     // Keep raw sample for vendor debugging when Energy/Power report as 0.
     rawSamples: params.rawSamples ?? null,
   });
+
+  // Prepaid auto-stop: energy cap or time expiry
+  const prepaidMode = session.prepaid_mode as string | null;
+  if (prepaidMode === "amount" && session.prepaid_energy_cap_kwh != null) {
+    const cap = Number(session.prepaid_energy_cap_kwh);
+    if (cap > 0 && sessionEnergyKwh >= cap) {
+      return {
+        shouldRemoteStop: true,
+        transactionId: params.transactionId,
+        reason: "prepaid_amount",
+      };
+    }
+  }
+  if (prepaidMode === "time" && session.prepaid_expires_at) {
+    if (new Date(session.prepaid_expires_at).getTime() <= Date.now()) {
+      return {
+        shouldRemoteStop: true,
+        transactionId: params.transactionId,
+        reason: "prepaid_time",
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function getSessionByTransactionId(transactionId: number) {
