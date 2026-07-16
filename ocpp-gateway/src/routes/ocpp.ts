@@ -69,18 +69,37 @@ ocppRouter.get("/connected", (_req, res) => {
 
 ocppRouter.post("/remote-start", async (req, res) => {
   try {
-    const { chargePointId, connectorId, idTag, bypassRfid } = req.body as {
-      chargePointId?: string;
-      connectorId?: number;
-      idTag?: string;
-      bypassRfid?: boolean;
-    };
+    const { chargePointId, connectorId, idTag, bypassRfid, prepaidPaid, paymentId, sessionId } =
+      req.body as {
+        chargePointId?: string;
+        connectorId?: number;
+        idTag?: string;
+        bypassRfid?: boolean;
+        /** True when user already paid prepaid and this Start must succeed or alert. */
+        prepaidPaid?: boolean;
+        paymentId?: string;
+        sessionId?: string;
+      };
     if (!chargePointId || !connectorId) {
       res.status(400).json({ accepted: false, error: "chargePointId, connectorId required" });
       return;
     }
     const cpId = String(chargePointId).toUpperCase();
     const adminBypass = Boolean(bypassRfid) || config.bypassRfidAuth;
+
+    let charger: repo.ChargerRow | null = null;
+    if (isSupabaseConfigured()) {
+      charger = await repo.findChargerByChargePointId(cpId);
+      if (adminBypass && charger && !charger.allow_admin_bypass && !config.bypassRfidAuth) {
+        res.status(403).json({
+          accepted: false,
+          error:
+            "Lab admin bypass is disabled on this charger. Enable allow_admin_bypass for test Start without prepaid.",
+        });
+        return;
+      }
+    }
+
     if (adminBypass) {
       enableAdminRfidBypass(cpId);
     }
@@ -97,20 +116,36 @@ ocppRouter.post("/remote-start", async (req, res) => {
     });
     const accepted = acceptedFromResponse(response);
     if (isSupabaseConfigured()) {
-      const charger = await repo.findChargerByChargePointId(cpId);
       if (charger) {
         await repo.logEvent(charger.id, cpId, Number(connectorId), "RemoteStartTransaction", {
           idTag: resolvedIdTag,
           response,
           bypassRfid: adminBypass,
+          prepaidPaid: Boolean(prepaidPaid),
+          paymentId: paymentId ?? null,
+          sessionId: sessionId ?? null,
         });
+      }
+      if (!accepted && prepaidPaid) {
+        await alerts.notifyPrepaidStartFailed(
+          cpId,
+          `RemoteStart rejected after prepaid payment${paymentId ? ` (${paymentId})` : ""}${
+            sessionId ? ` session=${sessionId}` : ""
+          }: ${JSON.stringify(response)}`
+        );
       }
     }
     res.json({ accepted, response, bypassRfid: adminBypass });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Remote start failed";
+    const prepaidPaid = Boolean((req.body as { prepaidPaid?: boolean })?.prepaidPaid);
+    const chargePointId = String((req.body as { chargePointId?: string })?.chargePointId ?? "").toUpperCase();
+    if (prepaidPaid && chargePointId && isSupabaseConfigured()) {
+      await alerts.notifyPrepaidStartFailed(chargePointId, message);
+    }
     res.status(502).json({
       accepted: false,
-      error: err instanceof Error ? err.message : "Remote start failed",
+      error: message,
     });
   }
 });

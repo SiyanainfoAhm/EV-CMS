@@ -7,7 +7,7 @@ export type RfpRole = "SuperAdmin" | "SiteAdmin" | "User";
 export const WEB_ADMIN_ROLES: UserRole[] = ["SuperAdmin", "SiteAdmin"];
 
 /** SuperAdmin-only web routes (SiteAdmin cannot access). */
-export const SUPER_ADMIN_ONLY_PATHS = ["/tariffs", "/reports", "/audit-logs", "/simulator"] as const;
+export const SUPER_ADMIN_ONLY_PATHS = ["/tariffs", "/prepaid-plans", "/reports", "/audit-logs", "/simulator"] as const;
 
 export function normalizeRfpRole(dbRole: string): RfpRole {
   if (dbRole === "SuperAdmin") return "SuperAdmin";
@@ -68,6 +68,7 @@ export const WEB_NAV_ITEMS: WebNavItem[] = [
   { label: "Users", path: "/users", icon: "ri-group-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "RFID Cards", path: "/rfid", icon: "ri-sim-card-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "Tariffs", path: "/tariffs", icon: "ri-money-rupee-circle-line", roles: ["SuperAdmin"] },
+  { label: "Prepaid Plans", path: "/prepaid-plans", icon: "ri-wallet-3-line", roles: ["SuperAdmin"] },
   { label: "Payments", path: "/payments", icon: "ri-bank-card-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "Support Tickets", path: "/support-tickets", icon: "ri-customer-service-2-line", roles: ["SuperAdmin", "SiteAdmin"] },
   { label: "Reports", path: "/reports", icon: "ri-bar-chart-line", roles: ["SuperAdmin"] },

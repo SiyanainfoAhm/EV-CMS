@@ -90,6 +90,7 @@ export function mapCharger(
     lastHeartbeat: (row.last_heartbeat_at as string | null) ?? undefined,
     location: (row.location as string) ?? "",
     isSimulated: Boolean(row.is_simulated),
+    allowAdminBypass: Boolean(row.allow_admin_bypass),
     connectivity: connectivityFromHeartbeat(row.last_heartbeat_at as string),
     tariffId: (row.tariff_id as string | null) ?? null,
     tariff: tariffRow ? mapTariff(tariffRow) : null,
@@ -128,6 +129,15 @@ export function mapSession(
     amount: row.amount != null ? Number(row.amount) : undefined,
     stopReason: (row.stop_reason as string) ?? undefined,
     authMethod: (row.authorization_method as string) ?? undefined,
+    prepaidMode: (row.prepaid_mode as ChargingSession["prepaidMode"]) ?? null,
+    prepaidValue: row.prepaid_value != null ? Number(row.prepaid_value) : null,
+    prepaidTotalInr: row.prepaid_total_inr != null ? Number(row.prepaid_total_inr) : null,
+    prepaidEnergyCapKwh: row.prepaid_energy_cap_kwh != null ? Number(row.prepaid_energy_cap_kwh) : null,
+    prepaidExpiresAt: (row.prepaid_expires_at as string) ?? null,
+    prepaidPaymentId: (row.prepaid_payment_id as string) ?? null,
+    settlementStatus: (row.settlement_status as ChargingSession["settlementStatus"]) ?? null,
+    settlementAmount: row.settlement_amount != null ? Number(row.settlement_amount) : null,
+    refundAmount: row.refund_amount != null ? Number(row.refund_amount) : null,
   };
 }
 
@@ -196,6 +206,7 @@ export function mapPayment(
     gateway: (row.gateway as string) ?? null,
     gatewayTxnId: (row.gateway_txn_id as string) ?? null,
     reconciliation: (row.reconciliation_status as string) ?? "unmatched",
+    paymentKind: ((row.payment_kind as string) ?? "prepaid") as Payment["paymentKind"],
     createdAt: row.created_at as string,
     updatedAt: (row.updated_at as string) ?? undefined,
   };

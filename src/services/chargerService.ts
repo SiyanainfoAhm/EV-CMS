@@ -71,6 +71,7 @@ export interface ChargerInput {
   maxPowerKw: number;
   location: string;
   tariffId?: string | null;
+  allowAdminBypass?: boolean;
 }
 
 export interface ChargerUpdateInput {
@@ -83,6 +84,7 @@ export interface ChargerUpdateInput {
   maxPowerKw: number;
   location: string;
   tariffId?: string | null;
+  allowAdminBypass?: boolean;
 }
 
 function defaultModel(manufacturer: string, chargerType: string): string {
@@ -124,6 +126,7 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
       is_simulated: false,
+      allow_admin_bypass: Boolean(input.allowAdminBypass),
     })
     .select("*")
     .single();
@@ -192,6 +195,7 @@ export async function updateCharger(id: string, input: ChargerUpdateInput): Prom
       max_power_kw: input.maxPowerKw,
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
+      allow_admin_bypass: Boolean(input.allowAdminBypass),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)

@@ -37,8 +37,18 @@ export interface ChargerUsageRow {
 export interface ReportSummary {
   totalEnergyKwh: number;
   totalSessions: number;
+  /** Net prepaid collections minus refunds */
   totalRevenue: number;
+  totalRefunds: number;
   avgEnergyPerSession: number;
+}
+
+/** Signed contribution to prepaid revenue (refunds reduce net). */
+function prepaidPaymentDelta(row: { total_amount?: unknown; payment_kind?: unknown }): number {
+  const amount = Number(row.total_amount ?? 0);
+  const kind = (row.payment_kind as string | null) ?? "prepaid";
+  if (kind === "refund") return -Math.abs(amount);
+  return amount;
 }
 
 export interface ReportDateBounds {
@@ -98,7 +108,7 @@ export async function getDailyRevenueAndSessionsForRange(
   const [paymentsRes, sessionsRes] = await Promise.all([
     supabase
       .from("EV_Payments")
-      .select("total_amount, created_at, status")
+      .select("total_amount, created_at, status, payment_kind")
       .gte("created_at", startIso)
       .lte("created_at", endIso)
       .eq("status", "success"),
@@ -120,9 +130,11 @@ export async function getDailyRevenueAndSessionsForRange(
 
   for (const row of paymentsRes.data ?? []) {
     const r = row as Record<string, unknown>;
+    const kind = (r.payment_kind as string | null) ?? "prepaid";
+    if (kind !== "prepaid" && kind !== "refund") continue;
     const key = new Date(r.created_at as string).toISOString().slice(0, 10);
     const point = byDay.get(key);
-    if (point) point.revenue += Number(r.total_amount ?? 0);
+    if (point) point.revenue += prepaidPaymentDelta(r);
   }
 
   for (const row of sessionsRes.data ?? []) {
@@ -210,7 +222,7 @@ export async function getUserWiseReportForRange(range: ReportDateBounds): Promis
       .eq("status", "completed"),
     requireSupabase()
       .from("EV_Payments")
-      .select("user_id, total_amount, EV_Users(full_name)")
+      .select("user_id, total_amount, payment_kind, EV_Users(full_name)")
       .gte("created_at", startIso)
       .lte("created_at", endIso)
       .eq("status", "success"),
@@ -234,11 +246,13 @@ export async function getUserWiseReportForRange(range: ReportDateBounds): Promis
 
   for (const row of paymentsRes.data ?? []) {
     const r = row as Record<string, unknown>;
+    const kind = (r.payment_kind as string | null) ?? "prepaid";
+    if (kind !== "prepaid" && kind !== "refund") continue;
     const userId = r.user_id as string;
     const user = r.EV_Users as Record<string, unknown> | null;
     const name = (user?.full_name as string) ?? "Unknown";
     const existing = byUser.get(userId) ?? { userId, userName: name, sessions: 0, energyKwh: 0, revenue: 0 };
-    existing.revenue += Number(r.total_amount ?? 0);
+    existing.revenue += prepaidPaymentDelta(r);
     if (existing.userName === "Unknown" && user?.full_name) {
       existing.userName = user.full_name as string;
     }
@@ -270,7 +284,7 @@ export async function getReportSummaryForRange(
     chargerUsage ? Promise.resolve(chargerUsage) : getChargerUsageForRange(range),
     requireSupabase()
       .from("EV_Payments")
-      .select("total_amount")
+      .select("total_amount, payment_kind")
       .gte("created_at", range.start.toISOString())
       .lte("created_at", range.end.toISOString())
       .eq("status", "success"),
@@ -280,16 +294,23 @@ export async function getReportSummaryForRange(
 
   const totalEnergyKwh = round1(chargers.reduce((sum, c) => sum + c.energyKwh, 0));
   const totalSessions = chart.reduce((sum, d) => sum + d.sessions, 0);
-  const totalRevenue = round2(
-    (paymentsRes.data ?? []).reduce(
-      (sum, row) => sum + Number((row as { total_amount: number }).total_amount ?? 0),
-      0
-    )
-  );
+  let grossPrepaid = 0;
+  let totalRefunds = 0;
+  for (const row of paymentsRes.data ?? []) {
+    const r = row as { total_amount?: number; payment_kind?: string | null };
+    const kind = r.payment_kind ?? "prepaid";
+    if (kind === "refund") {
+      totalRefunds += Math.abs(Number(r.total_amount ?? 0));
+    } else if (kind === "prepaid") {
+      grossPrepaid += Number(r.total_amount ?? 0);
+    }
+  }
+  const totalRevenue = round2(grossPrepaid - totalRefunds);
+  totalRefunds = round2(totalRefunds);
   const avgEnergyPerSession =
     totalSessions > 0 ? round1(totalEnergyKwh / totalSessions) : 0;
 
-  return { totalEnergyKwh, totalSessions, totalRevenue, avgEnergyPerSession };
+  return { totalEnergyKwh, totalSessions, totalRevenue, totalRefunds, avgEnergyPerSession };
 }
 
 export async function getReportsBundleForRange(range: ReportDateBounds): Promise<ReportsBundle> {

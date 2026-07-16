@@ -22,9 +22,9 @@ import {
 
 } from "@/components/chargers/ChargerFormModal";
 
-import { ChargerBulkImportModal } from "@/components/chargers/ChargerBulkImportModal";
-
 import type { ChargerFormFields } from "@/utils/validation";
+
+import { isSimulationEnabled } from "@/utils/simulationMode";
 
 import {
 
@@ -71,7 +71,6 @@ export default function ChargersPage() {
 
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
 
-  const [showBulkImport, setShowBulkImport] = useState(false);
   const [decommissionTarget, setDecommissionTarget] = useState<Charger | null>(null);
   const [decommissionLoading, setDecommissionLoading] = useState(false);
 
@@ -219,7 +218,12 @@ export default function ChargersPage() {
 
 
 
-  const mockChargers = chargersData ?? [];
+  const mockChargers = useMemo(() => {
+    const all = chargersData ?? [];
+    // When simulation is off, hide demo DFCCIL-DEL-* sim chargers from fleet view/stats.
+    if (!isSimulationEnabled()) return all.filter((c) => !c.isSimulated);
+    return all;
+  }, [chargersData]);
 
   const mockActiveSessions = sessionsData ?? [];
 
@@ -317,28 +321,13 @@ export default function ChargersPage() {
 
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowBulkImport(true)}
-            className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap flex items-center gap-2"
-          >
-            <i className="ri-file-upload-line"></i>
-            Bulk Import
-          </button>
-          <button
-
+        <button
           onClick={openAddModal}
-
           className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap flex items-center gap-2"
-
         >
-
           <i className="ri-add-line"></i>
-
           Add Charger
-
         </button>
-        </div>
 
       </div>
 
@@ -841,22 +830,6 @@ export default function ChargersPage() {
 
         onError={(msg) => showToast(msg)}
 
-      />
-
-      <ChargerBulkImportModal
-        open={showBulkImport}
-        onClose={() => setShowBulkImport(false)}
-        onComplete={async (result) => {
-          await reloadChargers();
-          const ok = result.created.length;
-          const fail = result.errors.length;
-          if (fail === 0) {
-            showToast(`${ok} charger${ok === 1 ? "" : "s"} imported successfully`);
-            setShowBulkImport(false);
-          } else {
-            showToast(`Imported ${ok}, failed ${fail}. Check duplicate charge point IDs.`);
-          }
-        }}
       />
 
       {decommissionTarget && (
