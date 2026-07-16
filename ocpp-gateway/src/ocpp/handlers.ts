@@ -137,8 +137,10 @@ async function handleCall(
             connectorId,
             sampledAt: parsed.sampledAt,
             energyKwh: parsed.energyKwh,
+            energyRegisterKwh: parsed.energyRegisterKwh,
             powerKw: parsed.powerKw,
             soc: parsed.soc,
+            rawSamples: parsed.rawSamples,
           });
         }
         sendResult(conn, uniqueId, {});
