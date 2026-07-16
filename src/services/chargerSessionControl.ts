@@ -25,9 +25,10 @@ function useSimulatedSessions(params: {
 }): boolean {
   if (params.useSimulation === true) return true;
   if (params.useSimulation === false) return false;
-  // Physical charger on WebSocket → always real OCPP (never fake CMS session).
+  // Physical / registered chargers → always real OCPP (never fake CMS session).
   if (params.ocppConnected) return false;
-  if (params.isSimulated) return isSimulationEnabled();
+  if (params.isSimulated === false) return false;
+  if (params.isSimulated === true) return isSimulationEnabled();
   return isSimulationEnabled();
 }
 

@@ -67,6 +67,35 @@ function getConnectivityTextClass(connectivity: ConnectivityLabel | "faulted"): 
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollOcppSessionStarted(
+  chargerId: string,
+  chargePointId: string,
+  connectorId: number,
+): Promise<string | null> {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await sleep(attempt === 0 ? 1500 : 2000);
+    const [ch, allSessions] = await Promise.all([
+      chargerService.getChargerById(chargerId),
+      chargerService.getActiveSessionsForChargers(),
+    ]);
+    const session = allSessions.find(
+      (s) => s.chargePointId === chargePointId && s.connectorId === connectorId,
+    );
+    if (session) {
+      return `Charging active on Gun ${connectorId} (tx ${session.transactionId})`;
+    }
+    const conn = ch?.connectors?.find((c) => c.connectorId === connectorId);
+    if (conn && isConnectorCharging(conn.status)) {
+      return `Charging active on Gun ${connectorId}`;
+    }
+  }
+  return null;
+}
+
 export default function ChargerDetailPage() {
   const { formatEnergy } = useUserPreferences();
   const { id } = useParams<{ id: string }>();
@@ -227,6 +256,17 @@ export default function ChargerDetailPage() {
           success: result.success,
           message: result.message,
         });
+        reloadChargerData();
+        if (result.success && result.mode === "ocpp") {
+          void pollOcppSessionStarted(charger.id, charger.chargePointId, connectorId).then(
+            (followUp) => {
+              if (followUp) {
+                setActionResult({ success: true, message: followUp });
+                reloadChargerData();
+              }
+            },
+          );
+        }
       } else if (type === "RemoteStop") {
         const session = sessions.find((s) => s.connectorId === connectorId);
         if (!session?.transactionId || !session.id) {
