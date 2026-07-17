@@ -330,11 +330,7 @@ export default function ReportsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Prepaid Revenue</p>
             <p className="text-2xl font-bold text-gray-900">{formatCurrency(summary.totalRevenue)}</p>
-            <p className="text-xs text-gray-400 mt-1">
-              net of refunds
-              {summary.totalRefunds > 0 ? ` · ${formatCurrency(summary.totalRefunds)} refunded` : ""} ·{" "}
-              {rangeSubtitle}
-            </p>
+            <p className="text-xs text-gray-400 mt-1">prepaid collections · {rangeSubtitle}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Avg Energy/Session</p>
@@ -511,7 +507,7 @@ export default function ReportsPage() {
               Export CSV
             </button>
           </div>
-          <p className="text-[10px] text-gray-400 mb-2">Prepaid session revenue and refunds; energy from completed sessions</p>
+          <p className="text-[10px] text-gray-400 mb-2">Prepaid session revenue; energy from completed sessions</p>
           <div className="overflow-x-auto max-h-72">
             <table className="w-full text-sm">
               <thead>

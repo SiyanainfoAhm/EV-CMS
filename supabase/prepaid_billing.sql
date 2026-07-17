@@ -187,31 +187,29 @@ BEGIN
   LIMIT 1;
 
   v_actual := COALESCE(v_bill.total_amount, 0);
-  v_refund := GREATEST(0, ROUND(v_prepaid - v_actual, 2));
-  v_status := CASE WHEN v_refund > 0 THEN 'refunded' ELSE 'settled' END;
+  -- No-refund policy: prepaid amount is fully retained; never refund the difference.
+  v_refund := 0;
+  v_status := 'settled';
 
   UPDATE "EV_ChargingSessions"
   SET
     amount = v_bill.amount,
-    settlement_amount = v_actual,
+    settlement_amount = v_prepaid,
     refund_amount = v_refund,
     settlement_status = v_status,
     updated_at = NOW()
   WHERE id = p_session_id;
 
-  -- Keep pending/success payment amounts in sync with actual billed (prepaid collected separately).
+  -- No-refund policy: prepaid collection is final; keep the full prepaid as the collected total.
   UPDATE "EV_Payments"
   SET
     amount = v_bill.amount,
     gst_amount = v_bill.gst_amount,
-    total_amount = CASE
-      WHEN status IN ('success', 'paid') THEN COALESCE(total_amount, v_prepaid)
-      ELSE v_actual
-    END,
+    total_amount = COALESCE(total_amount, v_prepaid),
     payment_kind = COALESCE(payment_kind, 'prepaid'),
     updated_at = NOW()
-  WHERE session_id = p_session_id
-    AND COALESCE(payment_kind, 'prepaid') = 'prepaid';
+  WHERE "EV_Payments".session_id = p_session_id
+    AND COALESCE("EV_Payments".payment_kind, 'prepaid') = 'prepaid';
 
   RETURN QUERY
   SELECT p_session_id, v_prepaid, v_actual, v_refund, v_status;

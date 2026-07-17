@@ -147,7 +147,7 @@ export default function PaymentsPage() {
       <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-[#f9faf7] px-4 py-3">
         <i className="ri-information-line text-gray-500 text-lg mt-0.5"></i>
         <p className="text-xs text-gray-600">
-          Session payments are prepaid collections and refunds. Configure amount/time presets under{" "}
+          Session payments are prepaid collections. Configure amount/time presets under{" "}
           <strong>Prepaid Plans</strong>. Lab admin Start without pay requires charger{" "}
           <strong>Lab admin bypass</strong>.
         </p>
