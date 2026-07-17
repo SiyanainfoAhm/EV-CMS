@@ -24,8 +24,6 @@ import {
 
 import type { ChargerFormFields } from "@/utils/validation";
 
-import { isSimulationEnabled } from "@/utils/simulationMode";
-
 import {
 
   connectivityFromHeartbeat,
@@ -218,12 +216,7 @@ export default function ChargersPage() {
 
 
 
-  const mockChargers = useMemo(() => {
-    const all = chargersData ?? [];
-    // When simulation is off, hide demo DFCCIL-DEL-* sim chargers from fleet view/stats.
-    if (!isSimulationEnabled()) return all.filter((c) => !c.isSimulated);
-    return all;
-  }, [chargersData]);
+  const mockChargers = chargersData ?? [];
 
   const mockActiveSessions = sessionsData ?? [];
 
