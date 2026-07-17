@@ -2,6 +2,7 @@ import type { Charger, ChargingSession, DashboardStats, TimeRange } from "@/type
 import { resolveDashboardRange, utcRangeStart, type DashboardRange } from "@/utils/dateRanges";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { computeDashboardStats, mapCharger, mapSession } from "@/utils/supabaseMappers";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 
 export interface ChargersQuery {
   status?: string; // online | offline | faulted | all
@@ -41,7 +42,7 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
   if (error) throw error;
   if (!data?.length) return [];
 
-  return data.map((row) => {
+  const mapped = data.map((row) => {
     const raw = row as Record<string, unknown>;
     const nested = raw.EV_ChargerConnectors;
     const connectors = Array.isArray(nested)
@@ -54,6 +55,9 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
     const { EV_ChargerConnectors: _removed, EV_Tariffs: _tariff, ...charger } = raw;
     return mapCharger(charger, connectors, tariff ?? null);
   });
+
+  // When simulation is off, exclude demo/sim chargers so dashboard + fleet counts match.
+  return isSimulationEnabled() ? mapped : mapped.filter((c) => !c.isSimulated);
 }
 
 export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]> {
