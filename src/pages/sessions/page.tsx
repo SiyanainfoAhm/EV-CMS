@@ -369,9 +369,6 @@ export default function SessionsPage() {
                       <p className="text-sm font-semibold text-gray-900">
                         {session.prepaidTotalInr != null ? formatCurrency(session.prepaidTotalInr) : "—"}
                       </p>
-                      {session.refundAmount != null && session.refundAmount > 0 ? (
-                        <p className="text-xs text-amber-600">Refund {formatCurrency(session.refundAmount)}</p>
-                      ) : null}
                     </td>
                     <td className="px-5 py-3.5">
                       {session.prepaidMode === "amount" && session.prepaidEnergyCapKwh != null ? (

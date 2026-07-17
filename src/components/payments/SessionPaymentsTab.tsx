@@ -76,7 +76,6 @@ export default function SessionPaymentsTab({
               <option value="success">Success</option>
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
-              <option value="refunded">Refunded</option>
             </select>
             <div className="flex items-center gap-1.5 px-3 py-2 bg-[#f5f5f3] border border-gray-200 rounded-lg">
               <input
@@ -130,14 +129,8 @@ export default function SessionPaymentsTab({
                   <span className="text-xs font-mono text-gray-500">{shortId(payment.sessionId, 10)}</span>
                 </td>
                 <td className="px-4 py-3.5">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      payment.paymentKind === "refund"
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-emerald-50 text-emerald-700"
-                    }`}
-                  >
-                    {payment.paymentKind === "refund" ? "Refund" : "Prepaid"}
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-700">
+                    Prepaid
                   </span>
                 </td>
                 <td className="px-4 py-3.5">
