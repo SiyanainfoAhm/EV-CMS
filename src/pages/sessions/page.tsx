@@ -3,18 +3,29 @@ import { useAsyncData } from "@/hooks/useAsyncData";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import * as chargerService from "@/services/chargerService";
 import * as chargerSessionControl from "@/services/chargerSessionControl";
+import * as ocppService from "@/services/ocppService";
 import * as sessionService from "@/services/sessionService";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { isUtcToday } from "@/utils/dateRanges";
 import type { ChargingSession } from "@/types/ev";
+import * as prepaidPlanService from "@/services/prepaidPlanService";
 
 type TabType = "active" | "history";
+
+function formatSessionPrepaid(session: ChargingSession): string {
+  if (!session.prepaidMode || session.prepaidValue == null) return "—";
+  return prepaidPlanService.formatPrepaidPlanValue({
+    mode: session.prepaidMode,
+    value: session.prepaidValue,
+  });
+}
 
 export default function SessionsPage() {
   const { formatDateTime, formatCurrency, formatEnergy } = useUserPreferences();
   const { data: activeData, reload: reloadActive } = useAsyncData(() => sessionService.getActiveSessions(), []);
-  useAsyncData(() => chargerService.getChargers(), []);
+  const { data: chargersData } = useAsyncData(() => chargerService.getChargers(), []);
+  const chargers = chargersData ?? [];
   const mockActiveSessions = activeData ?? [];
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,11 +85,21 @@ export default function SessionsPage() {
     if (!stopModal) return;
     setStopLoading(true);
     try {
+      const charger = chargers.find((c) => c.chargePointId === stopModal.chargePointId);
+      let ocppConnected = false;
+      try {
+        const status = await ocppService.getChargerStatus(stopModal.chargePointId);
+        ocppConnected = Boolean(status.connected);
+      } catch {
+        ocppConnected = false;
+      }
       const result = await chargerSessionControl.stopChargingSession({
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
         sessionId: stopModal.id,
         bypassRfid: true,
+        ocppConnected,
+        isSimulated: charger?.isSimulated ?? false,
       });
       setStopModal(null);
       setStopResult(
@@ -103,7 +124,9 @@ export default function SessionsPage() {
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             Charging Sessions
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Monitor active sessions and review charging history</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Prepaid charging sessions only — pay before start (monitor active + history)
+          </p>
         </div>
         <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
           <button
@@ -182,6 +205,7 @@ export default function SessionsPage() {
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Charger</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Connector</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Auth</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Prepaid</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Start Time</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Duration</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Energy</th>
@@ -209,6 +233,15 @@ export default function SessionsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="text-xs text-gray-600">{session.authMethod ?? "RFID"}</span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <p className="text-sm text-gray-700">{formatSessionPrepaid(session)}</p>
+                      {session.prepaidTotalInr != null ? (
+                        <p className="text-xs text-gray-400">Paid {formatCurrency(session.prepaidTotalInr)}</p>
+                      ) : null}
+                      {session.settlementStatus ? (
+                        <p className="text-xs text-emerald-600 capitalize">{session.settlementStatus}</p>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-600">{formatDateTime(session.startTime)}</p>
@@ -300,11 +333,14 @@ export default function SessionsPage() {
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Charger</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Auth</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Prepaid</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Paid ₹</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Cap / Expiry</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Start</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">End</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Duration</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Energy</th>
-                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Settled</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Stop Reason</th>
                 </tr>
@@ -327,6 +363,23 @@ export default function SessionsPage() {
                       <span className="text-xs text-gray-600">{session.authMethod ?? "—"}</span>
                     </td>
                     <td className="px-5 py-3.5">
+                      <span className="text-sm text-gray-700">{formatSessionPrepaid(session)}</span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {session.prepaidTotalInr != null ? formatCurrency(session.prepaidTotalInr) : "—"}
+                      </p>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {session.prepaidMode === "amount" && session.prepaidEnergyCapKwh != null ? (
+                        <p className="text-xs text-gray-600">≤ {formatEnergy(session.prepaidEnergyCapKwh)}</p>
+                      ) : session.prepaidExpiresAt ? (
+                        <p className="text-xs text-gray-600">{formatDateTime(session.prepaidExpiresAt)}</p>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-600">{formatDateTime(session.startTime)}</p>
                     </td>
                     <td className="px-5 py-3.5">
@@ -344,8 +397,15 @@ export default function SessionsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-semibold text-gray-900">
-                        {session.amount != null ? formatCurrency(session.amount) : "—"}
+                        {session.settlementAmount != null
+                          ? formatCurrency(session.settlementAmount)
+                          : session.amount != null
+                            ? formatCurrency(session.amount)
+                            : "—"}
                       </p>
+                      {session.settlementStatus ? (
+                        <p className="text-xs text-gray-500 capitalize">{session.settlementStatus}</p>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3.5">
                       <span

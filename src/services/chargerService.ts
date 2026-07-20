@@ -2,6 +2,7 @@ import type { Charger, ChargingSession, DashboardStats, TimeRange } from "@/type
 import { resolveDashboardRange, utcRangeStart, type DashboardRange } from "@/utils/dateRanges";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { computeDashboardStats, mapCharger, mapSession } from "@/utils/supabaseMappers";
+import { isSimulationEnabled } from "@/utils/simulationMode";
 
 export interface ChargersQuery {
   status?: string; // online | offline | faulted | all
@@ -41,7 +42,7 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
   if (error) throw error;
   if (!data?.length) return [];
 
-  return data.map((row) => {
+  const mapped = data.map((row) => {
     const raw = row as Record<string, unknown>;
     const nested = raw.EV_ChargerConnectors;
     const connectors = Array.isArray(nested)
@@ -54,6 +55,9 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
     const { EV_ChargerConnectors: _removed, EV_Tariffs: _tariff, ...charger } = raw;
     return mapCharger(charger, connectors, tariff ?? null);
   });
+
+  // When simulation is off, exclude demo/sim chargers so dashboard + fleet counts match.
+  return isSimulationEnabled() ? mapped : mapped.filter((c) => !c.isSimulated);
 }
 
 export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]> {
@@ -71,6 +75,7 @@ export interface ChargerInput {
   maxPowerKw: number;
   location: string;
   tariffId?: string | null;
+  allowAdminBypass?: boolean;
 }
 
 export interface ChargerUpdateInput {
@@ -83,6 +88,7 @@ export interface ChargerUpdateInput {
   maxPowerKw: number;
   location: string;
   tariffId?: string | null;
+  allowAdminBypass?: boolean;
 }
 
 function defaultModel(manufacturer: string, chargerType: string): string {
@@ -124,6 +130,7 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
       is_simulated: false,
+      allow_admin_bypass: Boolean(input.allowAdminBypass),
     })
     .select("*")
     .single();
@@ -192,6 +199,7 @@ export async function updateCharger(id: string, input: ChargerUpdateInput): Prom
       max_power_kw: input.maxPowerKw,
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
+      allow_admin_bypass: Boolean(input.allowAdminBypass),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)

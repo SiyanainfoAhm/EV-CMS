@@ -38,10 +38,27 @@ export interface Charger {
   lastHeartbeat?: string | null;
   location: string;
   isSimulated?: boolean;
+  /** Lab/test only — admin may Start without prepaid. */
+  allowAdminBypass?: boolean;
   connectivity?: "online" | "offline" | "stale";
   tariffId?: string | null;
   tariff?: Tariff | null;
   connectors: ChargerConnector[];
+}
+
+export type PrepaidMode = "amount" | "time";
+export type SettlementStatus = "paid" | "active" | "settled" | "refunded" | "failed_start";
+export type PaymentKind = "prepaid" | "refund";
+
+export interface PrepaidPlan {
+  id: string;
+  mode: PrepaidMode;
+  value: number;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ChargingSession {
@@ -67,6 +84,15 @@ export interface ChargingSession {
   amount?: number;
   stopReason?: string;
   authMethod?: string;
+  prepaidMode?: PrepaidMode | null;
+  prepaidValue?: number | null;
+  prepaidTotalInr?: number | null;
+  prepaidEnergyCapKwh?: number | null;
+  prepaidExpiresAt?: string | null;
+  prepaidPaymentId?: string | null;
+  settlementStatus?: SettlementStatus | null;
+  settlementAmount?: number | null;
+  refundAmount?: number | null;
 }
 
 export interface RFIDCard {
@@ -106,6 +132,8 @@ export interface Payment {
   gateway: string | null;
   gatewayTxnId: string | null;
   reconciliation: string;
+  /** prepaid charging or refund — no postpaid product path */
+  paymentKind?: PaymentKind;
   createdAt: string;
   updatedAt?: string;
 }

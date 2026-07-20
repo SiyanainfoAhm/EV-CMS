@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import SimulationModeBadge from "@/components/common/SimulationModeBadge";
 import NotificationBell from "@/components/feature/NotificationBell";
 import GlobalSearch from "@/components/feature/GlobalSearch";
-import { startSimulatorRuntime } from "@/services/simulatorRuntime";
+import { startSimulatorRuntime, stopSimulatorRuntime } from "@/services/simulatorRuntime";
 import { isSimulationEnabled } from "@/utils/simulationMode";
 import { getWebNavItemsForRole, normalizeRfpRole } from "@/utils/rfpRoles";
 import { useInactivityLogout } from "@/hooks/useInactivityLogout";
@@ -49,7 +49,10 @@ export default function AdminLayout() {
   };
 
   useEffect(() => {
-    if (!isSimulationEnabled()) return;
+    if (!isSimulationEnabled()) {
+      stopSimulatorRuntime();
+      return;
+    }
     if (user?.role === "SuperAdmin" || user?.role === "SiteAdmin") {
       startSimulatorRuntime();
     }

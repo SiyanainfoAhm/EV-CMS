@@ -180,6 +180,7 @@ export interface ChargerFormFields {
   maxPowerKw: number;
   location: string;
   tariffId: string;
+  allowAdminBypass?: boolean;
 }
 
 const CHARGE_POINT_ID = /^[A-Z0-9][A-Z0-9-]{2,31}$/;

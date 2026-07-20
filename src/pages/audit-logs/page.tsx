@@ -66,6 +66,9 @@ export default function AuditLogsPage() {
 
   const getActionColor = (action: string) => {
     if (action.includes("Login")) return "bg-indigo-100 text-indigo-700";
+    if (action.includes("Blocked") || action.includes("Failed Lab Bypass")) return "bg-rose-100 text-rose-700";
+    if (action.includes("Lab Bypass") || action.includes("Lab Admin Bypass")) return "bg-amber-100 text-amber-700";
+    if (action.includes("Prepaid Plan")) return "bg-violet-100 text-violet-700";
     if (action.includes("Create") || action.includes("Created")) return "bg-emerald-100 text-emerald-700";
     if (action.includes("Delete") || action.includes("Remove")) return "bg-red-100 text-red-700";
     if (action.includes("Stop") || action.includes("Deactiv")) return "bg-rose-100 text-rose-700";

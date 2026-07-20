@@ -23,3 +23,25 @@ export async function notifyFirmwareAlert(
     console.warn("[alerts] firmware notify error:", err);
   }
 }
+
+/** Prepaid paid but RemoteStart failed — admin notification via generic admin notify if available. */
+export async function notifyPrepaidStartFailed(
+  chargePointId: string,
+  detail: string
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const { error } = await getSupabase().rpc("ev_notify_admins_if_enabled", {
+      p_pref_key: "paymentReceived",
+      p_title: "Prepaid start failed",
+      p_message: `${chargePointId}: ${detail}`,
+      p_type: "alert",
+    });
+    if (error) {
+      // Fallback: log only — RPC may not exist on all envs
+      console.warn("[alerts] prepaid start-failed notify:", error.message);
+    }
+  } catch (err) {
+    console.warn("[alerts] prepaid start-failed error:", err);
+  }
+}

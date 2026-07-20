@@ -143,6 +143,7 @@ export async function createPendingPayment(input: CreatePendingPaymentInput): Pr
       status: "pending",
       gateway: input.gateway ?? PAYMENT_MOCK_GATEWAY_NAME,
       reconciliation_status: "unmatched",
+      payment_kind: "prepaid",
     })
     .select("id")
     .single();

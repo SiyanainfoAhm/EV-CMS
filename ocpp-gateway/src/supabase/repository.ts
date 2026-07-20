@@ -8,6 +8,7 @@ export interface ChargerRow {
   name: string;
   charger_type: string;
   status: string;
+  allow_admin_bypass?: boolean;
 }
 
 export interface RfidLookup {
@@ -50,7 +51,7 @@ let fallbackUserId: string | null = null;
 export async function findChargerByChargePointId(chargePointId: string): Promise<ChargerRow | null> {
   const { data, error } = await getSupabase()
     .from("EV_Chargers")
-    .select("id, charge_point_id, name, charger_type, status")
+    .select("id, charge_point_id, name, charger_type, status, allow_admin_bypass")
     .eq("charge_point_id", chargePointId.toUpperCase())
     .maybeSingle();
   if (error) throw error;
@@ -385,6 +386,18 @@ export async function stopTransaction(params: {
     "StopTransaction",
     { transactionId: params.transactionId, meterStop: params.meterStop, reason: stopReason }
   );
+
+  // Prepaid settlement (amount/time pay-before-charge)
+  try {
+    const { error: settleError } = await getSupabase().rpc("ev_settle_prepaid_session", {
+      p_session_id: session.id,
+    });
+    if (settleError) {
+      console.warn("[ocpp] prepaid settle failed:", settleError.message);
+    }
+  } catch (err) {
+    console.warn("[ocpp] prepaid settle error:", err);
+  }
 }
 
 export async function recordMeterValues(params: {
@@ -396,40 +409,94 @@ export async function recordMeterValues(params: {
   energyKwh: number | null;
   powerKw: number | null;
   soc: number | null;
-}): Promise<void> {
+  /** Absolute energy register in kWh (Energy.Active.Import.Register), if present. */
+  energyRegisterKwh?: number | null;
+  rawSamples?: unknown;
+}): Promise<{ shouldRemoteStop: boolean; transactionId: number; reason: string } | null> {
   const { data: session, error: findError } = await getSupabase()
     .from("EV_ChargingSessions")
-    .select("id")
+    .select(
+      "id, start_meter, energy_kwh, prepaid_mode, prepaid_energy_cap_kwh, prepaid_expires_at, prepaid_total_inr, tariff_id, transaction_id"
+    )
     .eq("transaction_id", params.transactionId)
     .eq("status", "active")
     .maybeSingle();
   if (findError) throw findError;
-  if (!session) return;
+  if (!session) return null;
+
+  const startMeterKwh = Number(session.start_meter ?? 0);
+  const prevEnergyKwh = Number(session.energy_kwh ?? 0);
+
+  // Session energy = max(previous, reported session energy, register − start_meter).
+  // Many DC chargers report absolute Wh register; some report 0 for Energy while SoC updates.
+  let sessionEnergyKwh = prevEnergyKwh;
+  if (params.energyRegisterKwh != null && params.energyRegisterKwh >= startMeterKwh) {
+    sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyRegisterKwh - startMeterKwh);
+  }
+  if (params.energyKwh != null && params.energyKwh > 0) {
+    // If value looks like absolute register (>= start), treat as register; else session energy.
+    if (params.energyKwh >= startMeterKwh && startMeterKwh > 0) {
+      sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyKwh - startMeterKwh);
+    } else {
+      sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyKwh);
+    }
+  }
+
+  const powerKw = params.powerKw;
 
   const { error: meterError } = await getSupabase().from("EV_MeterValues").insert({
     session_id: session.id,
     charger_id: params.chargerId,
     connector_id: params.connectorId,
     sampled_at: params.sampledAt,
-    energy_kwh: params.energyKwh,
-    power_kw: params.powerKw,
+    energy_kwh: sessionEnergyKwh,
+    power_kw: powerKw,
     soc: params.soc,
   });
   if (meterError) throw meterError;
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (params.energyKwh != null) updates.energy_kwh = params.energyKwh;
-  if (params.powerKw != null) updates.current_power_kw = params.powerKw;
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+    energy_kwh: sessionEnergyKwh,
+  };
+  if (powerKw != null) updates.current_power_kw = powerKw;
   if (params.soc != null) updates.soc = params.soc;
 
   await getSupabase().from("EV_ChargingSessions").update(updates).eq("id", session.id);
 
   await logEvent(params.chargerId, params.chargePointId, params.connectorId, "MeterValues", {
     transactionId: params.transactionId,
-    energyKwh: params.energyKwh,
-    powerKw: params.powerKw,
+    energyKwh: sessionEnergyKwh,
+    powerKw,
     soc: params.soc,
+    energyRegisterKwh: params.energyRegisterKwh ?? null,
+    // Keep raw sample for vendor debugging when Energy/Power report as 0.
+    rawSamples: params.rawSamples ?? null,
   });
+
+  // Prepaid auto-stop: energy cap or time expiry
+  const prepaidMode = session.prepaid_mode as string | null;
+  if (prepaidMode === "amount" && session.prepaid_energy_cap_kwh != null) {
+    const cap = Number(session.prepaid_energy_cap_kwh);
+    if (cap > 0 && sessionEnergyKwh >= cap) {
+      return {
+        shouldRemoteStop: true,
+        transactionId: params.transactionId,
+        reason: "prepaid_amount",
+      };
+    }
+  }
+  if (prepaidMode === "time" && session.prepaid_expires_at) {
+    if (new Date(session.prepaid_expires_at).getTime() <= Date.now()) {
+      return {
+        shouldRemoteStop: true,
+        transactionId: params.transactionId,
+        reason: "prepaid_time",
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function getSessionByTransactionId(transactionId: number) {
@@ -475,36 +542,96 @@ export async function logEvent(
   });
 }
 
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value.trim().replace(",", "."));
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function energyToKwh(value: number, unit: string): number {
+  const u = unit.toLowerCase();
+  if (u === "wh" || u === "") return value / 1000;
+  if (u === "kwh" || u === "kw.h") return value;
+  // Unknown unit: values > 100 are almost always Wh on EVSE meters.
+  return value > 100 ? value / 1000 : value;
+}
+
+function powerToKw(value: number, unit: string): number {
+  const u = unit.toLowerCase();
+  if (u === "w" || u === "") return value / 1000;
+  if (u === "kw") return value;
+  return value > 200 ? value / 1000 : value;
+}
+
 export function parseMeterSampledValues(meterValue: unknown): {
   energyKwh: number | null;
+  energyRegisterKwh: number | null;
   powerKw: number | null;
   soc: number | null;
   sampledAt: string;
+  rawSamples: unknown;
 } {
   const list = Array.isArray(meterValue) ? meterValue : [];
   const first = (list[0] as Record<string, unknown>) ?? {};
   const sampledAt = String(first.timestamp ?? new Date().toISOString());
-  const sampled = Array.isArray(first.sampledValue) ? first.sampledValue : [];
 
   let energyKwh: number | null = null;
+  let energyRegisterKwh: number | null = null;
   let powerKw: number | null = null;
   let soc: number | null = null;
+  let currentA: number | null = null;
+  let voltageV: number | null = null;
+  const rawSamples: Record<string, unknown>[] = [];
 
-  for (const raw of sampled) {
-    const sv = raw as Record<string, unknown>;
-    const measurand = String(sv.measurand ?? "Energy.Active.Import.Register");
-    const value = Number(sv.value);
-    if (Number.isNaN(value)) continue;
-    const unit = String(sv.unit ?? "");
+  for (const entry of list) {
+    const block = (entry as Record<string, unknown>) ?? {};
+    const sampled = Array.isArray(block.sampledValue) ? block.sampledValue : [];
+    for (const raw of sampled) {
+      const sv = raw as Record<string, unknown>;
+      const measurand = String(sv.measurand ?? "Energy.Active.Import.Register");
+      const value = toNumber(sv.value);
+      if (value == null) continue;
+      const unit = String(sv.unit ?? "");
+      rawSamples.push({ measurand, value, unit, context: sv.context ?? null });
 
-    if (measurand.includes("Energy")) {
-      energyKwh = unit === "Wh" || unit === "" ? value / 1000 : value;
-    } else if (measurand.includes("Power")) {
-      powerKw = unit === "W" || unit === "" ? value / 1000 : value;
-    } else if (measurand === "SoC") {
-      soc = Math.round(value);
+      const m = measurand.toLowerCase();
+      if (m.includes("energy") && m.includes("register")) {
+        const kwh = energyToKwh(value, unit);
+        energyRegisterKwh = energyRegisterKwh == null ? kwh : Math.max(energyRegisterKwh, kwh);
+        energyKwh = energyRegisterKwh;
+      } else if (m.includes("energy")) {
+        const kwh = energyToKwh(value, unit);
+        // Prefer non-zero interval/session energy samples over zeros.
+        if (energyKwh == null || (kwh > 0 && kwh >= (energyKwh ?? 0))) {
+          energyKwh = kwh;
+        }
+      } else if (m.includes("power")) {
+        const kw = powerToKw(value, unit);
+        if (powerKw == null || kw > powerKw) powerKw = kw;
+      } else if (m === "soc" || m.endsWith(".soc")) {
+        soc = Math.round(value);
+      } else if (m.includes("current") && !m.includes("import.register")) {
+        currentA = value;
+      } else if (m.includes("voltage")) {
+        voltageV = value;
+      }
     }
   }
 
-  return { energyKwh, powerKw, soc, sampledAt };
+  // Fallback: estimate DC power from Current × Voltage when Power measurand is missing/zero.
+  if ((powerKw == null || powerKw === 0) && currentA != null && voltageV != null && currentA > 0 && voltageV > 0) {
+    powerKw = (currentA * voltageV) / 1000;
+  }
+
+  return {
+    energyKwh,
+    energyRegisterKwh,
+    powerKw,
+    soc,
+    sampledAt,
+    rawSamples: rawSamples.slice(0, 20),
+  };
 }

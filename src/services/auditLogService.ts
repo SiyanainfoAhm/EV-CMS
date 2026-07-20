@@ -50,6 +50,135 @@ export async function getAuditLogsByEntity(
   return logs.filter((l) => l.entityType === entityType && l.entityId === entityId);
 }
 
+async function insertAuditLog(row: {
+  user_id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  details: string;
+}): Promise<void> {
+  const { error } = await requireSupabase().from("EV_AuditLogs").insert(row);
+  if (error) {
+    console.warn(`[audit] ${row.action} log failed:`, error.message);
+  }
+}
+
+export async function logLabBypassRemoteStart(input: {
+  userId: string;
+  chargePointId: string;
+  connectorId: number;
+  chargerId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    user_id: input.userId,
+    action: "Lab Bypass Remote Start",
+    entity_type: "Charger",
+    entity_id: input.chargerId,
+    details: `Admin RemoteStart without prepaid on ${input.chargePointId} Gun ${input.connectorId} (allow_admin_bypass)`,
+  });
+}
+
+/** Admin tried RemoteStart on a production charger (lab bypass off). */
+export async function logBlockedRemoteStart(input: {
+  userId: string;
+  chargePointId: string;
+  connectorId: number;
+  chargerId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    user_id: input.userId,
+    action: "Blocked Remote Start",
+    entity_type: "Charger",
+    entity_id: input.chargerId,
+    details: `RemoteStart blocked — prepaid required (lab bypass off) on ${input.chargePointId} Gun ${input.connectorId}`,
+  });
+}
+
+/** Lab bypass Start attempted but OCPP/gateway rejected or failed. */
+export async function logFailedLabBypassRemoteStart(input: {
+  userId: string;
+  chargePointId: string;
+  connectorId: number;
+  chargerId: string;
+  reason: string;
+}): Promise<void> {
+  const reason = input.reason.trim().slice(0, 240) || "unknown error";
+  await insertAuditLog({
+    user_id: input.userId,
+    action: "Failed Lab Bypass Remote Start",
+    entity_type: "Charger",
+    entity_id: input.chargerId,
+    details: `Lab bypass RemoteStart failed on ${input.chargePointId} Gun ${input.connectorId}: ${reason}`,
+  });
+}
+
+/** Charger allow_admin_bypass enabled or disabled. */
+export async function logLabBypassFlagChange(input: {
+  userId: string;
+  chargerId: string;
+  chargePointId: string;
+  enabled: boolean;
+  isCreate?: boolean;
+}): Promise<void> {
+  const verb = input.enabled ? "Enabled" : "Disabled";
+  await insertAuditLog({
+    user_id: input.userId,
+    action: `${verb} Lab Admin Bypass`,
+    entity_type: "Charger",
+    entity_id: input.chargerId,
+    details: input.isCreate
+      ? `Created charger ${input.chargePointId} with lab admin bypass ${input.enabled ? "on" : "off"}`
+      : `Lab admin bypass ${input.enabled ? "enabled" : "disabled"} on ${input.chargePointId}`,
+  });
+}
+
+export async function logPrepaidPlanCreated(input: {
+  userId: string;
+  planId: string;
+  label: string;
+  mode: string;
+  value: number;
+}): Promise<void> {
+  await insertAuditLog({
+    user_id: input.userId,
+    action: "Created Prepaid Plan",
+    entity_type: "PrepaidPlan",
+    entity_id: input.planId,
+    details: `Created prepaid plan "${input.label}" (${input.mode}=${input.value})`,
+  });
+}
+
+export async function logPrepaidPlanUpdated(input: {
+  userId: string;
+  planId: string;
+  label: string;
+  mode: string;
+  value: number;
+}): Promise<void> {
+  await insertAuditLog({
+    user_id: input.userId,
+    action: "Updated Prepaid Plan",
+    entity_type: "PrepaidPlan",
+    entity_id: input.planId,
+    details: `Updated prepaid plan "${input.label}" (${input.mode}=${input.value})`,
+  });
+}
+
+export async function logPrepaidPlanToggled(input: {
+  userId: string;
+  planId: string;
+  label: string;
+  isActive: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    user_id: input.userId,
+    action: input.isActive ? "Activated Prepaid Plan" : "Deactivated Prepaid Plan",
+    entity_type: "PrepaidPlan",
+    entity_id: input.planId,
+    details: `${input.isActive ? "Activated" : "Deactivated"} prepaid plan "${input.label}"`,
+  });
+}
+
 export async function logReportExport(input: {
   userId: string;
   reportName: string;

@@ -11,6 +11,7 @@ import SessionsPage from "../pages/sessions/page";
 import UsersPage from "../pages/users/page";
 import RfidPage from "../pages/rfid/page";
 import TariffsPage from "../pages/tariffs/page";
+import PrepaidPlansPage from "../pages/prepaid-plans/page";
 import PaymentsPage from "../pages/payments/page";
 import PaymentDetailPage from "../pages/payments/detail/page";
 import ReportsPage from "../pages/reports/page";
@@ -64,6 +65,10 @@ const routes: RouteObject[] = [
       {
         path: "/tariffs",
         element: <TariffsPage />,
+      },
+      {
+        path: "/prepaid-plans",
+        element: <PrepaidPlansPage />,
       },
       {
         path: "/payments",
