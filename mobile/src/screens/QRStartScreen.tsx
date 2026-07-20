@@ -7,6 +7,7 @@ import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import QrCameraScanner from "../components/QrCameraScanner";
+import ChargePricePrompt, { type ChargePriceResult } from "../components/ChargePricePrompt";
 import * as chargingService from "../services/chargingService";
 import * as chargerService from "../services/chargerService";
 import { useAuth } from "../context/AuthContext";
@@ -21,6 +22,11 @@ type Props = NativeStackScreenProps<RootStackParamList, "QRStart">;
 const SCAN_DEBOUNCE_MS = 2500;
 const isWeb = Platform.OS === "web";
 
+type PendingStart = {
+  chargerId: string;
+  connectorId: number;
+};
+
 export default function QRStartScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -31,8 +37,15 @@ export default function QRStartScreen({ navigation, route }: Props) {
   const [showManual, setShowManual] = useState(isWeb);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pricePromptVisible, setPricePromptVisible] = useState(false);
+  const [pendingStart, setPendingStart] = useState<PendingStart | null>(null);
   const scanLock = useRef(false);
   const lastScanAt = useRef(0);
+
+  const requestPriceThenStart = useCallback((chargerId: string, connectorId: number) => {
+    setPendingStart({ chargerId, connectorId });
+    setPricePromptVisible(true);
+  }, []);
 
   const startWithPayload = useCallback(
     async (raw: string) => {
@@ -40,8 +53,7 @@ export default function QRStartScreen({ navigation, route }: Props) {
       setLoading(true);
       try {
         const { charger, connectorId } = await chargerService.validateQr(raw);
-        await chargingService.startCharging(charger.id, connectorId, user?.id);
-        navigation.replace("LiveSession");
+        requestPriceThenStart(charger.id, connectorId);
       } catch (e) {
         if (e instanceof Error && e.message === "INVALID_QR") {
           setError(t("qr.invalidQr"));
@@ -54,7 +66,7 @@ export default function QRStartScreen({ navigation, route }: Props) {
         scanLock.current = false;
       }
     },
-    [navigation, t, user?.id]
+    [navigation, requestPriceThenStart, t]
   );
 
   const onScan = (data: string) => {
@@ -74,15 +86,27 @@ export default function QRStartScreen({ navigation, route }: Props) {
       setError(t("qr.invalidQr"));
       return;
     }
-    setError("");
+    requestPriceThenStart(route.params.chargerId!, defaultConnector);
+  };
+
+  const confirmPriceAndStart = async (price: ChargePriceResult) => {
+    if (!pendingStart) return;
+    setPricePromptVisible(false);
     setLoading(true);
+    setError("");
     try {
-      await chargingService.startCharging(route.params.chargerId!, defaultConnector, user?.id);
+      await chargingService.startCharging(pendingStart.chargerId, pendingStart.connectorId, user?.id, {
+        prepaidAmount: price.prepaidAmount,
+        targetKwh: price.targetKwh,
+        tariffId: price.tariff.id,
+      });
+      setPendingStart(null);
       navigation.replace("LiveSession");
     } catch (e) {
       showChargingErrorAlert(e, t, navigation);
     } finally {
       setLoading(false);
+      scanLock.current = false;
     }
   };
 
@@ -141,6 +165,16 @@ export default function QRStartScreen({ navigation, route }: Props) {
           />
         </>
       )}
+
+      <ChargePricePrompt
+        visible={pricePromptVisible}
+        onCancel={() => {
+          setPricePromptVisible(false);
+          setPendingStart(null);
+          scanLock.current = false;
+        }}
+        onConfirm={confirmPriceAndStart}
+      />
     </View>
   );
 }

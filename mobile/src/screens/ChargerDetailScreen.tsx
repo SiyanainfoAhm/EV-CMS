@@ -8,13 +8,17 @@ import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import StatusBadge from "../components/StatusBadge";
+import ChargePricePrompt, { type ChargePriceResult } from "../components/ChargePricePrompt";
 import * as chargerService from "../services/chargerService";
 import * as chargingService from "../services/chargingService";
+import * as tariffService from "../services/tariffService";
+import type { ActiveTariff } from "../services/tariffService";
 import { useAuth } from "../context/AuthContext";
 import AdminNoticeBanner from "../components/AdminNoticeBanner";
 import { isMobileEndUser } from "../utils/rfpRoles";
 import { formatHeartbeatAgo } from "../utils/chargerConnectivity";
 import { showChargingErrorAlert } from "../utils/chargingErrors";
+import { formatCurrency } from "../utils/format";
 import {
   translateChargerLocation,
   translateChargerName,
@@ -53,8 +57,10 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
   const canCharge = user ? isMobileEndUser(user.role) : false;
   const [charger, setCharger] = useState<Charger | undefined>();
   const [selected, setSelected] = useState<ChargerConnector | undefined>();
+  const [tariff, setTariff] = useState<ActiveTariff | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pricePromptVisible, setPricePromptVisible] = useState(false);
 
   useEffect(() => {
     chargerService
@@ -65,17 +71,28 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
         setSelected(firstAvailable);
       })
       .catch((e) => setError(e instanceof Error ? e.message : t("common.error")));
+    tariffService.getActiveChargingTariff().then(setTariff).catch(() => setTariff(null));
   }, [route.params.id, t]);
 
-  const startCharging = async () => {
+  const openPricePrompt = () => {
     if (!charger || !user || !selected) return;
     if (!chargerService.isConnectorAvailable(selected.status)) {
       Alert.alert(t("common.error"), t("charger.notAvailable"));
       return;
     }
+    setPricePromptVisible(true);
+  };
+
+  const startCharging = async (price: ChargePriceResult) => {
+    if (!charger || !user || !selected) return;
+    setPricePromptVisible(false);
     setBusy(true);
     try {
-      await chargingService.startCharging(charger.id, selected.connectorId, user.id);
+      await chargingService.startCharging(charger.id, selected.connectorId, user.id, {
+        prepaidAmount: price.prepaidAmount,
+        targetKwh: price.targetKwh,
+        tariffId: price.tariff.id,
+      });
       navigation.navigate("LiveSession");
     } catch (e) {
       showChargingErrorAlert(e, t, navigation);
@@ -131,6 +148,13 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
             <FieldRow label={t("charger.headers.maxPowerKw")}>
               <Text style={styles.value}>{t("charger.powerMax", { kw: charger.maxPowerKw })}</Text>
             </FieldRow>
+            {tariff ? (
+              <FieldRow label={t("chargePrice.todaysRate")}>
+                <Text style={styles.rateHighlight}>
+                  {formatCurrency(tariff.ratePerKwh)}/kWh
+                </Text>
+              </FieldRow>
+            ) : null}
             <FieldRow label={t("charger.headers.lastHeartbeat")}>
               <Text style={styles.value}>{formatHeartbeatAgo(charger.lastHeartbeat)}</Text>
             </FieldRow>
@@ -160,10 +184,15 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
           {!canCharge ? <AdminNoticeBanner /> : null}
           {canCharge ? (
             <>
-              <AppButton title={t("charger.startCharging")} onPress={startCharging} loading={busy} style={styles.button} />
+              <AppButton title={t("charger.startCharging")} onPress={openPricePrompt} loading={busy} style={styles.button} />
               <AppButton title={t("charger.startWithQr")} onPress={startQr} variant="outline" style={styles.button} />
             </>
           ) : null}
+          <ChargePricePrompt
+            visible={pricePromptVisible}
+            onCancel={() => setPricePromptVisible(false)}
+            onConfirm={startCharging}
+          />
         </>
       ) : null}
     </ScrollView>
@@ -174,6 +203,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md },
   value: { color: colors.textMuted, fontSize: 14, textAlign: "right" },
+  rateHighlight: { color: colors.emerald, fontSize: 16, fontWeight: "700", textAlign: "right" },
   section: { fontWeight: "600", marginVertical: spacing.md, color: colors.text },
   connector: { marginBottom: spacing.sm, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   connectorSelected: { borderWidth: 2, borderColor: colors.emerald },

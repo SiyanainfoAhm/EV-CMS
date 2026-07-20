@@ -32,13 +32,34 @@ async function assertPaymentReadiness(_userId: string): Promise<void> {
 export async function startCharging(
   chargerId: string,
   connectorId: number,
-  userId?: string
+  userId?: string,
+  options?: { prepaidAmount?: number; targetKwh?: number; tariffId?: string }
 ): Promise<ChargingSession> {
   const uid = userId ?? requireUserId();
   await assertUserCanCharge(uid);
   await assertRfidOrMobileAuth(uid);
   await assertPaymentReadiness(uid);
-  return sessionService.startSession(chargerId, connectorId, uid);
+  const session = await sessionService.startSession(chargerId, connectorId, uid);
+
+  if (options?.prepaidAmount != null && options.prepaidAmount > 0) {
+    const { error } = await requireSupabase()
+      .from("EV_ChargingSessions")
+      .update({
+        prepaid_amount: options.prepaidAmount,
+        ...(options.targetKwh != null && options.targetKwh > 0
+          ? { target_kwh: options.targetKwh }
+          : {}),
+        ...(options.tariffId ? { tariff_id: options.tariffId } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", session.id)
+      .eq("user_id", uid);
+    if (error && !/prepaid_amount|target_kwh|column/i.test(error.message)) {
+      console.warn("Could not save charge target:", error.message);
+    }
+  }
+
+  return session;
 }
 
 export async function stopCharging(
