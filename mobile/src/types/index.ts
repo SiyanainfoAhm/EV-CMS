@@ -20,10 +20,14 @@ export interface ChargerConnector {
   status: string;
 }
 
+export type ChargerStatusFilter = "all" | "online" | "offline" | "faulted";
+
 export interface Charger {
   id: string;
   chargePointId: string;
   name: string;
+  manufacturer?: string | null;
+  model?: string | null;
   type: string;
   maxPowerKw: number;
   status: string;
@@ -32,8 +36,38 @@ export interface Charger {
   longitude?: number | null;
   lastHeartbeat?: string | null;
   isSimulated?: boolean;
+  tariffId?: string | null;
+  allowAdminBypass?: boolean;
   connectors: ChargerConnector[];
   distanceKm?: number;
+}
+
+export type PrepaidMode = "amount" | "time";
+
+/** Mapped from public."EV_PrepaidPlans" (mode/value/label schema). */
+export interface EVPrepaidPlan {
+  id: string;
+  name: string;
+  mode: PrepaidMode;
+  /** INR for amount plans; minutes for time plans. */
+  value: number;
+  amount: number | null;
+  durationMinutes: number | null;
+  sortOrder: number;
+  isActive: boolean;
+  label?: string | null;
+}
+
+export interface PrepaidPaymentCalculation {
+  baseAmount: number;
+  gstAmount: number;
+  totalAmount: number;
+  gstPercent: number;
+  estimatedKwh: number | null;
+  durationMinutes: number | null;
+  ratePerKwh: number | null;
+  powerKw: number | null;
+  powerEstimated: boolean;
 }
 
 export interface ChargingSession {
@@ -49,6 +83,16 @@ export interface ChargingSession {
   currentPowerKw?: number;
   soc?: number;
   amount?: number;
+  paymentMode?: string | null;
+  prepaidType?: string | null;
+  prepaidMode?: "amount" | "time" | null;
+  paymentStatus?: string | null;
+  paymentId?: string | null;
+  prepaidAmount?: number | null;
+  prepaidTotalInr?: number | null;
+  prepaidDurationMinutes?: number | null;
+  amountDue?: number | null;
+  gatewayTxnId?: string | null;
 }
 
 export interface Payment {
