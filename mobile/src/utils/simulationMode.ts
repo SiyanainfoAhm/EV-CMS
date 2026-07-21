@@ -1,7 +1,4 @@
-/** Simulation UI: on in dev; off in production builds unless EXPO_PUBLIC_ENABLE_SIMULATION=true */
+/** Simulation UI — opt-in only (set EXPO_PUBLIC_ENABLE_SIMULATION=true to enable). */
 export function isSimulationEnabled(): boolean {
-  if (!__DEV__) {
-    return process.env.EXPO_PUBLIC_ENABLE_SIMULATION === "true";
-  }
-  return process.env.EXPO_PUBLIC_ENABLE_SIMULATION !== "false";
+  return process.env.EXPO_PUBLIC_ENABLE_SIMULATION === "true";
 }

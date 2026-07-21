@@ -30,9 +30,9 @@ import {
 
   formatHeartbeatAgo,
 
-  isOfflineByHeartbeat,
+  isOfflineByStatus,
 
-  isOnlineByHeartbeat,
+  isOnlineByStatus,
 
 } from "@/utils/chargerConnectivity";
 
@@ -224,9 +224,9 @@ export default function ChargersPage() {
 
   const stats = useMemo(() => {
 
-    const online = mockChargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length;
+    const online = mockChargers.filter((c) => isOnlineByStatus(c.status)).length;
 
-    const offline = mockChargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length;
+    const offline = mockChargers.filter((c) => isOfflineByStatus(c.status)).length;
 
     const faulted = mockChargers.filter((c) => c.status === "faulted").length;
 
@@ -248,9 +248,9 @@ export default function ChargersPage() {
 
     return mockChargers.filter((c) => {
 
-      if (statusFilter === "online") return isOnlineByHeartbeat(c.lastHeartbeat);
+      if (statusFilter === "online") return isOnlineByStatus(c.status);
 
-      if (statusFilter === "offline") return isOfflineByHeartbeat(c.lastHeartbeat);
+      if (statusFilter === "offline") return isOfflineByStatus(c.status);
 
       if (statusFilter === "faulted") return c.status === "faulted";
 

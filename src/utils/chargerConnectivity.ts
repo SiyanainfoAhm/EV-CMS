@@ -1,5 +1,16 @@
 /** Heartbeat-based connectivity (OCPP simulator + real gateways). */
 
+const CHARGEABLE_STATUSES = new Set(["online", "available"]);
+
+/** DB status — matches mobile canStartCharging / online tab filter. */
+export function isOnlineByStatus(status?: string | null): boolean {
+  return CHARGEABLE_STATUSES.has(String(status || "").toLowerCase().trim());
+}
+
+export function isOfflineByStatus(status?: string | null): boolean {
+  return String(status || "").toLowerCase().trim() === "offline";
+}
+
 export const HEARTBEAT_ONLINE_MS = 5 * 60 * 1000;
 export const HEARTBEAT_OFFLINE_MS = 15 * 60 * 1000;
 

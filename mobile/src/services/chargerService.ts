@@ -1,6 +1,7 @@
 import { requireSupabase } from "../utils/supabaseClient";
 import { sortChargersByDistance } from "./locationService";
 import { parseChargeQr } from "../utils/qrParser";
+import { isSimulationEnabled } from "../utils/simulationMode";
 import type { Charger, ChargerConnector, ChargerStatusFilter } from "../types";
 
 export type { ChargerStatusFilter };
@@ -159,16 +160,17 @@ export async function fetchChargers(search = ""): Promise<Charger[]> {
   }
 
   const list = (data ?? []).map((row) => mapCharger(row as Record<string, unknown>));
-  console.log("[chargers] fetched count:", list.length);
-  if (list.length > 0) {
-    console.log("[chargers] first charger:", list[0]);
+  const filtered = isSimulationEnabled() ? list : list.filter((c) => !c.isSimulated);
+  console.log("[chargers] fetched count:", filtered.length);
+  if (filtered.length > 0) {
+    console.log("[chargers] first charger:", filtered[0]);
   } else {
     console.warn(
       "EV_Chargers returned zero rows. Check RLS policy or Supabase environment config."
     );
   }
 
-  return list;
+  return filtered;
 }
 
 /** Client-side status tabs. Simulation Mode must not hide chargers. */
