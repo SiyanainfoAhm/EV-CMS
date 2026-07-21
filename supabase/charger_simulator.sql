@@ -291,6 +291,8 @@ AS $$
 DECLARE
   v_sess RECORD;
   v_bill RECORD;
+  v_is_prepaid BOOLEAN := false;
+  v_has_paid BOOLEAN := false;
 BEGIN
   SELECT s.*
   INTO v_sess
@@ -301,15 +303,96 @@ BEGIN
     RAISE EXCEPTION 'Session not found';
   END IF;
 
+  v_is_prepaid :=
+    lower(COALESCE(v_sess.payment_mode, '')) = 'prepaid'
+    OR COALESCE(v_sess.prepaid_mode, '') IN ('amount', 'time')
+    OR COALESCE(v_sess.prepaid_total_inr, 0) > 0
+    OR lower(COALESCE(v_sess.payment_status, '')) = 'paid';
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM "EV_Payments" p
+    WHERE p.session_id = p_session_id
+      AND p.status IN ('success', 'paid')
+  ) INTO v_has_paid;
+
   SELECT *
   INTO v_bill
   FROM ev_calculate_session_bill(COALESCE(v_sess.energy_kwh, 0), v_sess.tariff_id)
   LIMIT 1;
 
-  UPDATE "EV_ChargingSessions"
-  SET status = 'completed', end_time = NOW(), amount = v_bill.amount,
-      current_power_kw = 0, stop_reason = 'Local', updated_at = NOW()
-  WHERE id = p_session_id;
+  IF v_is_prepaid OR v_has_paid THEN
+    UPDATE "EV_ChargingSessions"
+    SET
+      status = 'completed',
+      end_time = NOW(),
+      amount = v_bill.amount,
+      current_power_kw = 0,
+      stop_reason = 'Local',
+      payment_mode = COALESCE(payment_mode, 'prepaid'),
+      payment_status = 'paid',
+      amount_due = 0,
+      settlement_status = COALESCE(settlement_status, 'settled'),
+      settlement_amount = COALESCE(prepaid_total_inr, prepaid_amount, 0),
+      updated_at = NOW()
+    WHERE id = p_session_id;
+
+    UPDATE "EV_Payments"
+    SET
+      payment_kind = COALESCE(payment_kind, 'prepaid'),
+      updated_at = NOW()
+    WHERE session_id = p_session_id
+      AND status IN ('success', 'paid');
+
+    PERFORM ev_sim_log_event(
+      v_sess.charger_id, v_sess.connector_id, 'StopTransaction',
+      jsonb_build_object('sessionId', p_session_id, 'prepaid', true, 'amount', COALESCE(v_sess.prepaid_total_inr, 0))
+    );
+
+    INSERT INTO "EV_AuditLogs" (user_id, action, entity_type, entity_id, details)
+    VALUES (v_sess.user_id, 'Remote Stop', 'Session', p_session_id::text, 'Simulator StopTransaction (prepaid — no post-pay)');
+
+    PERFORM ev_notify_user(
+      v_sess.user_id,
+      'Charging Completed',
+      'Payment already received via prepaid plan.',
+      'charging_stopped'
+    );
+  ELSE
+    UPDATE "EV_ChargingSessions"
+    SET
+      status = 'completed',
+      end_time = NOW(),
+      amount = v_bill.amount,
+      current_power_kw = 0,
+      stop_reason = 'Local',
+      payment_mode = COALESCE(payment_mode, 'postpaid'),
+      payment_status = COALESCE(payment_status, 'pending'),
+      amount_due = v_bill.total_amount,
+      updated_at = NOW()
+    WHERE id = p_session_id;
+
+    INSERT INTO "EV_Payments" (session_id, user_id, amount, gst_amount, total_amount, status, gateway, reconciliation_status)
+    VALUES (
+      p_session_id, v_sess.user_id, v_bill.amount, v_bill.gst_amount, v_bill.total_amount,
+      'pending', 'razorpay', 'unmatched'
+    );
+
+    PERFORM ev_sim_log_event(
+      v_sess.charger_id, v_sess.connector_id, 'StopTransaction',
+      jsonb_build_object('sessionId', p_session_id, 'amount', v_bill.total_amount)
+    );
+
+    INSERT INTO "EV_AuditLogs" (user_id, action, entity_type, entity_id, details)
+    VALUES (v_sess.user_id, 'Remote Stop', 'Session', p_session_id::text, 'Simulator StopTransaction');
+
+    PERFORM ev_notify_user(
+      v_sess.user_id,
+      'Charging completed',
+      'Session finished. Pay ₹' || ROUND(v_bill.total_amount, 2)::text || ' to complete your session.',
+      'charging_stopped'
+    );
+  END IF;
 
   UPDATE "EV_ChargerConnectors"
   SET status = 'Available', updated_at = NOW()
@@ -318,27 +401,6 @@ BEGIN
   UPDATE "EV_Chargers"
   SET status = 'online', last_status_change_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
   WHERE id = v_sess.charger_id;
-
-  INSERT INTO "EV_Payments" (session_id, user_id, amount, gst_amount, total_amount, status, gateway, reconciliation_status)
-  VALUES (
-    p_session_id, v_sess.user_id, v_bill.amount, v_bill.gst_amount, v_bill.total_amount,
-    'pending', 'razorpay', 'unmatched'
-  );
-
-  PERFORM ev_sim_log_event(
-    v_sess.charger_id, v_sess.connector_id, 'StopTransaction',
-    jsonb_build_object('sessionId', p_session_id, 'amount', v_bill.total_amount)
-  );
-
-  INSERT INTO "EV_AuditLogs" (user_id, action, entity_type, entity_id, details)
-  VALUES (v_sess.user_id, 'Remote Stop', 'Session', p_session_id::text, 'Simulator StopTransaction');
-
-  PERFORM ev_notify_user(
-    v_sess.user_id,
-    'Charging completed',
-    'Session finished. Pay ₹' || ROUND(v_bill.total_amount, 2)::text || ' to complete your session.',
-    'charging_stopped'
-  );
 
   UPDATE "EV_Notifications" n
   SET reference_type = 'charging_session', reference_id = p_session_id

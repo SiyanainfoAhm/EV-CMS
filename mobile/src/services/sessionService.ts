@@ -2,6 +2,7 @@ import { requireSupabase } from "../utils/supabaseClient";
 import { formatSessionDuration } from "../utils/format";
 import { requireUserId } from "./authService";
 import * as simulator from "./chargerSimulatorService";
+import { assertChargerOnlineForMobile } from "./chargerService";
 import type { ChargingSession } from "../types";
 
 const select = `
@@ -14,6 +15,18 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
   const charger = row.EV_Chargers as Record<string, unknown> | null;
   const start = row.start_time as string;
   const end = row.end_time as string | null;
+  const prepaidModeRaw = row.prepaid_mode != null ? String(row.prepaid_mode) : null;
+  const prepaidTypeRaw =
+    row.prepaid_type != null
+      ? String(row.prepaid_type)
+      : prepaidModeRaw;
+  const paymentMode =
+    row.payment_mode != null
+      ? String(row.payment_mode)
+      : prepaidModeRaw
+        ? "prepaid"
+        : null;
+
   return {
     id: row.id as string,
     chargerName: (charger?.name as string) ?? "",
@@ -27,6 +40,35 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
     currentPowerKw: row.current_power_kw != null ? Number(row.current_power_kw) : undefined,
     soc: row.soc != null ? Number(row.soc) : undefined,
     amount: row.amount != null ? Number(row.amount) : undefined,
+    paymentMode,
+    prepaidType: prepaidTypeRaw,
+    prepaidMode:
+      prepaidModeRaw === "amount" || prepaidModeRaw === "time"
+        ? prepaidModeRaw
+        : prepaidTypeRaw === "amount" || prepaidTypeRaw === "time"
+          ? prepaidTypeRaw
+          : null,
+    paymentStatus: row.payment_status != null ? String(row.payment_status) : null,
+    paymentId:
+      row.payment_id != null
+        ? String(row.payment_id)
+        : row.prepaid_payment_id != null
+          ? String(row.prepaid_payment_id)
+          : null,
+    prepaidAmount:
+      row.prepaid_amount != null
+        ? Number(row.prepaid_amount)
+        : row.prepaid_total_inr != null
+          ? Number(row.prepaid_total_inr)
+          : null,
+    prepaidTotalInr: row.prepaid_total_inr != null ? Number(row.prepaid_total_inr) : null,
+    prepaidDurationMinutes:
+      row.prepaid_duration_minutes != null
+        ? Number(row.prepaid_duration_minutes)
+        : prepaidModeRaw === "time" && row.prepaid_value != null
+          ? Number(row.prepaid_value)
+          : null,
+    amountDue: row.amount_due != null ? Number(row.amount_due) : null,
   };
 }
 
@@ -98,6 +140,9 @@ export async function startSession(
   const existing = await getActiveSession(uid);
   if (existing) return existing;
 
+  // Mobile gate — re-check latest status from EV_Chargers (admin web does not use this path).
+  await assertChargerOnlineForMobile(chargerId);
+
   const { data: charger, error: chargerErr } = await requireSupabase()
     .from("EV_Chargers")
     .select("*, EV_ChargerConnectors(*)")
@@ -106,6 +151,13 @@ export async function startSession(
 
   if (chargerErr || !charger) {
     throw new Error(chargerErr?.message ?? "Charger not found");
+  }
+
+  const status = String((charger as { status?: string }).status || "")
+    .toLowerCase()
+    .trim();
+  if (status !== "online" && status !== "available") {
+    throw new Error("Cannot start charging because this charger is not online.");
   }
 
   const connectors = (charger.EV_ChargerConnectors as Record<string, unknown>[]) ?? [];

@@ -7,13 +7,14 @@ import Header from "../components/Header";
 import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import QrCameraScanner from "../components/QrCameraScanner";
-import ChargePricePrompt, { type ChargePriceResult } from "../components/ChargePricePrompt";
-import * as chargingService from "../services/chargingService";
+import ChargePricePrompt, { type PrepaidPlanResult } from "../components/ChargePricePrompt";
+import * as paymentService from "../services/paymentService";
 import * as chargerService from "../services/chargerService";
 import { useAuth } from "../context/AuthContext";
 import { isMobileEndUser } from "../utils/rfpRoles";
 import AdminNoticeBanner from "../components/AdminNoticeBanner";
 import { showChargingErrorAlert } from "../utils/chargingErrors";
+import type { Charger } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
@@ -23,7 +24,7 @@ const SCAN_DEBOUNCE_MS = 2500;
 const isWeb = Platform.OS === "web";
 
 type PendingStart = {
-  chargerId: string;
+  charger: Charger;
   connectorId: number;
 };
 
@@ -42,10 +43,29 @@ export default function QRStartScreen({ navigation, route }: Props) {
   const scanLock = useRef(false);
   const lastScanAt = useRef(0);
 
-  const requestPriceThenStart = useCallback((chargerId: string, connectorId: number) => {
-    setPendingStart({ chargerId, connectorId });
-    setPricePromptVisible(true);
-  }, []);
+  const requestPriceThenStart = useCallback(
+    async (chargerId: string, connectorId: number) => {
+      setLoading(true);
+      try {
+        const charger = await chargerService.getChargerById(chargerId);
+        if (!charger) {
+          setError(t("charger.noneAvailable"));
+          return;
+        }
+        if (!chargerService.canStartCharging(charger)) {
+          Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(charger)));
+          return;
+        }
+        setPendingStart({ charger, connectorId });
+        setPricePromptVisible(true);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("charger.loadFailed"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t]
+  );
 
   const startWithPayload = useCallback(
     async (raw: string) => {
@@ -53,11 +73,18 @@ export default function QRStartScreen({ navigation, route }: Props) {
       setLoading(true);
       try {
         const { charger, connectorId } = await chargerService.validateQr(raw);
-        requestPriceThenStart(charger.id, connectorId);
+        if (!chargerService.canStartCharging(charger)) {
+          Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(charger)));
+          return;
+        }
+        setPendingStart({ charger, connectorId });
+        setPricePromptVisible(true);
       } catch (e) {
         if (e instanceof Error && e.message === "INVALID_QR") {
           setError(t("qr.invalidQr"));
           Alert.alert(t("common.error"), t("qr.invalidQr"));
+        } else if (e instanceof Error && /not online/i.test(e.message)) {
+          Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
         } else {
           showChargingErrorAlert(e, t, navigation);
         }
@@ -66,7 +93,7 @@ export default function QRStartScreen({ navigation, route }: Props) {
         scanLock.current = false;
       }
     },
-    [navigation, requestPriceThenStart, t]
+    [navigation, t]
   );
 
   const onScan = (data: string) => {
@@ -86,24 +113,43 @@ export default function QRStartScreen({ navigation, route }: Props) {
       setError(t("qr.invalidQr"));
       return;
     }
-    requestPriceThenStart(route.params.chargerId!, defaultConnector);
+    await requestPriceThenStart(route.params.chargerId!, defaultConnector);
   };
 
-  const confirmPriceAndStart = async (price: ChargePriceResult) => {
-    if (!pendingStart) return;
+  const confirmPriceAndStart = async (result: PrepaidPlanResult) => {
+    if (!pendingStart || !user) return;
+    if (!chargerService.canStartCharging(pendingStart.charger)) {
+      setPricePromptVisible(false);
+      Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
+      return;
+    }
     setPricePromptVisible(false);
     setLoading(true);
     setError("");
     try {
-      await chargingService.startCharging(pendingStart.chargerId, pendingStart.connectorId, user?.id, {
-        prepaidAmount: price.prepaidAmount,
-        targetKwh: price.targetKwh,
-        tariffId: price.tariff.id,
+      await paymentService.createRazorpaySessionPayment({
+        chargerId: pendingStart.charger.id,
+        connectorId: pendingStart.connectorId,
+        userId: user.id,
+        calculation: result.calculation,
+        paymentPayload: result.paymentPayload,
+        tariffId: pendingStart.charger.tariffId ?? undefined,
       });
       setPendingStart(null);
       navigation.replace("LiveSession");
     } catch (e) {
-      showChargingErrorAlert(e, t, navigation);
+      const message = e instanceof Error ? e.message : t("charger.startFailed");
+      if (/Payment cancelled/i.test(message)) {
+        Alert.alert(t("common.error"), t("prepaid.paymentCancelled"));
+      } else if (/not online/i.test(message)) {
+        Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
+      } else if (/Payment failed|Unable to create payment order/i.test(message)) {
+        Alert.alert(t("common.error"), t("prepaid.paymentFailed"));
+      } else if (/Session could not be started/i.test(message)) {
+        Alert.alert(t("common.error"), t("prepaid.sessionStartFailed"));
+      } else {
+        showChargingErrorAlert(e, t, navigation);
+      }
     } finally {
       setLoading(false);
       scanLock.current = false;
@@ -168,6 +214,7 @@ export default function QRStartScreen({ navigation, route }: Props) {
 
       <ChargePricePrompt
         visible={pricePromptVisible}
+        charger={pendingStart?.charger ?? null}
         onCancel={() => {
           setPricePromptVisible(false);
           setPendingStart(null);

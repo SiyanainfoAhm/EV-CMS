@@ -2,6 +2,7 @@
 -- Replaces wallet-based session payment for the mobile app.
 
 -- Recalculate pending payment from session energy × active tariff before checkout.
+-- Prepaid sessions with prepaid_total_inr and zero energy keep prepaid amounts (do not wipe).
 CREATE OR REPLACE FUNCTION ev_sync_session_payment_bill(
   p_user_id UUID,
   p_session_id UUID
@@ -15,7 +16,7 @@ DECLARE
   v_sess RECORD;
   v_bill RECORD;
 BEGIN
-  SELECT s.id, s.user_id, s.energy_kwh, s.tariff_id
+  SELECT s.id, s.user_id, s.energy_kwh, s.tariff_id, s.prepaid_total_inr, s.prepaid_mode
   INTO v_sess
   FROM "EV_ChargingSessions" s
   WHERE s.id = p_session_id
@@ -23,6 +24,11 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'SESSION_NOT_FOUND';
+  END IF;
+
+  -- Keep prepaid checkout totals until energy is delivered / settlement runs.
+  IF COALESCE(v_sess.prepaid_total_inr, 0) > 0 AND COALESCE(v_sess.energy_kwh, 0) = 0 THEN
+    RETURN;
   END IF;
 
   SELECT *

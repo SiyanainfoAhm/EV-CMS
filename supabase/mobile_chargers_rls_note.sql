@@ -1,0 +1,14 @@
+-- Optional note for mobile charger listing (do NOT run from the app).
+-- If EV_Chargers has rows in the dashboard but the mobile app receives zero rows
+-- with no query error, RLS is likely blocking SELECT for the mobile role.
+--
+-- Suggested policy (run once in Supabase SQL Editor if missing):
+--
+-- CREATE POLICY "Allow authenticated users to read chargers"
+--   ON public."EV_Chargers"
+--   FOR SELECT
+--   TO authenticated
+--   USING (true);
+--
+-- Existing projects may already have:
+--   ev_anon_select_chargers ON "EV_Chargers" FOR SELECT TO anon, authenticated USING (true);

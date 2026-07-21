@@ -13,5 +13,9 @@ export function showChargingErrorAlert(
     Alert.alert(t("common.error"), t("charger.userInactive"));
     return;
   }
+  if (/not online|CHARGER_NOT_ONLINE/i.test(code)) {
+    Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
+    return;
+  }
   Alert.alert(t("common.error"), error instanceof Error ? error.message : t("charger.startFailed"));
 }

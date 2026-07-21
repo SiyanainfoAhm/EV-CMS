@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, View, Text, Pressable, ActivityIndicator, RefreshControl } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+  Text,
+  Pressable,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
@@ -9,15 +19,15 @@ import * as chargerService from "../services/chargerService";
 import SimulationModeBadge from "../components/SimulationModeBadge";
 import { isSimulationEnabled } from "../utils/simulationMode";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
-import type { Charger } from "../types";
+import type { Charger, ChargerStatusFilter } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Chargers">;
 
-const STATUS_FILTERS = ["all", "online", "offline", "faulted"] as const;
+const STATUS_FILTERS: ChargerStatusFilter[] = ["all", "online", "offline", "faulted"];
 
-const FILTER_KEYS: Record<(typeof STATUS_FILTERS)[number], string> = {
+const FILTER_KEYS: Record<ChargerStatusFilter, string> = {
   all: "charger.filterAll",
   online: "status.online",
   offline: "status.offline",
@@ -26,9 +36,10 @@ const FILTER_KEYS: Record<(typeof STATUS_FILTERS)[number], string> = {
 
 export default function ChargerListScreen({ navigation }: Props) {
   const { t } = useTranslation();
+  const [allChargers, setAllChargers] = useState<Charger[]>([]);
   const [chargers, setChargers] = useState<Charger[]>([]);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>("all");
+  const [status, setStatus] = useState<ChargerStatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -37,24 +48,28 @@ export default function ChargerListScreen({ navigation }: Props) {
     setLoading(true);
     setError("");
     try {
-      const data = await chargerService.getChargers({
-        status,
-        search,
-        onlineOnly: false,
-        availableOnly: true,
-      });
-      setChargers(data);
+      // Broad fetch — do not filter by availableOnly / is_simulated / tariff.
+      const data = await chargerService.fetchChargers(search);
+      setAllChargers(data);
+      if (data.length === 0) {
+        setError(t("charger.noneAvailable"));
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.error"));
+      setAllChargers([]);
+      setError(e instanceof Error ? e.message : t("charger.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [search, status, t]);
+  }, [search, t]);
 
   useEffect(() => {
     const timer = setTimeout(load, 300);
     return () => clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    setChargers(chargerService.filterChargers(allChargers, status));
+  }, [status, allChargers]);
 
   useSupabaseRealtime(load);
 
@@ -71,6 +86,7 @@ export default function ChargerListScreen({ navigation }: Props) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />}
     >
       <Header title={t("charger.listTitle")} subtitle={t("charger.listSubtitle")} onBack={() => navigation.goBack()} />
+      {/* Simulation Mode is informational only — it must not hide chargers */}
       {isSimulationEnabled() ? <SimulationModeBadge compact /> : null}
       <TextInput
         style={styles.search}
@@ -89,10 +105,21 @@ export default function ChargerListScreen({ navigation }: Props) {
         ))}
       </View>
       {loading ? <ActivityIndicator color={colors.emerald} /> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {!loading && chargers.length === 0 ? <Text style={styles.empty}>{t("charger.noResults")}</Text> : null}
+      {error && !loading ? <Text style={styles.error}>{error}</Text> : null}
+      {!loading && !error && chargers.length === 0 && allChargers.length > 0 ? (
+        <Text style={styles.empty}>{t("charger.noResults")}</Text>
+      ) : null}
       {chargers.map((c) => (
-        <ChargerCard key={c.id} charger={c} onPress={() => navigation.navigate("ChargerDetail", { id: c.id })} />
+        <ChargerCard
+          key={c.id}
+          charger={c}
+          onPress={() => {
+            navigation.navigate("ChargerDetail", { id: c.id });
+            if (!chargerService.canStartCharging(c)) {
+              Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(c)));
+            }
+          }}
+        />
       ))}
     </ScrollView>
   );
