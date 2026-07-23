@@ -31,6 +31,40 @@ function formatPower(kw: number | undefined | null): string {
   return kw.toFixed(1);
 }
 
+/** Client backup if gateway has not yet auto-stopped on prepaid amount/time. */
+function shouldAutoStopPrepaid(session: ChargingSession, nowMs: number): boolean {
+  const paid =
+    String(session.paymentMode || "").toLowerCase() === "prepaid" &&
+    ["paid", "success"].includes(String(session.paymentStatus || "").toLowerCase());
+  if (!paid) return false;
+
+  const startMs = new Date(session.startTime).getTime();
+  const ageMs = Number.isFinite(startMs) ? nowMs - startMs : 0;
+  // Never stop in the first 30s — avoids false stops from absolute meter registers.
+  if (ageMs < 30_000) return false;
+
+  if (session.prepaidMode === "amount") {
+    const cap = session.prepaidEnergyCapKwh;
+    if (cap == null || !(cap > 0)) return false;
+    // Ignore absurd energy (lifetime register mistaken for session kWh).
+    const maxPlausible = Math.max(1, (ageMs / 3_600_000) * 400 + 1);
+    if (session.energyKwh > maxPlausible) return false;
+    if (session.energyKwh >= cap) return true;
+  }
+
+  if (session.prepaidMode === "time") {
+    if (session.prepaidExpiresAt) {
+      const exp = new Date(session.prepaidExpiresAt).getTime();
+      if (Number.isFinite(exp) && exp <= nowMs) return true;
+    } else if (session.prepaidDurationMinutes && session.prepaidDurationMinutes > 0) {
+      if (Number.isFinite(startMs) && startMs + session.prepaidDurationMinutes * 60_000 <= nowMs) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export default function LiveSessionScreen({ navigation }: Props) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -40,6 +74,16 @@ export default function LiveSessionScreen({ navigation }: Props) {
   const [now, setNow] = useState(Date.now());
   const lastSessionIdRef = useRef<string | null>(null);
   const navigatingRef = useRef(false);
+  const autoStopRef = useRef(false);
+
+  const finishToSummary = useCallback(
+    (sessionId: string) => {
+      navigatingRef.current = true;
+      lastSessionIdRef.current = null;
+      navigation.replace("SessionSummary", { sessionId });
+    },
+    [navigation]
+  );
 
   const load = useCallback(async () => {
     if (!user || navigatingRef.current) return;
@@ -49,24 +93,37 @@ export default function LiveSessionScreen({ navigation }: Props) {
       if (s) {
         lastSessionIdRef.current = s.id;
         setSession(s);
+
+        if (!autoStopRef.current && !stopping && shouldAutoStopPrepaid(s, Date.now())) {
+          autoStopRef.current = true;
+          setStopping(true);
+          try {
+            const completed = await chargingService.stopCharging(s.id, user.id);
+            finishToSummary(completed?.id ?? s.id);
+          } catch (e) {
+            autoStopRef.current = false;
+            setError(e instanceof Error ? e.message : t("session.stopFailed"));
+          } finally {
+            setStopping(false);
+          }
+        }
         return;
       }
 
       const endedId = lastSessionIdRef.current;
       setSession(null);
       if (endedId) {
-        navigatingRef.current = true;
-        lastSessionIdRef.current = null;
-        navigation.replace("SessionSummary", { sessionId: endedId });
+        finishToSummary(endedId);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, [user, t, navigation]);
+  }, [user, t, stopping, finishToSummary]);
 
   useFocusEffect(
     useCallback(() => {
       navigatingRef.current = false;
+      autoStopRef.current = false;
       void load();
       const id = setInterval(() => void load(), POLL_MS);
       const unsub = chargingService.subscribeActiveSession(() => void load());
@@ -95,11 +152,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
         setStopping(true);
         try {
           const completed = await chargingService.stopCharging(session.id, user?.id);
-          navigatingRef.current = true;
-          lastSessionIdRef.current = null;
-          navigation.replace("SessionSummary", {
-            sessionId: completed?.id ?? session.id,
-          });
+          finishToSummary(completed?.id ?? session.id);
         } catch (e) {
           Alert.alert(t("common.error"), e instanceof Error ? e.message : t("session.stopFailed"));
         } finally {
@@ -123,6 +176,19 @@ export default function LiveSessionScreen({ navigation }: Props) {
   const soc = session.soc != null && Number.isFinite(session.soc) ? Math.round(session.soc) : null;
   // `now` forces a re-render so duration advances every second.
   const durationLive = formatSessionDuration(session.startTime, new Date(now).toISOString());
+
+  let prepaidLimitLabel: string | null = null;
+  if (session.prepaidMode === "amount" && session.prepaidEnergyCapKwh != null) {
+    prepaidLimitLabel = `${t("session.kwhConsumed")}: ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)} kWh`;
+  } else if (session.prepaidMode === "time") {
+    const mins = session.prepaidDurationMinutes;
+    if (mins) {
+      prepaidLimitLabel = t("session.prepaidTimeLimit", {
+        defaultValue: "Prepaid time: {{minutes}} min",
+        minutes: mins,
+      });
+    }
+  }
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -173,7 +239,14 @@ export default function LiveSessionScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {session.amount != null ? (
+        {prepaidLimitLabel ? <Text style={styles.prepaidLimit}>{prepaidLimitLabel}</Text> : null}
+
+        {session.prepaidTotalInr != null || session.prepaidAmount != null ? (
+          <Text style={styles.amount}>
+            {t("session.prepaidPaid", { defaultValue: "Prepaid" })}:{" "}
+            {formatCurrency(session.prepaidTotalInr ?? session.prepaidAmount ?? 0)}
+          </Text>
+        ) : session.amount != null ? (
           <Text style={styles.amount}>
             {t("session.estimatedAmount")}: {formatCurrency(session.amount)}
           </Text>
@@ -241,6 +314,12 @@ const styles = StyleSheet.create({
   stat: { alignItems: "center", flex: 1 },
   statVal: { fontSize: 18, fontWeight: "700", color: colors.text },
   statLbl: { fontSize: 11, color: colors.textMuted, marginTop: 4, textAlign: "center" },
+  prepaidLimit: {
+    marginTop: spacing.sm,
+    textAlign: "center",
+    color: colors.textMuted,
+    fontSize: 13,
+  },
   amount: { marginTop: spacing.md, textAlign: "center", fontWeight: "600", color: colors.text },
   button: { marginTop: spacing.md },
 });

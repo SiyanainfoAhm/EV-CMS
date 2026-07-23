@@ -14,7 +14,8 @@ import {
 import { useTranslation } from "react-i18next";
 import AppButton from "./AppButton";
 import * as prepaidPlanService from "../services/prepaidPlanService";
-import { getEvRatePerKwh, getEvRatePerKwhAsync } from "../config/tariffConfig";
+import * as tariffService from "../services/tariffService";
+import { getEvRatePerKwh } from "../config/tariffConfig";
 import {
   DEFAULT_AMOUNT_CHIPS,
   DEFAULT_TIME_CHIPS_MINUTES,
@@ -53,7 +54,10 @@ export type ChargePriceResult = PrepaidPlanResult;
 
 type Props = {
   visible: boolean;
-  charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId"> | null;
+  charger: Pick<
+    Charger,
+    "id" | "maxPowerKw" | "type" | "name" | "model" | "chargePointId" | "tariffId"
+  > | null;
   onCancel: () => void;
   onConfirm: (result: PrepaidPlanResult) => void;
 };
@@ -87,10 +91,19 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
       .then(setPlans)
       .catch(() => setPlans([]))
       .finally(() => setLoading(false));
-    getEvRatePerKwhAsync()
-      .then(setRatePerKwh)
+
+    // Rate must come from this charger's tariff (not a global default).
+    tariffService
+      .getTariffForCharger({
+        tariffId: charger?.tariffId,
+        type: charger?.type,
+      })
+      .then((tariff) => {
+        if (tariff && tariff.ratePerKwh > 0) setRatePerKwh(tariff.ratePerKwh);
+        else setRatePerKwh(getEvRatePerKwh());
+      })
       .catch(() => setRatePerKwh(getEvRatePerKwh()));
-  }, [visible]);
+  }, [visible, charger?.tariffId, charger?.type]);
 
   const { amountPlans, timePlans } = useMemo(
     () => prepaidPlanService.splitPrepaidPlans(plans),
@@ -127,7 +140,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
           return { calculation: null, error: validation.error ?? "", planId: null, value: null };
         }
         return {
-          calculation: calculateAmountPayment(validation.value),
+          calculation: calculateAmountPayment(validation.value, ratePerKwh),
           error: "",
           planId: matchPlanIdByValue(amountPlans, "amount", validation.value),
           value: validation.value,
@@ -143,7 +156,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
         };
       }
       return {
-        calculation: calculateAmountPayment(validation.value),
+        calculation: calculateAmountPayment(validation.value, ratePerKwh),
         error: "",
         planId: null,
         value: validation.value,
@@ -401,6 +414,14 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
 
             {resolved.calculation ? (
               <View style={styles.summary}>
+                {ratePerKwh > 0 ? (
+                  <Text style={styles.metaLine}>
+                    {t("prepaid.ratePerKwh", {
+                      defaultValue: "Rate: {{rate}}/kWh",
+                      rate: formatCurrency(ratePerKwh),
+                    })}
+                  </Text>
+                ) : null}
                 <Text style={styles.summaryLine}>
                   {t("prepaid.baseAmount")}: {formatCurrency(resolved.calculation.baseAmount)}
                 </Text>

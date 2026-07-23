@@ -49,10 +49,11 @@ const OCPP_STOP_REASON: Record<string, string> = {
 let fallbackUserId: string | null = null;
 
 export async function findChargerByChargePointId(chargePointId: string): Promise<ChargerRow | null> {
+  const cpId = chargePointId.trim();
   const { data, error } = await getSupabase()
     .from("EV_Chargers")
     .select("id, charge_point_id, name, charger_type, status, allow_admin_bypass")
-    .eq("charge_point_id", chargePointId.toUpperCase())
+    .ilike("charge_point_id", cpId)
     .maybeSingle();
   if (error) throw error;
   return data as ChargerRow | null;
@@ -283,9 +284,12 @@ export async function startTransaction(params: {
   meterStart: number;
   timestamp: string;
   chargerType: string;
+  /** Prefer this user (mobile/web RemoteStart) over RFID / fallback. */
+  preferredUserId?: string | null;
 }): Promise<number> {
   const rfid = await lookupRfid(params.idTag);
-  const userId = rfid?.userId ?? (await getFallbackUserId());
+  const userId =
+    params.preferredUserId?.trim() || rfid?.userId || (await getFallbackUserId());
   const transactionId = await nextTransactionId();
   const tariffId = await getTariffIdForCharger(params.chargerId, params.chargerType);
   const now = params.timestamp || new Date().toISOString();
@@ -301,7 +305,7 @@ export async function startTransaction(params: {
     energy_kwh: 0,
     start_meter: params.meterStart / 1000,
     status: "active",
-    authorization_method: "RFID",
+    authorization_method: rfid ? "RFID" : params.preferredUserId ? "Mobile" : "RFID",
   });
   if (sessionError) throw sessionError;
 
@@ -416,7 +420,7 @@ export async function recordMeterValues(params: {
   const { data: session, error: findError } = await getSupabase()
     .from("EV_ChargingSessions")
     .select(
-      "id, start_meter, energy_kwh, prepaid_mode, prepaid_energy_cap_kwh, prepaid_expires_at, prepaid_total_inr, tariff_id, transaction_id"
+      "id, start_time, start_meter, energy_kwh, prepaid_mode, prepaid_value, prepaid_energy_cap_kwh, prepaid_expires_at, prepaid_duration_minutes, prepaid_total_inr, tariff_id, transaction_id, payment_status, payment_mode"
     )
     .eq("transaction_id", params.transactionId)
     .eq("status", "active")
@@ -426,18 +430,41 @@ export async function recordMeterValues(params: {
 
   const startMeterKwh = Number(session.start_meter ?? 0);
   const prevEnergyKwh = Number(session.energy_kwh ?? 0);
+  const startMs = new Date(String((session as { start_time?: string }).start_time ?? "")).getTime();
+  const ageMs = Number.isFinite(startMs) ? Math.max(0, Date.now() - startMs) : 0;
 
-  // Session energy = max(previous, reported session energy, register − start_meter).
-  // Many DC chargers report absolute Wh register; some report 0 for Energy while SoC updates.
+  // Session energy = register − start_meter (preferred) or interval energy.
+  // Never treat a lifetime absolute register as session kWh when start_meter is 0.
   let sessionEnergyKwh = prevEnergyKwh;
-  if (params.energyRegisterKwh != null && params.energyRegisterKwh >= startMeterKwh) {
-    sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyRegisterKwh - startMeterKwh);
+  let nextStartMeter: number | null = null;
+
+  if (params.energyRegisterKwh != null && params.energyRegisterKwh > 0) {
+    if (!(startMeterKwh > 0)) {
+      // First absolute reading becomes the baseline — energy stays 0 this tick.
+      nextStartMeter = params.energyRegisterKwh;
+      sessionEnergyKwh = 0;
+    } else if (params.energyRegisterKwh >= startMeterKwh) {
+      const delta = params.energyRegisterKwh - startMeterKwh;
+      // Cap absurd deltas (unit mismatch / meter reset).
+      if (delta >= 0 && delta < 500) {
+        sessionEnergyKwh = Math.max(sessionEnergyKwh, delta);
+      }
+    }
   }
+
   if (params.energyKwh != null && params.energyKwh > 0) {
-    // If value looks like absolute register (>= start), treat as register; else session energy.
-    if (params.energyKwh >= startMeterKwh && startMeterKwh > 0) {
-      sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyKwh - startMeterKwh);
-    } else {
+    const effectiveStart = nextStartMeter ?? startMeterKwh;
+    const looksLikeAbsoluteRegister =
+      effectiveStart > 0 &&
+      params.energyKwh >= effectiveStart &&
+      params.energyKwh > sessionEnergyKwh + 0.5;
+    if (looksLikeAbsoluteRegister) {
+      const delta = params.energyKwh - effectiveStart;
+      if (delta >= 0 && delta < 500) {
+        sessionEnergyKwh = Math.max(sessionEnergyKwh, delta);
+      }
+    } else if (params.energyKwh < 200) {
+      // Interval / session energy measurand (already relative).
       sessionEnergyKwh = Math.max(sessionEnergyKwh, params.energyKwh);
     }
   }
@@ -459,6 +486,7 @@ export async function recordMeterValues(params: {
     updated_at: new Date().toISOString(),
     energy_kwh: sessionEnergyKwh,
   };
+  if (nextStartMeter != null) updates.start_meter = nextStartMeter;
   if (powerKw != null) updates.current_power_kw = powerKw;
   if (params.soc != null) updates.soc = params.soc;
 
@@ -474,10 +502,68 @@ export async function recordMeterValues(params: {
     rawSamples: params.rawSamples ?? null,
   });
 
-  // Prepaid auto-stop: energy cap or time expiry
+  // Prepaid auto-stop only after payment is collected — never while checkout is pending.
+  const paymentStatus = String((session as { payment_status?: string }).payment_status ?? "").toLowerCase();
+  const paymentMode = String((session as { payment_mode?: string }).payment_mode ?? "").toLowerCase();
+  const prepaidPaid =
+    paymentMode === "prepaid" && (paymentStatus === "paid" || paymentStatus === "success");
+  if (!prepaidPaid) {
+    return null;
+  }
+
+  // Avoid false stops in the first seconds (baseline adoption / noisy first samples).
+  if (ageMs < 20_000) {
+    return null;
+  }
+
+  // Reject implausible energy (would stop ₹50 sessions instantly).
+  const maxPlausibleKwh = Math.max(1, (ageMs / 3_600_000) * 400 + 1);
+  if (sessionEnergyKwh > maxPlausibleKwh) {
+    console.warn(
+      `[ocpp] Skipping prepaid auto-stop: energy ${sessionEnergyKwh.toFixed(3)} kWh implausible for age ${Math.round(ageMs / 1000)}s`
+    );
+    return null;
+  }
+
   const prepaidMode = session.prepaid_mode as string | null;
-  if (prepaidMode === "amount" && session.prepaid_energy_cap_kwh != null) {
-    const cap = Number(session.prepaid_energy_cap_kwh);
+  if (prepaidMode === "amount") {
+    let cap =
+      session.prepaid_energy_cap_kwh != null ? Number(session.prepaid_energy_cap_kwh) : NaN;
+    // Fallback: derive kWh from prepaid base amount when cap was never written.
+    if (!(cap > 0) && session.prepaid_value != null) {
+      const base = Number(session.prepaid_value);
+      if (base > 0) {
+        try {
+          let rate = 0;
+          if (session.tariff_id) {
+            const { data: tariff } = await getSupabase()
+              .from("EV_Tariffs")
+              .select("rate_per_kwh")
+              .eq("id", session.tariff_id)
+              .maybeSingle();
+            rate = Number(tariff?.rate_per_kwh ?? 0);
+          }
+          if (!(rate > 0)) {
+            const { data: charger } = await getSupabase()
+              .from("EV_Chargers")
+              .select("tariff_id, charger_type")
+              .eq("id", params.chargerId)
+              .maybeSingle();
+            if (charger?.tariff_id) {
+              const { data: ct } = await getSupabase()
+                .from("EV_Tariffs")
+                .select("rate_per_kwh")
+                .eq("id", charger.tariff_id)
+                .maybeSingle();
+              rate = Number(ct?.rate_per_kwh ?? 0);
+            }
+          }
+          if (rate > 0) cap = base / rate;
+        } catch {
+          // ignore — no auto-stop without a rate
+        }
+      }
+    }
     if (cap > 0 && sessionEnergyKwh >= cap) {
       return {
         shouldRemoteStop: true,
@@ -486,8 +572,21 @@ export async function recordMeterValues(params: {
       };
     }
   }
-  if (prepaidMode === "time" && session.prepaid_expires_at) {
-    if (new Date(session.prepaid_expires_at).getTime() <= Date.now()) {
+  if (prepaidMode === "time") {
+    let expiresMs = session.prepaid_expires_at
+      ? new Date(session.prepaid_expires_at as string).getTime()
+      : NaN;
+    if (!Number.isFinite(expiresMs)) {
+      const mins = Number(
+        (session as { prepaid_duration_minutes?: number }).prepaid_duration_minutes ??
+          session.prepaid_value ??
+          0
+      );
+      if (mins > 0 && Number.isFinite(startMs)) {
+        expiresMs = startMs + mins * 60_000;
+      }
+    }
+    if (Number.isFinite(expiresMs) && expiresMs <= Date.now()) {
       return {
         shouldRemoteStop: true,
         transactionId: params.transactionId,
@@ -601,7 +700,8 @@ export function parseMeterSampledValues(meterValue: unknown): {
       if (m.includes("energy") && m.includes("register")) {
         const kwh = energyToKwh(value, unit);
         energyRegisterKwh = energyRegisterKwh == null ? kwh : Math.max(energyRegisterKwh, kwh);
-        energyKwh = energyRegisterKwh;
+        // Do NOT copy register into energyKwh — absolute lifetime kWh must not be
+        // treated as session energy (that caused prepaid auto-stop within seconds).
       } else if (m.includes("energy")) {
         const kwh = energyToKwh(value, unit);
         // Prefer non-zero interval/session energy samples over zeros.

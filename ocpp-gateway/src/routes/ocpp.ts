@@ -3,6 +3,7 @@ import { getConnection, isConnected, listConnections } from "../ocpp/connections
 import { sendOcppCall } from "../ocpp/caller.js";
 import { config } from "../config.js";
 import { ADMIN_BYPASS_ID_TAG, enableAdminRfidBypass } from "../ocpp/adminBypass.js";
+import { setPendingStartUser } from "../ocpp/pendingStartUser.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
 import * as alerts from "../supabase/alerts.js";
@@ -69,7 +70,7 @@ ocppRouter.get("/connected", (_req, res) => {
 
 ocppRouter.post("/remote-start", async (req, res) => {
   try {
-    const { chargePointId, connectorId, idTag, bypassRfid, prepaidPaid, paymentId, sessionId } =
+    const { chargePointId, connectorId, idTag, bypassRfid, prepaidPaid, paymentId, sessionId, userId } =
       req.body as {
         chargePointId?: string;
         connectorId?: number;
@@ -79,6 +80,8 @@ ocppRouter.post("/remote-start", async (req, res) => {
         prepaidPaid?: boolean;
         paymentId?: string;
         sessionId?: string;
+        /** Mobile/web user to own the session created on StartTransaction. */
+        userId?: string;
       };
     if (!chargePointId || !connectorId) {
       res.status(400).json({ accepted: false, error: "chargePointId, connectorId required" });
@@ -86,11 +89,20 @@ ocppRouter.post("/remote-start", async (req, res) => {
     }
     const cpId = String(chargePointId).toUpperCase();
     const adminBypass = Boolean(bypassRfid) || config.bypassRfidAuth;
+    const isPrepaidPaid = Boolean(prepaidPaid);
 
     let charger: repo.ChargerRow | null = null;
     if (isSupabaseConfigured()) {
       charger = await repo.findChargerByChargePointId(cpId);
-      if (adminBypass && charger && !charger.allow_admin_bypass && !config.bypassRfidAuth) {
+      // Lab bypass flag required for unpaid admin/test starts.
+      // Prepaid mobile starts (already paid) may bypass RFID without the lab flag.
+      if (
+        adminBypass &&
+        charger &&
+        !Boolean(charger.allow_admin_bypass) &&
+        !config.bypassRfidAuth &&
+        !isPrepaidPaid
+      ) {
         res.status(403).json({
           accepted: false,
           error:
@@ -110,6 +122,11 @@ ocppRouter.post("/remote-start", async (req, res) => {
       res.status(400).json({ accepted: false, error: "idTag required" });
       return;
     }
+
+    if (userId?.trim()) {
+      setPendingStartUser(cpId, Number(connectorId), userId.trim());
+    }
+
     const response = await sendOcppCall(cpId, "RemoteStartTransaction", {
       connectorId: Number(connectorId),
       idTag: resolvedIdTag,
@@ -124,6 +141,7 @@ ocppRouter.post("/remote-start", async (req, res) => {
           prepaidPaid: Boolean(prepaidPaid),
           paymentId: paymentId ?? null,
           sessionId: sessionId ?? null,
+          userId: userId?.trim() || null,
         });
       }
       if (!accepted && prepaidPaid) {

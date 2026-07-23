@@ -93,6 +93,8 @@ export interface ChargingSession {
   prepaidAmount?: number | null;
   prepaidTotalInr?: number | null;
   prepaidDurationMinutes?: number | null;
+  prepaidEnergyCapKwh?: number | null;
+  prepaidExpiresAt?: string | null;
   amountDue?: number | null;
   gatewayTxnId?: string | null;
 }

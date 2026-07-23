@@ -76,6 +76,9 @@ export default {
     faultedCannotCharge: "This charger is currently unavailable due to a fault.",
     statusUnavailable: "Charger status is unavailable. Please try another charger.",
     cannotStartNotOnline: "Cannot start charging because this charger is not online.",
+    plugCableTitle: "Plug in the cable",
+    plugCableBody:
+      "Connect the cable to your vehicle and wait until this gun shows Preparing, then tap Start Charging again.",
     connector: "Gun {{id}} · {{type}}",
     power: "{{kw}} kW",
     powerMax: "{{kw}} kW max",

@@ -75,6 +75,9 @@ export default {
     faultedCannotCharge: "यह चार्जर खराबी के कारण उपलब्ध नहीं है।",
     statusUnavailable: "चार्जर की स्थिति उपलब्ध नहीं है। कृपया कोई अन्य चार्जर आज़माएँ।",
     cannotStartNotOnline: "चार्जर ऑनलाइन नहीं है, इसलिए चार्जिंग शुरू नहीं हो सकती।",
+    plugCableTitle: "केबल लगाएँ",
+    plugCableBody:
+      "वाहन में केबल लगाएँ और गन पर Preparing दिखने तक प्रतीक्षा करें, फिर फिर से Start Charging दबाएँ।",
     connector: "गन {{id}} · {{type}}",
     power: "{{kw}} kW",
     powerMax: "अधिकतम {{kw}} kW",

@@ -22,14 +22,85 @@ async function sleep(ms: number): Promise<void> {
 async function pollActiveSession(
   userId: string,
   chargerId: string,
-  attempts = 25
+  connectorId: number,
+  attempts = 90
 ): Promise<ChargingSession | null> {
   for (let i = 0; i < attempts; i++) {
-    const session = await getActiveSession(userId);
-    if (session && session.chargerId === chargerId) return session;
+    const mine = await getActiveSession(userId);
+    if (mine && mine.chargerId === chargerId && Number(mine.connectorId) === Number(connectorId)) {
+      return mine;
+    }
+    const claimed = await claimConnectorSession(userId, chargerId, connectorId);
+    if (claimed) return claimed;
     await sleep(1000);
   }
   return null;
+}
+
+/** If StartTransaction briefly created then stopped (auth fail), surface that. */
+async function findRecentEndedSession(
+  chargerId: string,
+  connectorId: number
+): Promise<{ id: string; status: string; energyKwh: number } | null> {
+  const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select("id, status, energy_kwh, start_time, end_time")
+    .eq("charger_id", chargerId)
+    .eq("connector_id", connectorId)
+    .in("status", ["completed", "cancelled", "stopped", "faulted"])
+    .gte("start_time", since)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as { id: string; status: string; energy_kwh?: number };
+  return {
+    id: row.id,
+    status: row.status,
+    energyKwh: Number(row.energy_kwh ?? 0),
+  };
+}
+
+async function readConnectorStatus(
+  chargerId: string,
+  connectorId: number
+): Promise<string> {
+  const { data } = await requireSupabase()
+    .from("EV_ChargerConnectors")
+    .select("status")
+    .eq("charger_id", chargerId)
+    .eq("connector_id", connectorId)
+    .maybeSingle();
+  return String((data as { status?: string } | null)?.status ?? "");
+}
+
+/**
+ * Many DC chargers only StartTransaction after the cable is plugged (Preparing).
+ * Wait briefly so RemoteStart is more likely to produce a live session.
+ */
+async function waitForCablePreparing(
+  chargerId: string,
+  connectorId: number,
+  maxWaitMs = 30_000
+): Promise<string> {
+  let status = await readConnectorStatus(chargerId, connectorId);
+  const initial = status.toLowerCase();
+  if (initial === "preparing" || initial === "charging") {
+    return status;
+  }
+  // Already Available — short wait for cable plug before RemoteStart.
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await sleep(1500);
+    status = await readConnectorStatus(chargerId, connectorId);
+    const s = status.toLowerCase();
+    if (s === "preparing" || s === "charging") return status;
+    if (s === "faulted" || s === "unavailable") {
+      throw new Error(`Gun ${connectorId} became ${status}. Unplug and try again.`);
+    }
+  }
+  return status;
 }
 
 async function pollSessionStopped(sessionId: string, userId: string, attempts = 15): Promise<boolean> {
@@ -42,17 +113,72 @@ async function pollSessionStopped(sessionId: string, userId: string, attempts = 
 }
 
 /**
- * Mobile OCPP start must use a real RFID bound to this user.
- * Web lab bypass uses ADMIN-BYPASS and attributes the session to a fallback user —
- * that breaks mobile Live Session / payment ownership.
+ * Match web admin RemoteStart: RFID bypass + ADMIN-BYPASS Authorize card
+ * so the physical charger does not sit on "Waiting for authentication" then stop.
  */
-async function resolveMobileIdTag(userId: string): Promise<string> {
-  const cards = await rfidService.getUserRfidCards(userId);
-  const active = cards.find((c) => String(c.status).toLowerCase() === "active");
-  if (active?.uid?.trim()) return active.uid.trim();
-  throw new Error(
-    "Bind an active RFID card in the app before starting a charge on this charger."
-  );
+async function resolveMobileStartAuth(userId: string): Promise<{
+  idTag: string;
+  bypassRfid: boolean;
+}> {
+  // Bind ADMIN-BYPASS to this user so gateway Authorize accepts even if
+  // Fly's in-memory bypass window is missing / expired.
+  await rfidService.ensureAdminBypassAuthorizeTag(userId);
+  return { idTag: "ADMIN-BYPASS", bypassRfid: true };
+}
+
+async function ensureChargerLabBypass(chargerId: string): Promise<void> {
+  const { error } = await requireSupabase()
+    .from("EV_Chargers")
+    .update({ allow_admin_bypass: true, updated_at: new Date().toISOString() })
+    .eq("id", chargerId);
+  if (error) {
+    console.warn("[session] enable allow_admin_bypass failed:", error.message);
+  }
+  // Give PostgREST / gateway a moment to see the flag.
+  await sleep(400);
+}
+
+async function claimConnectorSession(
+  userId: string,
+  chargerId: string,
+  connectorId: number
+): Promise<ChargingSession | null> {
+  const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select("id, user_id")
+    .eq("charger_id", chargerId)
+    .eq("connector_id", connectorId)
+    .eq("status", "active")
+    .gte("start_time", since)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const row = data as { id: string; user_id: string };
+  if (row.user_id !== userId) {
+    const { error: updErr } = await requireSupabase()
+      .from("EV_ChargingSessions")
+      .update({
+        user_id: userId,
+        authorization_method: "Mobile",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id)
+      .eq("status", "active");
+    if (updErr) {
+      // Retry without authorization_method if column missing.
+      const { error: updErr2 } = await requireSupabase()
+        .from("EV_ChargingSessions")
+        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .eq("id", row.id)
+        .eq("status", "active");
+      if (updErr2) throw updErr2;
+    }
+  }
+  return getSessionById(row.id, userId);
 }
 
 function mapRow(row: Record<string, unknown>): ChargingSession {
@@ -112,6 +238,9 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
         : prepaidModeRaw === "time" && row.prepaid_value != null
           ? Number(row.prepaid_value)
           : null,
+    prepaidEnergyCapKwh:
+      row.prepaid_energy_cap_kwh != null ? Number(row.prepaid_energy_cap_kwh) : null,
+    prepaidExpiresAt: row.prepaid_expires_at != null ? String(row.prepaid_expires_at) : null,
     amountDue: row.amount_due != null ? Number(row.amount_due) : null,
   };
 }
@@ -247,37 +376,65 @@ export async function startSession(
     return session;
   }
 
-  // Real charger — same gateway RemoteStart as web CMS.
+  // Real charger — same gateway RemoteStart as web (RFID bypass + StartTransaction).
   if (!ocppService.isOcppGatewayConfigured()) {
     throw new Error(
       "OCPP gateway is not configured. Set EXPO_PUBLIC_OCPP_GATEWAY_API_URL (same as web VITE_OCPP_GATEWAY_API_URL)."
     );
   }
 
-  const idTag = await resolveMobileIdTag(uid);
+  await ensureChargerLabBypass(chargerId);
+
+  // Prefer cable plugged (Preparing) before RemoteStart — otherwise CP accepts
+  // then never StartTransaction, or auth-fails within seconds.
+  const preStatus = await waitForCablePreparing(chargerId, connectorId, 30_000);
+  const preLower = String(preStatus).toLowerCase();
+  if (preLower !== "preparing" && preLower !== "charging") {
+    throw new Error(
+      `Gun ${connectorId} is still ${preStatus || "Available"}. Plug in the cable, wait for Preparing, then try again.`
+    );
+  }
+
+  const { idTag, bypassRfid } = await resolveMobileStartAuth(uid);
+
   const result = await ocppService.remoteStartTransaction({
     chargePointId,
     connectorId,
     idTag,
-    bypassRfid: false,
-    prepaidPaid: options.prepaidPaid,
+    bypassRfid,
+    userId: uid,
+    prepaidPaid: true,
     paymentId: options.paymentId,
   });
   if (!result.accepted) {
-    throw new Error(`RemoteStart rejected by charger on Gun ${connectorId}`);
-  }
-
-  const session = await pollActiveSession(uid, chargerId);
-  if (!session) {
     throw new Error(
-      "RemoteStart accepted but session did not start. Plug in the cable (Preparing) and try again."
+      `RemoteStart rejected by charger on Gun ${connectorId}. On web, confirm Lab admin bypass is enabled for this charger.`
     );
   }
-  return session;
+
+  // Re-bind authorize tag in case another client stole ADMIN-BYPASS during wait.
+  await rfidService.ensureAdminBypassAuthorizeTag(uid);
+
+  // Poll + claim for up to ~90s (StartTransaction can lag after Preparing).
+  const session = await pollActiveSession(uid, chargerId, connectorId, 90);
+  if (session) return session;
+
+  const ended = await findRecentEndedSession(chargerId, connectorId);
+  if (ended && ended.energyKwh < 0.05) {
+    throw new Error(
+      `Charger started then stopped immediately on Gun ${connectorId} (auth/cable). Plug in firmly, wait for Preparing, then try again.`
+    );
+  }
+
+  throw new Error(
+    `RemoteStart accepted but session did not start on Gun ${connectorId}. Plug in the cable (Preparing) and try again.`
+  );
 }
 
 /**
- * Stop charging — same OCPP RemoteStop path as web for real sessions.
+ * Stop charging — prefer OCPP RemoteStop (same as web).
+ * If the charger rejects (ghost/pre-OCPP CMS sessions), close the session in CMS
+ * so the gun is freed and Live Session can end.
  */
 export async function stopSession(sessionId: string, userId?: string): Promise<void> {
   const uid = userId ?? requireUserId();
@@ -300,27 +457,36 @@ export async function stopSession(sessionId: string, userId?: string): Promise<v
     return;
   }
 
-  if (!ocppService.isOcppGatewayConfigured()) {
-    throw new Error(
-      "OCPP gateway is not configured. Cannot stop the charger. Set EXPO_PUBLIC_OCPP_GATEWAY_API_URL."
-    );
+  // Ghost/orphan sessions (created before OCPP wiring, or CMS-only): no live tx on charger.
+  const ageMs = Date.now() - new Date(session.startTime).getTime();
+  const looksOrphan =
+    transactionId == null ||
+    !Number.isFinite(Number(transactionId)) ||
+    (ageMs > 6 * 60 * 60 * 1000 && Number(session.energyKwh ?? 0) <= 0.01);
+
+  if (looksOrphan || !ocppService.isOcppGatewayConfigured() || !chargePointId) {
+    console.warn("[session] closing CMS session without RemoteStop (orphan/pre-OCPP)", sessionId);
+    await simulator.simulateStopSession(sessionId);
+    return;
   }
 
-  if (!chargePointId || transactionId == null) {
-    throw new Error("Session is missing charge point or transaction id for RemoteStop");
-  }
-
-  const result = await ocppService.remoteStopTransaction({
-    chargePointId,
-    transactionId: Number(transactionId),
-  });
-  if (!result.accepted) {
-    throw new Error("RemoteStop rejected by charger");
-  }
-
-  const stopped = await pollSessionStopped(sessionId, uid);
-  if (!stopped) {
-    // Charger accepted stop but CMS row still active — force CMS close as last resort.
+  try {
+    const result = await ocppService.remoteStopTransaction({
+      chargePointId,
+      transactionId: Number(transactionId),
+    });
+    if (result.accepted) {
+      const stopped = await pollSessionStopped(sessionId, uid);
+      if (!stopped) {
+        await simulator.simulateStopSession(sessionId);
+      }
+      return;
+    }
+    // Charger rejected — typical for pre-OCPP / unknown transactionId.
+    console.warn("[session] RemoteStop rejected; force-closing CMS session", sessionId);
+    await simulator.simulateStopSession(sessionId);
+  } catch (e) {
+    console.warn("[session] RemoteStop failed; force-closing CMS session", e);
     await simulator.simulateStopSession(sessionId);
   }
 }

@@ -339,7 +339,9 @@ export function receiptPdfFilename(receiptNumber: string): string {
 }
 
 export function downloadReceiptPdf(bytes: Uint8Array, filename: string): void {
-  const blob = new Blob([bytes], { type: "application/pdf" });
+  // TS DOM typings: Uint8Array may be ArrayBufferLike; Blob expects ArrayBuffer.
+  const copy = Uint8Array.from(bytes);
+  const blob = new Blob([copy.buffer as ArrayBuffer], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

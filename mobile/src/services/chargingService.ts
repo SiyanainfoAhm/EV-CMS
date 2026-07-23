@@ -3,6 +3,7 @@ import { requireUserId } from "./authService";
 import * as rfidService from "./rfidService";
 import * as sessionService from "./sessionService";
 import { assertChargerOnlineForMobile } from "./chargerService";
+import { getEvRatePerKwh } from "../config/tariffConfig";
 import type { ChargingSession, PrepaidPaymentCalculation } from "../types";
 
 async function assertUserCanCharge(userId: string): Promise<void> {
@@ -43,6 +44,224 @@ export type StartChargingPrepaidOptions = {
   amountDue?: number;
 };
 
+export async function createPendingPrepaidSession(input: {
+  chargerId: string;
+  connectorId: number;
+  userId?: string;
+  options: StartChargingPrepaidOptions;
+}): Promise<ChargingSession> {
+  const uid = input.userId ?? requireUserId();
+  await assertUserCanCharge(uid);
+  await assertChargerOnlineForMobile(input.chargerId);
+
+  // Placeholder row for Razorpay (payments require session_id) — not an active OCPP charge.
+  const txn = Math.floor(Date.now() / 1000) % 2000000000;
+  const insert: Record<string, unknown> = {
+    transaction_id: txn,
+    charger_id: input.chargerId,
+    connector_id: input.connectorId,
+    user_id: uid,
+    start_time: new Date().toISOString(),
+    energy_kwh: 0,
+    current_power_kw: 0,
+    status: "pending_payment",
+    authorization_method: "Mobile",
+    payment_mode: "prepaid",
+    payment_status: "pending",
+  };
+
+  const o = input.options;
+  if (o.tariffId) insert.tariff_id = o.tariffId;
+  if (o.prepaidMode) {
+    insert.prepaid_mode = o.prepaidMode;
+    insert.prepaid_type = o.prepaidMode;
+  }
+  if (o.prepaidValue != null) insert.prepaid_value = o.prepaidValue;
+  if (o.prepaidTotalInr != null) insert.prepaid_total_inr = o.prepaidTotalInr;
+  if (o.prepaidAmount != null) insert.prepaid_amount = o.prepaidAmount;
+  if (o.prepaidPlanId) insert.prepaid_plan_id = o.prepaidPlanId;
+  if (o.prepaidDurationMinutes != null) {
+    insert.prepaid_duration_minutes = o.prepaidDurationMinutes;
+  }
+  // amount_due / settlement_status omitted until columns exist (see fix_session_payment_columns.sql).
+
+  const attempt = async (payload: Record<string, unknown>) =>
+    requireSupabase().from("EV_ChargingSessions").insert(payload).select("id").single();
+
+  let { data, error } = await attempt(insert);
+
+  // Strip unknown columns if migration not applied yet, then retry.
+  if (error && /column .* does not exist|Could not find/i.test(error.message)) {
+    const optional = [
+      "amount_due",
+      "settlement_status",
+      "payment_mode",
+      "payment_status",
+      "prepaid_type",
+      "prepaid_mode",
+      "prepaid_value",
+      "prepaid_total_inr",
+      "prepaid_amount",
+      "prepaid_plan_id",
+      "prepaid_duration_minutes",
+      "authorization_method",
+      "tariff_id",
+    ];
+    const stripped = { ...insert };
+    for (const key of optional) {
+      if (new RegExp(key, "i").test(error.message)) delete stripped[key];
+    }
+    // If message didn't name the column, drop all optional prepaid fields.
+    if (Object.keys(stripped).length === Object.keys(insert).length) {
+      for (const key of optional) delete stripped[key];
+    }
+    ({ data, error } = await attempt(stripped));
+  }
+
+  if (error) {
+    if (/amount_due/i.test(error.message)) {
+      throw new Error(
+        "Database missing amount_due column. Run supabase/fix_session_payment_columns.sql in Supabase SQL Editor."
+      );
+    }
+    throw new Error(error.message || "Unable to create prepaid session");
+  }
+
+  const session = await sessionService.getSessionById((data as { id: string }).id, uid);
+  if (!session) throw new Error("Pending session created but could not be loaded");
+  return session;
+}
+
+export async function cancelPendingPrepaidSession(
+  sessionId: string,
+  userId?: string
+): Promise<void> {
+  const uid = userId ?? requireUserId();
+  await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update({
+      status: "cancelled",
+      end_time: new Date().toISOString(),
+      payment_status: "failed",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId)
+    .eq("user_id", uid)
+    .eq("status", "pending_payment");
+}
+
+/** Write prepaid amount/time limits onto the live OCPP session (gateway auto-stop reads these). */
+export async function applyPrepaidLimitsToLiveSession(
+  sessionId: string,
+  options: StartChargingPrepaidOptions,
+  paymentId?: string
+): Promise<void> {
+  const o = options;
+  const expiresAt =
+    o.prepaidMode === "time" && o.prepaidDurationMinutes
+      ? new Date(Date.now() + o.prepaidDurationMinutes * 60_000).toISOString()
+      : o.prepaidExpiresAt;
+
+  const energyCap =
+    o.prepaidEnergyCapKwh != null && o.prepaidEnergyCapKwh > 0
+      ? o.prepaidEnergyCapKwh
+      : o.prepaidMode === "amount" && o.prepaidValue != null && o.prepaidValue > 0
+        ? Math.round((Number(o.prepaidValue) / getEvRatePerKwh()) * 1000) / 1000
+        : undefined;
+
+  const update: Record<string, unknown> = {
+    payment_mode: "prepaid",
+    payment_status: o.paymentStatus ?? "paid",
+    settlement_status: o.settlementStatus ?? "active",
+    updated_at: new Date().toISOString(),
+  };
+  if (paymentId) {
+    update.payment_id = paymentId;
+    update.prepaid_payment_id = paymentId;
+  }
+  if (o.prepaidMode) {
+    update.prepaid_mode = o.prepaidMode;
+    update.prepaid_type = o.prepaidMode;
+  }
+  if (o.prepaidValue != null) update.prepaid_value = o.prepaidValue;
+  if (o.prepaidTotalInr != null) update.prepaid_total_inr = o.prepaidTotalInr;
+  if (o.prepaidAmount != null) update.prepaid_amount = o.prepaidAmount;
+  if (energyCap != null) {
+    update.prepaid_energy_cap_kwh = energyCap;
+    update.target_kwh = o.targetKwh ?? energyCap;
+  } else if (o.targetKwh != null) {
+    update.target_kwh = o.targetKwh;
+  }
+  if (o.tariffId) update.tariff_id = o.tariffId;
+  if (o.prepaidPlanId) update.prepaid_plan_id = o.prepaidPlanId;
+  if (o.prepaidDurationMinutes != null) {
+    update.prepaid_duration_minutes = o.prepaidDurationMinutes;
+  }
+  if (expiresAt) update.prepaid_expires_at = expiresAt;
+
+  const { error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update(update)
+    .eq("id", sessionId);
+
+  if (error) {
+    // Retry without optional columns that older DBs may lack.
+    const soft = { ...update };
+    delete soft.amount_due;
+    delete soft.settlement_status;
+    delete soft.authorization_method;
+    const { error: err2 } = await requireSupabase()
+      .from("EV_ChargingSessions")
+      .update(soft)
+      .eq("id", sessionId);
+    if (err2) {
+      console.warn("[prepaid] failed to apply amount/time caps:", err2.message);
+      throw new Error(
+        "Payment succeeded but prepaid amount/time limits could not be saved. Run supabase/fix_session_payment_columns.sql."
+      );
+    }
+  }
+
+  // Best-effort amount_due = 0 when column exists.
+  await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update({ amount_due: 0, updated_at: new Date().toISOString() })
+    .eq("id", sessionId);
+}
+
+export async function migratePaymentToLiveSession(input: {
+  pendingSessionId: string;
+  liveSessionId: string;
+  paymentId: string;
+  userId?: string;
+  options: StartChargingPrepaidOptions;
+}): Promise<void> {
+  const uid = input.userId ?? requireUserId();
+
+  // Point payment at the real OCPP session.
+  await requireSupabase()
+    .from("EV_Payments")
+    .update({
+      session_id: input.liveSessionId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.paymentId)
+    .eq("user_id", uid);
+
+  await applyPrepaidLimitsToLiveSession(input.liveSessionId, input.options, input.paymentId);
+
+  await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update({
+      status: "cancelled",
+      end_time: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.pendingSessionId)
+    .eq("user_id", uid)
+    .eq("status", "pending_payment");
+}
+
 export async function startCharging(
   chargerId: string,
   connectorId: number,
@@ -53,51 +272,21 @@ export async function startCharging(
   await assertUserCanCharge(uid);
   await assertRfidOrMobileAuth(uid);
   await assertChargerOnlineForMobile(chargerId);
-  const session = await sessionService.startSession(chargerId, connectorId, uid);
+  const session = await sessionService.startSession(chargerId, connectorId, uid, {
+    prepaidPaid: options?.paymentStatus === "paid",
+    paymentId: undefined,
+  });
 
   const hasPrepaid =
     (options?.prepaidTotalInr != null && options.prepaidTotalInr > 0) ||
-    (options?.prepaidAmount != null && options.prepaidAmount > 0);
+    (options?.prepaidAmount != null && options.prepaidAmount > 0) ||
+    options?.prepaidMode != null;
 
-  if (hasPrepaid) {
-    const update: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-      settlement_status: options?.settlementStatus ?? "active",
-      payment_mode: options?.paymentMode ?? "prepaid",
-      payment_status: options?.paymentStatus ?? "pending",
-      amount_due: options?.amountDue ?? 0,
-      prepaid_type: options?.prepaidMode ?? null,
-    };
-
-    if (options?.prepaidAmount != null) update.prepaid_amount = options.prepaidAmount;
-    if (options?.targetKwh != null && options.targetKwh > 0) update.target_kwh = options.targetKwh;
-    if (options?.tariffId) update.tariff_id = options.tariffId;
-    if (options?.prepaidMode) update.prepaid_mode = options.prepaidMode;
-    if (options?.prepaidValue != null) update.prepaid_value = options.prepaidValue;
-    if (options?.prepaidTotalInr != null) update.prepaid_total_inr = options.prepaidTotalInr;
-    if (options?.prepaidEnergyCapKwh != null) {
-      update.prepaid_energy_cap_kwh = options.prepaidEnergyCapKwh;
-    }
-    if (options?.prepaidPlanId) update.prepaid_plan_id = options.prepaidPlanId;
-    if (options?.prepaidExpiresAt) update.prepaid_expires_at = options.prepaidExpiresAt;
-    if (options?.prepaidDurationMinutes != null) {
-      update.prepaid_duration_minutes = options.prepaidDurationMinutes;
-    }
-
-    const { error } = await requireSupabase()
-      .from("EV_ChargingSessions")
-      .update(update)
-      .eq("id", session.id)
-      .eq("user_id", uid);
-
-    if (
-      error &&
-      !/prepaid_amount|prepaid_|target_kwh|settlement_status|payment_mode|payment_status|amount_due|column/i.test(
-        error.message
-      )
-    ) {
-      console.warn("Could not save prepaid session fields:", error.message);
-    }
+  if (hasPrepaid && options?.paymentStatus === "paid") {
+    await applyPrepaidLimitsToLiveSession(session.id, {
+      ...options,
+      paymentStatus: "paid",
+    });
   }
 
   return session;
@@ -206,17 +395,17 @@ export function buildPrepaidSessionOptions(
   }
 ): StartChargingPrepaidOptions {
   const calc = input.calculation;
-  const expiresAt =
-    input.mode === "time" && calc.durationMinutes
-      ? new Date(Date.now() + calc.durationMinutes * 60_000).toISOString()
-      : undefined;
+  const rate =
+    calc.ratePerKwh && calc.ratePerKwh > 0 ? calc.ratePerKwh : getEvRatePerKwh();
 
   const energyCap =
-    input.mode === "time"
-      ? calc.estimatedKwh ?? undefined
-      : calc.ratePerKwh && calc.ratePerKwh > 0
-        ? Math.round((calc.baseAmount / calc.ratePerKwh) * 1000) / 1000
-        : undefined;
+    input.mode === "amount"
+      ? calc.estimatedKwh && calc.estimatedKwh > 0
+        ? calc.estimatedKwh
+        : rate > 0 && calc.baseAmount > 0
+          ? Math.round((calc.baseAmount / rate) * 1000) / 1000
+          : undefined
+      : undefined; // time mode stops on expires_at only — do not set energy auto-stop cap
 
   return {
     prepaidAmount: calc.totalAmount,
@@ -227,7 +416,7 @@ export function buildPrepaidSessionOptions(
     prepaidTotalInr: calc.totalAmount,
     prepaidEnergyCapKwh: energyCap,
     prepaidPlanId: input.planId ?? undefined,
-    prepaidExpiresAt: expiresAt,
+    prepaidExpiresAt: undefined,
     settlementStatus: "active",
     paymentMode: "prepaid",
     paymentStatus: "pending",
