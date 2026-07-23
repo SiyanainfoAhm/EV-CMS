@@ -25,6 +25,11 @@ export function useSupabaseRealtime(onChange: () => void, enabled = true): void 
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "EV_ChargerConnectors" },
+        () => onChange()
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "EV_ChargingSessions" },
         () => onChange()
       )

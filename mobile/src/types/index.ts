@@ -72,9 +72,11 @@ export interface PrepaidPaymentCalculation {
 
 export interface ChargingSession {
   id: string;
+  chargerId?: string;
   chargerName: string;
   chargePointId: string;
   connectorId: number;
+  transactionId?: number | null;
   energyKwh: number;
   duration: string;
   status: string;

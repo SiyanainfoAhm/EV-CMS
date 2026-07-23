@@ -8,8 +8,10 @@ export function useSupabaseRealtime(onChange: () => void, enabled = true): void 
     const channel = supabase
       .channel("ev-mobile-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "EV_Chargers" }, () => onChange())
+      .on("postgres_changes", { event: "*", schema: "public", table: "EV_ChargerConnectors" }, () => onChange())
       .on("postgres_changes", { event: "*", schema: "public", table: "EV_ChargingSessions" }, () => onChange())
       .on("postgres_changes", { event: "*", schema: "public", table: "EV_MeterValues" }, () => onChange())
+      .on("postgres_changes", { event: "*", schema: "public", table: "EV_ChargerEvents" }, () => onChange())
       .subscribe();
 
     return () => {
