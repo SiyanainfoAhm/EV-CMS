@@ -9,14 +9,18 @@ interface Props {
 }
 
 function badgeColors(status: string) {
-  const s = status.toLowerCase();
-  if (["online", "active", "available", "success", "completed", "paid", "resolved", "closed"].some((x) => s.includes(x))) {
+  const s = status.toLowerCase().trim();
+  // Check unavailable before available — "unavailable".includes("available") is true.
+  if (s === "unavailable" || s === "offline" || s === "unknown") {
+    return { bg: "#f3f4f6", text: colors.textMuted };
+  }
+  if (["online", "active", "available", "preparing", "success", "completed", "paid", "resolved", "closed"].some((x) => s === x)) {
     return { bg: colors.emeraldMuted, text: colors.emerald };
   }
-  if (["faulted", "failed", "blocked"].some((x) => s.includes(x))) {
+  if (["faulted", "failed", "blocked", "error"].some((x) => s === x || s.includes(x))) {
     return { bg: "#fee2e2", text: colors.danger };
   }
-  if (["charging", "in_progress", "started", "stopping", "pending", "urgent", "high"].some((x) => s.includes(x))) {
+  if (["charging", "in_progress", "started", "stopping", "pending", "urgent", "high"].some((x) => s === x || s.includes(x))) {
     return { bg: "#d1fae5", text: "#047857" };
   }
   return { bg: "#f3f4f6", text: colors.textMuted };

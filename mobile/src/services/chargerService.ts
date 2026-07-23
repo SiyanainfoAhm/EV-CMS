@@ -1,6 +1,7 @@
 import { requireSupabase } from "../utils/supabaseClient";
 import { sortChargersByDistance } from "./locationService";
 import { parseChargeQr } from "../utils/qrParser";
+import { isSimulationEnabled } from "../utils/simulationMode";
 import type { Charger, ChargerConnector, ChargerStatusFilter } from "../types";
 
 export type { ChargerStatusFilter };
@@ -159,16 +160,17 @@ export async function fetchChargers(search = ""): Promise<Charger[]> {
   }
 
   const list = (data ?? []).map((row) => mapCharger(row as Record<string, unknown>));
-  console.log("[chargers] fetched count:", list.length);
-  if (list.length > 0) {
-    console.log("[chargers] first charger:", list[0]);
+  const filtered = isSimulationEnabled() ? list : list.filter((c) => !c.isSimulated);
+  console.log("[chargers] fetched count:", filtered.length);
+  if (filtered.length > 0) {
+    console.log("[chargers] first charger:", filtered[0]);
   } else {
     console.warn(
       "EV_Chargers returned zero rows. Check RLS policy or Supabase environment config."
     );
   }
 
-  return list;
+  return filtered;
 }
 
 /** Client-side status tabs. Simulation Mode must not hide chargers. */
@@ -281,21 +283,55 @@ export async function getChargerByChargePointId(chargePointId: string): Promise<
   return data ? mapCharger(data as Record<string, unknown>) : undefined;
 }
 
-export function isConnectorAvailable(status: string): boolean {
-  return status.toLowerCase() === "available";
+/**
+ * Gun/connector can accept a start — matches web `canRemoteStartConnector`
+ * (OCPP Available or Preparing / cable plugged).
+ */
+export function isConnectorAvailable(status: string | null | undefined): boolean {
+  const s = String(status || "")
+    .toLowerCase()
+    .trim();
+  return s === "available" || s === "preparing";
+}
+
+/** True when gun status or an active CMS session blocks a new start. */
+export function canStartOnConnector(
+  status: string | null | undefined,
+  hasActiveSession = false
+): boolean {
+  if (hasActiveSession) return false;
+  return isConnectorAvailable(status);
+}
+
+export function getConnectorBlockMessageKey(
+  status: string | null | undefined,
+  hasActiveSession = false
+): string {
+  if (hasActiveSession) return "charger.gunInUse";
+  const s = String(status || "")
+    .toLowerCase()
+    .trim();
+  if (s === "charging") return "charger.gunInUse";
+  if (s === "faulted" || s === "error") return "charger.gunFaulted";
+  if (s === "unavailable") return "charger.gunUnavailable";
+  return "charger.notAvailable";
+}
+
+/** Connector IDs that already have an active charging session on this charger. */
+export async function getBusyConnectorIds(chargerId: string): Promise<Set<number>> {
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select("connector_id")
+    .eq("charger_id", chargerId)
+    .eq("status", "active");
+
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => Number((row as { connector_id: number }).connector_id)));
 }
 
 export function hasAvailableConnector(charger: Charger): boolean {
   return charger.connectors.some((c) => isConnectorAvailable(c.status));
 }
-
-const UNAVAILABLE_CHARGER_STATUSES = new Set([
-  "offline",
-  "faulted",
-  "unavailable",
-  "error",
-  "occupied",
-]);
 
 /** Prefer canStartCharging for mobile start gate; this also considers connectors. */
 export function isChargerAvailableForCharging(charger: Charger): boolean {

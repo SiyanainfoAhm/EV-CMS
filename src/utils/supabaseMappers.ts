@@ -10,7 +10,11 @@ import type {
   Tariff,
   User,
 } from "@/types/ev";
-import { connectivityFromHeartbeat, isOfflineByHeartbeat, isOnlineByHeartbeat } from "@/utils/chargerConnectivity";
+import {
+  connectivityFromHeartbeat,
+  isOfflineByStatus,
+  isOnlineByStatus,
+} from "@/utils/chargerConnectivity";
 import { formatDateTime } from "@/utils/formatPreferences";
 import { parseSupportTicketAttachments } from "@/utils/supportTicketAttachments";
 import { mapDbRoleToAuthRole, mapDisplayRole, mapUiRoleToDb } from "@/utils/rfpRoles";
@@ -257,8 +261,8 @@ export function computeDashboardStats(
   avgSessionDurationMs?: number | null,
   peakPowerKw = 0
 ): DashboardStats {
-  const online = chargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length;
-  const offline = chargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length;
+  const online = chargers.filter((c) => isOnlineByStatus(c.status)).length;
+  const offline = chargers.filter((c) => isOfflineByStatus(c.status)).length;
   const faulted = chargers.filter((c) => c.status === "faulted").length;
   const availableConnectors = chargers.reduce(
     (sum, c) => sum + c.connectors.filter((x) => x.status === "Available").length,
