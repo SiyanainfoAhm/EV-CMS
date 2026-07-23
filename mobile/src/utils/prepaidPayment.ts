@@ -133,17 +133,22 @@ export function validatePrepaidMinutes(minutes: unknown): PrepaidValidationResul
   return { valid: true, value: raw, error: null };
 }
 
-export function calculateAmountPayment(amount: number): PrepaidPaymentCalculation {
+export function calculateAmountPayment(
+  amount: number,
+  ratePerKwh: number = getEvRatePerKwh()
+): PrepaidPaymentCalculation {
   const baseAmount = round2(amount);
   const gstAmount = round2(baseAmount * (PREPAID_GST_PERCENT / 100));
+  const rate = ratePerKwh > 0 ? ratePerKwh : getEvRatePerKwh();
+  const estimatedKwh = rate > 0 ? round3(baseAmount / rate) : null;
   return {
     baseAmount,
     gstAmount,
     totalAmount: round2(baseAmount + gstAmount),
     gstPercent: PREPAID_GST_PERCENT,
-    estimatedKwh: null,
+    estimatedKwh,
     durationMinutes: null,
-    ratePerKwh: null,
+    ratePerKwh: rate,
     powerKw: null,
     powerEstimated: false,
   };

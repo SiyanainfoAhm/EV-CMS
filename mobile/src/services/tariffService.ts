@@ -6,16 +6,72 @@ export type ActiveTariff = {
   ratePerKwh: number;
   gstPercent: number;
   region?: string | null;
+  appliesTo?: string | null;
 };
 
 export type ChargeInputMode = "amount" | "kwh";
+
+function mapTariff(row: Record<string, unknown>): ActiveTariff {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    ratePerKwh: Number(row.rate_per_kwh),
+    gstPercent: Number(row.gst_percent ?? 0),
+    region: row.region != null ? String(row.region) : null,
+    appliesTo: row.applies_to != null ? String(row.applies_to) : null,
+  };
+}
+
+export async function getTariffById(id: string): Promise<ActiveTariff | null> {
+  const { data, error } = await requireSupabase()
+    .from("EV_Tariffs")
+    .select("id, name, rate_per_kwh, gst_percent, region, applies_to, is_active")
+    .eq("id", id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return mapTariff(data as Record<string, unknown>);
+}
+
+/**
+ * Prefer the charger's assigned tariff, then active tariff matching charger type,
+ * then the site default.
+ */
+export async function getTariffForCharger(input: {
+  tariffId?: string | null;
+  type?: string | null;
+}): Promise<ActiveTariff | null> {
+  if (input.tariffId) {
+    const linked = await getTariffById(input.tariffId);
+    if (linked && linked.ratePerKwh > 0) return linked;
+  }
+
+  const chargerType = String(input.type || "").trim();
+  if (chargerType) {
+    const { data, error } = await requireSupabase()
+      .from("EV_Tariffs")
+      .select("id, name, rate_per_kwh, gst_percent, region, applies_to, is_active")
+      .eq("is_active", true)
+      .ilike("applies_to", chargerType)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      const mapped = mapTariff(data as Record<string, unknown>);
+      if (mapped.ratePerKwh > 0) return mapped;
+    }
+  }
+
+  return getActiveChargingTariff();
+}
 
 export async function getActiveChargingTariff(): Promise<ActiveTariff | null> {
   const client = requireSupabase();
 
   const { data: defaultRow, error: defaultErr } = await client
     .from("EV_Tariffs")
-    .select("id, name, rate_per_kwh, gst_percent, region, is_default, is_active")
+    .select("id, name, rate_per_kwh, gst_percent, region, applies_to, is_default, is_active")
     .eq("is_active", true)
     .eq("is_default", true)
     .order("updated_at", { ascending: false })
@@ -28,7 +84,7 @@ export async function getActiveChargingTariff(): Promise<ActiveTariff | null> {
 
   const { data, error } = await client
     .from("EV_Tariffs")
-    .select("id, name, rate_per_kwh, gst_percent, region, is_default, is_active")
+    .select("id, name, rate_per_kwh, gst_percent, region, applies_to, is_default, is_active")
     .eq("is_active", true)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -37,16 +93,6 @@ export async function getActiveChargingTariff(): Promise<ActiveTariff | null> {
   if (error) throw error;
   if (!data) return null;
   return mapTariff(data as Record<string, unknown>);
-}
-
-function mapTariff(row: Record<string, unknown>): ActiveTariff {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    ratePerKwh: Number(row.rate_per_kwh),
-    gstPercent: Number(row.gst_percent ?? 0),
-    region: row.region != null ? String(row.region) : null,
-  };
 }
 
 function round3(value: number): number {

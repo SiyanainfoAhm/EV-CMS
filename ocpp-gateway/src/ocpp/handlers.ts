@@ -4,6 +4,7 @@ import { buildCallResult, buildCallError, parseMessage } from "./protocol.js";
 import { resolveResponse, rejectResponse } from "./pending.js";
 import { sendOcppCallFireAndForget } from "./caller.js";
 import { config } from "../config.js";
+import { takePendingStartUser } from "./pendingStartUser.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
 import * as alerts from "../supabase/alerts.js";
@@ -94,14 +95,17 @@ async function handleCall(
           sendResult(conn, uniqueId, { idTagInfo: { status: authStatus } });
           break;
         }
+        const connectorId = Number(payload.connectorId ?? 1);
+        const preferredUserId = takePendingStartUser(conn.chargePointId, connectorId);
         const transactionId = await repo.startTransaction({
           chargerId: conn.chargerDbId,
           chargePointId: conn.chargePointId,
-          connectorId: Number(payload.connectorId ?? 1),
+          connectorId,
           idTag,
           meterStart: Number(payload.meterStart ?? 0),
           timestamp: String(payload.timestamp ?? ocppNow()),
           chargerType: charger.charger_type,
+          preferredUserId,
         });
         sendResult(conn, uniqueId, {
           transactionId,

@@ -77,6 +77,20 @@ export default function QRStartScreen({ navigation, route }: Props) {
           Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(charger)));
           return;
         }
+        const gun = charger.connectors.find((c) => c.connectorId === connectorId);
+        const gunStatus = String(gun?.status || "")
+          .toLowerCase()
+          .trim();
+        if (gunStatus === "available") {
+          Alert.alert(
+            t("charger.plugCableTitle", { defaultValue: "Plug in the cable" }),
+            t("charger.plugCableBody", {
+              defaultValue:
+                "Connect the cable to your vehicle and wait until this gun shows Preparing, then scan again.",
+            })
+          );
+          return;
+        }
         setPendingStart({ charger, connectorId });
         setPricePromptVisible(true);
       } catch (e) {

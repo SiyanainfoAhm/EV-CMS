@@ -101,3 +101,145 @@ export async function unbindRfid(cardId: string, userId?: string): Promise<void>
 
   if (error) throw error;
 }
+
+/**
+ * Ensure ADMIN-BYPASS is an active RFID bound to this user.
+ * Physical chargers Authorize the idTag from RemoteStart; without a DB card
+ * (and without Fly in-memory bypass), Authorize is Invalid → session never starts
+ * or ends in a few seconds ("Waiting for authentication").
+ */
+export async function ensureAdminBypassAuthorizeTag(userId?: string): Promise<string> {
+  const uid = userId ?? requireUserId();
+  const TAG = "ADMIN-BYPASS";
+
+  const { data: existing, error: findErr } = await requireSupabase()
+    .from("EV_RFIDCards")
+    .select("*")
+    .ilike("uid", TAG)
+    .maybeSingle();
+  if (findErr) throw findErr;
+
+  if (existing) {
+    const row = existing as Record<string, unknown>;
+    const { error } = await requireSupabase()
+      .from("EV_RFIDCards")
+      .update({
+        uid: TAG,
+        user_id: uid,
+        status: "active",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id as string);
+    if (error) {
+      // Fallback via bind RPC if direct update blocked.
+      try {
+        await bindCardToUser(row.id as string, uid);
+        await requireSupabase()
+          .from("EV_RFIDCards")
+          .update({ status: "active", updated_at: new Date().toISOString() })
+          .eq("id", row.id as string);
+      } catch (e) {
+        throw new Error(
+          e instanceof Error
+            ? e.message
+            : "Unable to prepare charger authorization tag"
+        );
+      }
+    }
+    return TAG;
+  }
+
+  const { data: created, error: insertErr } = await requireSupabase()
+    .from("EV_RFIDCards")
+    .insert({
+      uid: TAG,
+      user_id: uid,
+      status: "active",
+      total_sessions: 0,
+    })
+    .select("*")
+    .single();
+
+  if (insertErr) {
+    // Race: another client created it — bind to this user.
+    const { data: raced } = await requireSupabase()
+      .from("EV_RFIDCards")
+      .select("*")
+      .ilike("uid", TAG)
+      .maybeSingle();
+    if (raced) {
+      await requireSupabase()
+        .from("EV_RFIDCards")
+        .update({
+          user_id: uid,
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", (raced as { id: string }).id);
+      return TAG;
+    }
+    throw new Error(insertErr.message || "Unable to create ADMIN-BYPASS RFID");
+  }
+
+  void created;
+  return TAG;
+}
+
+/**
+ * Ensure the user has an active idTag for OCPP Authorize / RemoteStart.
+ * Creates a mobile virtual RFID when none is bound — avoids lab admin bypass.
+ */
+export async function ensureActiveIdTag(userId?: string): Promise<string> {
+  const uid = userId ?? requireUserId();
+  const cards = await getUserRfidCards(uid);
+  const active = cards.find((c) => String(c.status).toLowerCase() === "active" && c.uid?.trim());
+  if (active?.uid?.trim() && !active.uid.startsWith("MOBILE-") && active.uid !== "ADMIN-BYPASS") {
+    return active.uid.trim();
+  }
+  if (active?.uid?.trim() && !active.uid.startsWith("MOBILE-")) {
+    return active.uid.trim();
+  }
+
+  // Re-activate an inactive card already owned by this user (real RFID preferred).
+  const owned = cards.find(
+    (c) =>
+      c.uid?.trim() &&
+      !c.uid.startsWith("MOBILE-") &&
+      c.uid !== "ADMIN-BYPASS" &&
+      String(c.status).toLowerCase() !== "blocked"
+  );
+  if (owned) {
+    const { error } = await requireSupabase()
+      .from("EV_RFIDCards")
+      .update({ status: "active", updated_at: new Date().toISOString() })
+      .eq("id", owned.id)
+      .eq("user_id", uid);
+    if (!error) return owned.uid.trim();
+  }
+
+  const tag = `MOBILE-${uid.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  const { data: existing } = await requireSupabase()
+    .from("EV_RFIDCards")
+    .select("*")
+    .eq("uid", tag)
+    .maybeSingle();
+
+  if (existing) {
+    const card = await bindCardToUser((existing as { id: string }).id, uid);
+    return card.uid;
+  }
+
+  const { data: created, error: insertErr } = await requireSupabase()
+    .from("EV_RFIDCards")
+    .insert({
+      uid: tag,
+      status: "inactive",
+      total_sessions: 0,
+    })
+    .select("*")
+    .single();
+  if (insertErr) throw new Error(insertErr.message || "Unable to create mobile RFID tag");
+
+  const card = await bindCardToUser((created as { id: string }).id, uid);
+  return card.uid;
+}

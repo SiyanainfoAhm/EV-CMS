@@ -67,6 +67,7 @@ export async function remoteStartTransaction(params: {
   connectorId: number;
   idTag: string;
   bypassRfid?: boolean;
+  userId?: string;
   prepaidPaid?: boolean;
   paymentId?: string;
   sessionId?: string;
@@ -78,6 +79,7 @@ export async function remoteStartTransaction(params: {
       connectorId: params.connectorId,
       idTag: params.idTag,
       bypassRfid: Boolean(params.bypassRfid),
+      userId: params.userId,
       prepaidPaid: params.prepaidPaid,
       paymentId: params.paymentId,
       sessionId: params.sessionId,

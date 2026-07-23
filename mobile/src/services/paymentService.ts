@@ -8,8 +8,9 @@ import {
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
 import * as chargingService from "./chargingService";
-import { assertChargerOnlineForMobile } from "./chargerService";
+import { assertChargerOnlineForMobile, getChargerById } from "./chargerService";
 import * as sessionService from "./sessionService";
+import * as tariffService from "./tariffService";
 import {
   openRazorpayCheckout,
   isRazorpayUserCancelled,
@@ -19,6 +20,7 @@ import {
 } from "./razorpayService";
 import * as sessionPaymentService from "./sessionPaymentService";
 import { isPrepaidSession } from "../utils/sessionCompletion";
+import { calculateAmountPayment } from "../utils/prepaidPayment";
 import type { Payment, PrepaidPaymentCalculation } from "../types";
 import type { PrepaidPaymentOrderPayload } from "../utils/prepaidPayment";
 
@@ -282,8 +284,8 @@ export type CreateRazorpaySessionPaymentInput = {
 };
 
 /**
- * Prepaid flow: start session → attach prepaid payment → Razorpay checkout → verify.
- * Does not use wallet tables.
+ * Prepaid flow: create pending session → pay → then OCPP RemoteStart.
+ * Charging must not begin before payment succeeds.
  */
 export async function createRazorpaySessionPayment(
   input: CreateRazorpaySessionPaymentInput
@@ -294,22 +296,49 @@ export async function createRazorpaySessionPayment(
       ? payload.custom_amount ?? payload.base_amount
       : payload.duration_minutes;
 
+  // Ensure calculation carries charger tariff rate for amount-mode kWh cap.
+  let calculation = input.calculation;
+  let tariffId = input.tariffId;
+  if (
+    payload.plan_mode === "amount" &&
+    (calculation.ratePerKwh == null || !(calculation.ratePerKwh > 0) || calculation.estimatedKwh == null)
+  ) {
+    const charger = await getChargerById(input.chargerId);
+    const tariff = await tariffService.getTariffForCharger({
+      tariffId: input.tariffId ?? charger?.tariffId,
+      type: charger?.type,
+    });
+    if (tariff && tariff.ratePerKwh > 0) {
+      calculation = calculateAmountPayment(prepaidValue, tariff.ratePerKwh);
+      tariffId = tariff.id;
+    }
+  } else if (!tariffId) {
+    const charger = await getChargerById(input.chargerId);
+    const tariff = await tariffService.getTariffForCharger({
+      tariffId: charger?.tariffId,
+      type: charger?.type,
+    });
+    if (tariff) tariffId = tariff.id;
+  }
+
   const options = chargingService.buildPrepaidSessionOptions({
     mode: payload.plan_mode,
     planId: payload.plan_id,
     prepaidValue,
-    calculation: input.calculation,
-    tariffId: input.tariffId,
+    calculation,
+    tariffId,
   });
+  // Caps/expiry are applied only after payment + live start.
+  options.paymentStatus = "pending";
+  options.prepaidExpiresAt = undefined;
 
-  let sessionId = "";
-  let rolledBack = false;
+  let pendingSessionId = "";
+  let liveSessionId = "";
 
-  const rollback = async () => {
-    if (!sessionId || rolledBack) return;
-    rolledBack = true;
+  const cancelPending = async () => {
+    if (!pendingSessionId) return;
     try {
-      await chargingService.stopCharging(sessionId, input.userId);
+      await chargingService.cancelPendingPrepaidSession(pendingSessionId, input.userId);
     } catch {
       // best-effort
     }
@@ -318,36 +347,19 @@ export async function createRazorpaySessionPayment(
   try {
     await assertChargerOnlineForMobile(input.chargerId);
 
-    const session = await chargingService.startCharging(
-      input.chargerId,
-      input.connectorId,
-      input.userId,
-      options
-    );
-    sessionId = session.id;
+    const pending = await chargingService.createPendingPrepaidSession({
+      chargerId: input.chargerId,
+      connectorId: input.connectorId,
+      userId: input.userId,
+      options,
+    });
+    pendingSessionId = pending.id;
 
     await chargingService.attachPrepaidPaymentRecord(
-      session.id,
+      pending.id,
       input.calculation,
       input.userId
     );
-
-    // Persist order payload on the payment row when metadata column exists (non-fatal).
-    try {
-      const summary = await getSessionPayment(session.id, input.userId);
-      if (summary?.paymentId) {
-        await requireSupabase()
-          .from("EV_Payments")
-          .update({
-            // Some deployments may not have metadata — ignore column errors below.
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", summary.paymentId);
-        console.log("[prepaid] payment order payload:", payload);
-      }
-    } catch {
-      console.log("[prepaid] payment order payload:", payload);
-    }
 
     if (!checkGatewayConfigured()) {
       throw new Error("Unable to create payment order");
@@ -356,8 +368,10 @@ export async function createRazorpaySessionPayment(
       throw new Error("Unable to create payment order");
     }
 
+    let paymentId = "";
+
     if (isPaymentMockEnabled() && !canOpenRazorpayCheckout()) {
-      const summary = await getSessionPayment(session.id, input.userId);
+      const summary = await getSessionPayment(pending.id, input.userId);
       if (summary?.paymentId) {
         await requireSupabase()
           .from("EV_Payments")
@@ -368,41 +382,66 @@ export async function createRazorpaySessionPayment(
             updated_at: new Date().toISOString(),
           })
           .eq("id", summary.paymentId);
-        await chargingService.markSessionPrepaidPaid(
-          session.id,
-          summary.paymentId,
-          input.userId
-        );
+        paymentId = summary.paymentId;
       }
-      return {
-        paymentId: summary?.paymentId ?? "",
-        sessionId: session.id,
-        status: "success",
-      };
+    } else {
+      const result = await processRazorpaySessionPayment(pending.id);
+
+      if (
+        result.cancelled ||
+        result.checkoutFailed ||
+        (result.status !== "success" && result.status !== "paid")
+      ) {
+        await cancelPending();
+        if (result.cancelled) throw new Error("Payment cancelled");
+        throw new Error(result.errorMessage || "Payment failed");
+      }
+      paymentId = result.paymentId || "";
     }
 
-    const result = await processRazorpaySessionPayment(session.id);
-
-    if (
-      result.cancelled ||
-      result.checkoutFailed ||
-      (result.status !== "success" && result.status !== "paid")
-    ) {
-      await rollback();
-      if (result.cancelled) throw new Error("Payment cancelled");
-      throw new Error(result.errorMessage || "Payment failed");
+    if (!paymentId) {
+      await cancelPending();
+      throw new Error("Payment failed");
     }
 
-    if (result.paymentId) {
-      await chargingService.markSessionPrepaidPaid(session.id, result.paymentId, input.userId);
-    }
+    // Payment succeeded — now start the real OCPP session (like web RemoteStart).
+    const paidOptions = {
+      ...options,
+      paymentStatus: "paid" as const,
+      prepaidExpiresAt:
+        options.prepaidMode === "time" && options.prepaidDurationMinutes
+          ? new Date(Date.now() + options.prepaidDurationMinutes * 60_000).toISOString()
+          : undefined,
+    };
 
-    return { ...result, sessionId: session.id };
+    const live = await chargingService.startCharging(
+      input.chargerId,
+      input.connectorId,
+      input.userId,
+      paidOptions
+    );
+    liveSessionId = live.id;
+
+    await chargingService.migratePaymentToLiveSession({
+      pendingSessionId,
+      liveSessionId,
+      paymentId,
+      userId: input.userId,
+      options: paidOptions,
+    });
+
+    return {
+      paymentId,
+      sessionId: liveSessionId,
+      status: "success",
+    };
   } catch (e) {
-    await rollback();
+    if (!liveSessionId) {
+      await cancelPending();
+    }
     if (e instanceof Error) {
       if (
-        /Unable to create payment order|Payment cancelled|Payment failed|Session could not|Connector|USER_INACTIVE|CHARGER/i.test(
+        /Unable to create payment order|Payment cancelled|Payment failed|Session could not|Connector|USER_INACTIVE|CHARGER|RemoteStart|Bind an active RFID|OCPP/i.test(
           e.message
         )
       ) {
@@ -414,7 +453,9 @@ export async function createRazorpaySessionPayment(
       if (/not online|CHARGER_NOT_ONLINE/i.test(e.message)) {
         throw new Error("Cannot start charging because this charger is not online.");
       }
-      throw new Error(sessionId ? "Session could not be started after payment" : e.message);
+      throw new Error(
+        liveSessionId ? "Session could not be started after payment" : e.message
+      );
     }
     throw e;
   }

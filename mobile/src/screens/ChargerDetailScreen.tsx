@@ -95,8 +95,18 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     void load();
-    tariffService.getActiveChargingTariff().then(setTariff).catch(() => setTariff(null));
   }, [load]);
+
+  useEffect(() => {
+    if (!charger) {
+      setTariff(null);
+      return;
+    }
+    tariffService
+      .getTariffForCharger({ tariffId: charger.tariffId, type: charger.type })
+      .then(setTariff)
+      .catch(() => setTariff(null));
+  }, [charger?.id, charger?.tariffId, charger?.type]);
 
   useSupabaseRealtime(load);
 
@@ -124,6 +134,21 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
       Alert.alert(
         t("common.error"),
         t(chargerService.getConnectorBlockMessageKey(selected.status, gunBusy))
+      );
+      return;
+    }
+    const gunStatus = String(selected.status || "")
+      .toLowerCase()
+      .trim();
+    // Physical CPs often accept RemoteStart while Available, then never StartTransaction
+    // (or auth-fail in seconds) until the cable is plugged → Preparing.
+    if (gunStatus === "available") {
+      Alert.alert(
+        t("charger.plugCableTitle", { defaultValue: "Plug in the cable" }),
+        t("charger.plugCableBody", {
+          defaultValue:
+            "Connect the cable to your vehicle and wait until this gun shows Preparing, then tap Start Charging again.",
+        })
       );
       return;
     }
@@ -162,8 +187,12 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
         showChargingErrorAlert(e, t, navigation);
       } else if (/Payment failed|Unable to create payment order/i.test(message)) {
         Alert.alert(t("common.error"), t("prepaid.paymentFailed"));
-      } else if (/Session could not be started/i.test(message)) {
-        Alert.alert(t("common.error"), t("prepaid.sessionStartFailed"));
+      } else if (
+        /Session could not be started|session did not start|started then stopped|Preparing|RemoteStart/i.test(
+          message
+        )
+      ) {
+        Alert.alert(t("common.error"), message);
       } else {
         showChargingErrorAlert(e, t, navigation);
       }
