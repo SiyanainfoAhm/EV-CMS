@@ -1,12 +1,15 @@
 import {
   DEFAULT_AC_FALLBACK_KW,
   DEFAULT_DC_FALLBACK_KW,
-  getEvRatePerKwh,
-  getEvRatePerKwhAsync,
 } from "../config/tariffConfig";
 import { requireSupabase } from "../utils/supabaseClient";
 import type { Charger, EVPrepaidPlan, PrepaidMode, PrepaidPaymentCalculation } from "../types";
 import * as tariffService from "./tariffService";
+import type { ChargerTariff } from "./tariffService";
+import {
+  calculateAmountPayment,
+  calculateTimePayment,
+} from "../utils/prepaidPayment";
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -101,16 +104,14 @@ export function splitPrepaidPlans(plans: EVPrepaidPlan[]): {
 export function parsePowerKwFromText(...texts: Array<string | null | undefined>): number | null {
   for (const text of texts) {
     if (!text) continue;
-    const match = text.match(/(\d+(?:\.\d+)?)\s*(?:kw|dc|ac)?/i);
-    // Prefer patterns like 60DC / 60kW / -60-
     const strong = text.match(/(?:^|[-_\s])(\d+(?:\.\d+)?)(?:\s*)(?:kw|dc)\b/i);
     if (strong) {
       const n = Number(strong[1]);
       if (Number.isFinite(n) && n > 0 && n < 500) return n;
     }
+    const match = text.match(/(\d+(?:\.\d+)?)\s*(?:kw|dc|ac)?/i);
     if (match) {
       const n = Number(match[1]);
-      // Avoid matching years / ids — require DC/kW context or reasonable charger power
       if (/kw|dc/i.test(text) && Number.isFinite(n) && n >= 3 && n <= 400) return n;
     }
   }
@@ -137,89 +138,40 @@ export function resolveChargerPowerKw(charger: Pick<Charger, "maxPowerKw" | "typ
   return { powerKw: DEFAULT_AC_FALLBACK_KW, estimated: true };
 }
 
-async function resolveGstPercent(explicit?: number): Promise<number> {
-  if (explicit != null && Number.isFinite(explicit)) return Math.max(0, explicit);
-  try {
-    const tariff = await tariffService.getActiveChargingTariff();
-    if (tariff && tariff.gstPercent > 0) return tariff.gstPercent;
-  } catch {
-    // no GST
-  }
-  return 0;
-}
-
-function applyGst(baseAmount: number, gstPercent: number): PrepaidPaymentCalculation {
-  const base = round2(baseAmount);
-  const gstAmount = gstPercent > 0 ? round2(base * (gstPercent / 100)) : 0;
-  return {
-    baseAmount: base,
-    gstAmount,
-    totalAmount: round2(base + gstAmount),
-    gstPercent,
-    estimatedKwh: null,
-    durationMinutes: null,
-    ratePerKwh: null,
-    powerKw: null,
-    powerEstimated: false,
-  };
-}
-
 export async function calculateAmountPlanPayment(
   plan: EVPrepaidPlan,
-  options?: { gstPercent?: number }
+  tariff: ChargerTariff
 ): Promise<PrepaidPaymentCalculation> {
   const base = Number(plan.amount ?? plan.value);
   if (!Number.isFinite(base) || base <= 0) {
     throw new Error("Unable to calculate amount");
   }
-  const gstPercent = await resolveGstPercent(options?.gstPercent);
-  return applyGst(base, gstPercent);
+  return calculateAmountPayment(base, tariff);
 }
 
 export async function calculateTimePlanPayment(
   plan: EVPrepaidPlan,
-  charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId">,
-  options?: { ratePerKwh?: number; gstPercent?: number }
+  charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId" | "tariffId">,
+  tariff?: ChargerTariff
 ): Promise<PrepaidPaymentCalculation> {
   const durationMinutes = Number(plan.durationMinutes ?? plan.value);
   if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
     throw new Error("Unable to calculate amount");
   }
 
-  const { powerKw, estimated } = resolveChargerPowerKw(charger);
-  const ratePerKwh =
-    options?.ratePerKwh != null && options.ratePerKwh > 0
-      ? options.ratePerKwh
-      : await getEvRatePerKwhAsync().catch(() => getEvRatePerKwh());
-
-  if (!Number.isFinite(ratePerKwh) || ratePerKwh <= 0 || powerKw <= 0) {
-    throw new Error("Unable to calculate amount");
-  }
-
-  const durationHours = durationMinutes / 60;
-  const estimatedKwh = round3(powerKw * durationHours);
-  const baseAmount = round2(estimatedKwh * ratePerKwh);
-  const gstPercent = await resolveGstPercent(options?.gstPercent);
-  const withGst = applyGst(baseAmount, gstPercent);
-
-  return {
-    ...withGst,
-    estimatedKwh,
-    durationMinutes,
-    ratePerKwh,
-    powerKw,
-    powerEstimated: estimated,
-  };
+  const resolvedTariff = tariff ?? (await tariffService.getTariffForCharger(charger));
+  return calculateTimePayment(charger, durationMinutes, resolvedTariff);
 }
 
 export async function calculatePrepaidPlanPayment(
   plan: EVPrepaidPlan,
-  charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId">
+  charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId" | "tariffId">
 ): Promise<PrepaidPaymentCalculation> {
+  const tariff = await tariffService.getTariffForCharger(charger);
   if (plan.mode === "time") {
-    return calculateTimePlanPayment(plan, charger);
+    return calculateTimePlanPayment(plan, charger, tariff);
   }
-  return calculateAmountPlanPayment(plan);
+  return calculateAmountPlanPayment(plan, tariff);
 }
 
 export function formatPrepaidPlanLabel(plan: EVPrepaidPlan): string {
@@ -246,4 +198,3 @@ export {
   sanitizeAmountInput,
   sanitizeMinutesInput,
 } from "../utils/prepaidPayment";
-

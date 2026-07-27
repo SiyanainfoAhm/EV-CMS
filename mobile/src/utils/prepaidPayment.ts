@@ -1,15 +1,15 @@
 import {
   DEFAULT_AC_FALLBACK_KW,
   DEFAULT_DC_FALLBACK_KW,
-  getEvRatePerKwh,
 } from "../config/tariffConfig";
+import type { ChargerTariff } from "../services/tariffService";
+import { energyBudgetForPrepaidAmount } from "../services/tariffService";
 import type { Charger, PrepaidMode, PrepaidPaymentCalculation } from "../types";
 
 export const MIN_PREPAID_AMOUNT = 50;
 export const MAX_PREPAID_AMOUNT = 10000;
 export const MIN_PREPAID_MINUTES = 10;
 export const MAX_PREPAID_MINUTES = 240;
-export const PREPAID_GST_PERCENT = 18;
 
 export const DEFAULT_AMOUNT_CHIPS = [50, 100, 500, 1000] as const;
 export const DEFAULT_TIME_CHIPS_MINUTES = [10, 15, 30, 60, 120] as const;
@@ -20,26 +20,36 @@ export type PrepaidValidationResult = {
   error: string | null;
 };
 
-export type PrepaidAmountOrderPayload = {
-  plan_mode: "amount";
-  plan_id: string | null;
-  custom_amount: number | null;
-  base_amount: number;
+export type PrepaidOrderPayloadBase = {
+  charger_id: string;
+  charge_point_id: string;
+  charger_type: string;
+  tariff_id: string;
+  tariff_name: string;
+  rate_per_kwh: number;
+  session_fee: number;
+  gst_percent: number;
+  energy_amount: number;
+  subtotal: number;
   gst_amount: number;
   total_amount: number;
 };
 
-export type PrepaidTimeOrderPayload = {
+export type PrepaidAmountOrderPayload = PrepaidOrderPayloadBase & {
+  plan_mode: "amount";
+  plan_id: string | null;
+  custom_amount: number | null;
+  base_amount: number;
+};
+
+export type PrepaidTimeOrderPayload = PrepaidOrderPayloadBase & {
   plan_mode: "time";
   plan_id: string | null;
   custom_duration_minutes: number | null;
   duration_minutes: number;
   charger_power_kw: number;
-  rate_per_kwh: number;
   estimated_kwh: number;
   base_amount: number;
-  gst_amount: number;
-  total_amount: number;
 };
 
 export type PrepaidPaymentOrderPayload = PrepaidAmountOrderPayload | PrepaidTimeOrderPayload;
@@ -133,22 +143,32 @@ export function validatePrepaidMinutes(minutes: unknown): PrepaidValidationResul
   return { valid: true, value: raw, error: null };
 }
 
-export function calculateAmountPayment(
-  amount: number,
-  ratePerKwh: number = getEvRatePerKwh()
-): PrepaidPaymentCalculation {
+/**
+ * Pay by Amount — GST on base only; session fee deducted from energy budget at settlement.
+ * Example: ₹50 base + 18% GST = ₹59 payable.
+ */
+export function calculateAmountPayment(amount: number, tariff: ChargerTariff): PrepaidPaymentCalculation {
   const baseAmount = round2(amount);
-  const gstAmount = round2(baseAmount * (PREPAID_GST_PERCENT / 100));
-  const rate = ratePerKwh > 0 ? ratePerKwh : getEvRatePerKwh();
-  const estimatedKwh = rate > 0 ? round3(baseAmount / rate) : null;
+  const gstPercent = tariff.gstPercent;
+  const gstAmount = round2(baseAmount * (gstPercent / 100));
+  const totalAmount = round2(baseAmount + gstAmount);
+  const energyBudget = energyBudgetForPrepaidAmount(baseAmount, tariff.sessionFee);
+  const estimatedKwh =
+    tariff.ratePerKwh > 0 ? round3(energyBudget / tariff.ratePerKwh) : null;
+
   return {
     baseAmount,
     gstAmount,
-    totalAmount: round2(baseAmount + gstAmount),
-    gstPercent: PREPAID_GST_PERCENT,
+    totalAmount,
+    gstPercent,
     estimatedKwh,
     durationMinutes: null,
-    ratePerKwh: rate,
+    ratePerKwh: tariff.ratePerKwh,
+    sessionFee: tariff.sessionFee,
+    energyAmount: energyBudget,
+    subtotal: baseAmount,
+    tariffId: tariff.id,
+    tariffName: tariff.name,
     powerKw: null,
     powerEstimated: false,
   };
@@ -162,38 +182,87 @@ export function resolveChargerPowerKwForPayment(
   }
 
   const type = (charger.type || "").toLowerCase();
-  if (type.includes("dc") || type.includes("fast")) {
+  const model = String(charger.model || charger.name || "").toLowerCase();
+  if (model.includes("60dc") || type.includes("dc")) {
+    return { powerKw: DEFAULT_DC_FALLBACK_KW, estimated: true };
+  }
+  if (type.includes("ac")) {
+    return { powerKw: DEFAULT_AC_FALLBACK_KW, estimated: true };
+  }
+  const kw = Number(charger.maxPowerKw ?? 0);
+  if (kw >= 25) {
     return { powerKw: DEFAULT_DC_FALLBACK_KW, estimated: true };
   }
   return { powerKw: DEFAULT_AC_FALLBACK_KW, estimated: true };
 }
 
+/**
+ * Pay by Time — energy + session fee + GST on subtotal.
+ * DC Fast 60 kW × 10 min → ₹200.60 (see product spec).
+ */
 export function calculateTimePayment(
   charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId">,
   durationMinutes: number,
-  ratePerKwh: number = getEvRatePerKwh()
+  tariff: ChargerTariff
 ): PrepaidPaymentCalculation {
   const { powerKw, estimated } = resolveChargerPowerKwForPayment(charger);
-  const rate = ratePerKwh > 0 ? ratePerKwh : getEvRatePerKwh();
   const durationHours = durationMinutes / 60;
   const estimatedKwh = round3(powerKw * durationHours);
-  const baseAmount = round2(estimatedKwh * rate);
-  const gstAmount = round2(baseAmount * (PREPAID_GST_PERCENT / 100));
+  const energyAmount = round2(estimatedKwh * tariff.ratePerKwh);
+  const sessionFee = round2(tariff.sessionFee || 0);
+  const subtotal = round2(energyAmount + sessionFee);
+  const gstAmount = round2(subtotal * (tariff.gstPercent / 100));
+  const totalAmount = round2(subtotal + gstAmount);
 
   return {
-    baseAmount,
+    baseAmount: subtotal,
     gstAmount,
-    totalAmount: round2(baseAmount + gstAmount),
-    gstPercent: PREPAID_GST_PERCENT,
+    totalAmount,
+    gstPercent: tariff.gstPercent,
     estimatedKwh,
     durationMinutes,
-    ratePerKwh: rate,
+    ratePerKwh: tariff.ratePerKwh,
+    sessionFee,
+    energyAmount,
+    subtotal,
+    tariffId: tariff.id,
+    tariffName: tariff.name,
     powerKw,
     powerEstimated: estimated,
   };
 }
 
+function tariffPayloadFields(
+  tariff: ChargerTariff,
+  calculation: PrepaidPaymentCalculation
+): Pick<
+  PrepaidOrderPayloadBase,
+  | "tariff_id"
+  | "tariff_name"
+  | "rate_per_kwh"
+  | "session_fee"
+  | "gst_percent"
+  | "energy_amount"
+  | "subtotal"
+  | "gst_amount"
+  | "total_amount"
+> {
+  return {
+    tariff_id: tariff.id,
+    tariff_name: tariff.name,
+    rate_per_kwh: tariff.ratePerKwh,
+    session_fee: tariff.sessionFee,
+    gst_percent: tariff.gstPercent,
+    energy_amount: calculation.energyAmount ?? calculation.baseAmount,
+    subtotal: calculation.subtotal ?? calculation.baseAmount,
+    gst_amount: calculation.gstAmount,
+    total_amount: calculation.totalAmount,
+  };
+}
+
 export function buildAmountOrderPayload(input: {
+  charger: Pick<Charger, "id" | "chargePointId" | "type">;
+  tariff: ChargerTariff;
   planId: string | null;
   isCustom: boolean;
   amount: number;
@@ -204,12 +273,16 @@ export function buildAmountOrderPayload(input: {
     plan_id: input.isCustom ? null : input.planId,
     custom_amount: input.isCustom ? input.amount : null,
     base_amount: input.calculation.baseAmount,
-    gst_amount: input.calculation.gstAmount,
-    total_amount: input.calculation.totalAmount,
+    charger_id: input.charger.id,
+    charge_point_id: input.charger.chargePointId,
+    charger_type: input.charger.type,
+    ...tariffPayloadFields(input.tariff, input.calculation),
   };
 }
 
 export function buildTimeOrderPayload(input: {
+  charger: Pick<Charger, "id" | "chargePointId" | "type">;
+  tariff: ChargerTariff;
   planId: string | null;
   isCustom: boolean;
   durationMinutes: number;
@@ -221,11 +294,12 @@ export function buildTimeOrderPayload(input: {
     custom_duration_minutes: input.isCustom ? input.durationMinutes : null,
     duration_minutes: input.durationMinutes,
     charger_power_kw: input.calculation.powerKw ?? 0,
-    rate_per_kwh: input.calculation.ratePerKwh ?? getEvRatePerKwh(),
     estimated_kwh: input.calculation.estimatedKwh ?? 0,
-    base_amount: input.calculation.baseAmount,
-    gst_amount: input.calculation.gstAmount,
-    total_amount: input.calculation.totalAmount,
+    base_amount: input.calculation.subtotal ?? input.calculation.baseAmount,
+    charger_id: input.charger.id,
+    charge_point_id: input.charger.chargePointId,
+    charger_type: input.charger.type,
+    ...tariffPayloadFields(input.tariff, input.calculation),
   };
 }
 
@@ -248,4 +322,12 @@ export function matchPlanIdByValue(
     return Math.abs(planValue - value) < 0.001;
   });
   return match?.id ?? null;
+}
+
+/** Debug log for prepaid tariff/payment flow. */
+export function logPrepaidCalculation(
+  label: string,
+  data: Record<string, unknown>
+): void {
+  console.log(`[prepaid] ${label}`, data);
 }

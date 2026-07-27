@@ -66,6 +66,11 @@ export interface PrepaidPaymentCalculation {
   estimatedKwh: number | null;
   durationMinutes: number | null;
   ratePerKwh: number | null;
+  sessionFee?: number | null;
+  energyAmount?: number | null;
+  subtotal?: number | null;
+  tariffId?: string | null;
+  tariffName?: string | null;
   powerKw: number | null;
   powerEstimated: boolean;
 }

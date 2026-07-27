@@ -103,10 +103,10 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
       return;
     }
     tariffService
-      .getTariffForCharger({ tariffId: charger.tariffId, type: charger.type })
+      .getTariffForCharger(charger)
       .then(setTariff)
       .catch(() => setTariff(null));
-  }, [charger?.id, charger?.tariffId, charger?.type]);
+  }, [charger?.id, charger?.tariffId, charger?.type, charger?.maxPowerKw]);
 
   useSupabaseRealtime(load);
 
@@ -171,7 +171,7 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
         userId: user.id,
         calculation: result.calculation,
         paymentPayload: result.paymentPayload,
-        tariffId: tariff?.id ?? charger.tariffId ?? undefined,
+        tariff: result.tariff,
       });
       navigation.navigate("LiveSession");
     } catch (e) {
@@ -282,11 +282,21 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
               </FieldRow>
             ) : null}
             {tariff ? (
-              <FieldRow label={t("chargePrice.todaysRate")}>
-                <Text style={styles.rateHighlight}>
-                  {formatCurrency(tariff.ratePerKwh)}/kWh
-                </Text>
-              </FieldRow>
+              <>
+                <FieldRow label={t("chargePrice.todaysRate")}>
+                  <Text style={styles.rateHighlight}>
+                    {formatCurrency(tariff.ratePerKwh)}/kWh
+                  </Text>
+                </FieldRow>
+                <FieldRow label={t("prepaid.tariffName", { defaultValue: "Tariff" })}>
+                  <Text style={styles.value}>{tariff.name}</Text>
+                </FieldRow>
+                {tariff.sessionFee > 0 ? (
+                  <FieldRow label={t("prepaid.sessionFee", { defaultValue: "Session fee" })}>
+                    <Text style={styles.value}>{formatCurrency(tariff.sessionFee)}</Text>
+                  </FieldRow>
+                ) : null}
+              </>
             ) : null}
             <FieldRow label={t("charger.headers.lastHeartbeat")}>
               <Text style={styles.value}>{formatHeartbeatAgo(charger.lastHeartbeat)}</Text>

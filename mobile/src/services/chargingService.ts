@@ -3,7 +3,7 @@ import { requireUserId } from "./authService";
 import * as rfidService from "./rfidService";
 import * as sessionService from "./sessionService";
 import { assertChargerOnlineForMobile } from "./chargerService";
-import { getEvRatePerKwh } from "../config/tariffConfig";
+import type { ChargerTariff } from "./tariffService";
 import type { ChargingSession, PrepaidPaymentCalculation } from "../types";
 
 async function assertUserCanCharge(userId: string): Promise<void> {
@@ -31,6 +31,9 @@ export type StartChargingPrepaidOptions = {
   prepaidAmount?: number;
   targetKwh?: number;
   tariffId?: string;
+  ratePerKwhSnapshot?: number;
+  sessionFeeSnapshot?: number;
+  gstPercentSnapshot?: number;
   prepaidMode?: "amount" | "time";
   prepaidValue?: number;
   prepaidTotalInr?: number;
@@ -72,6 +75,9 @@ export async function createPendingPrepaidSession(input: {
 
   const o = input.options;
   if (o.tariffId) insert.tariff_id = o.tariffId;
+  if (o.ratePerKwhSnapshot != null) insert.rate_per_kwh_snapshot = o.ratePerKwhSnapshot;
+  if (o.sessionFeeSnapshot != null) insert.session_fee_snapshot = o.sessionFeeSnapshot;
+  if (o.gstPercentSnapshot != null) insert.gst_percent_snapshot = o.gstPercentSnapshot;
   if (o.prepaidMode) {
     insert.prepaid_mode = o.prepaidMode;
     insert.prepaid_type = o.prepaidMode;
@@ -106,6 +112,9 @@ export async function createPendingPrepaidSession(input: {
       "prepaid_duration_minutes",
       "authorization_method",
       "tariff_id",
+      "rate_per_kwh_snapshot",
+      "session_fee_snapshot",
+      "gst_percent_snapshot",
     ];
     const stripped = { ...insert };
     for (const key of optional) {
@@ -165,9 +174,7 @@ export async function applyPrepaidLimitsToLiveSession(
   const energyCap =
     o.prepaidEnergyCapKwh != null && o.prepaidEnergyCapKwh > 0
       ? o.prepaidEnergyCapKwh
-      : o.prepaidMode === "amount" && o.prepaidValue != null && o.prepaidValue > 0
-        ? Math.round((Number(o.prepaidValue) / getEvRatePerKwh()) * 1000) / 1000
-        : undefined;
+      : undefined;
 
   const update: Record<string, unknown> = {
     payment_mode: "prepaid",
@@ -192,7 +199,12 @@ export async function applyPrepaidLimitsToLiveSession(
   } else if (o.targetKwh != null) {
     update.target_kwh = o.targetKwh;
   }
-  if (o.tariffId) update.tariff_id = o.tariffId;
+  if (o.tariffId && !String(o.tariffId).startsWith("fallback-")) {
+    update.tariff_id = o.tariffId;
+  }
+  if (o.ratePerKwhSnapshot != null) update.rate_per_kwh_snapshot = o.ratePerKwhSnapshot;
+  if (o.sessionFeeSnapshot != null) update.session_fee_snapshot = o.sessionFeeSnapshot;
+  if (o.gstPercentSnapshot != null) update.gst_percent_snapshot = o.gstPercentSnapshot;
   if (o.prepaidPlanId) update.prepaid_plan_id = o.prepaidPlanId;
   if (o.prepaidDurationMinutes != null) {
     update.prepaid_duration_minutes = o.prepaidDurationMinutes;
@@ -391,26 +403,27 @@ export function buildPrepaidSessionOptions(
     planId?: string | null;
     prepaidValue: number;
     calculation: PrepaidPaymentCalculation;
-    tariffId?: string;
+    tariff: ChargerTariff;
   }
 ): StartChargingPrepaidOptions {
   const calc = input.calculation;
-  const rate =
-    calc.ratePerKwh && calc.ratePerKwh > 0 ? calc.ratePerKwh : getEvRatePerKwh();
+  const tariff = input.tariff;
 
+  // Amount mode: energy cap from (base - session fee) / rate; time mode uses duration only.
   const energyCap =
-    input.mode === "amount"
-      ? calc.estimatedKwh && calc.estimatedKwh > 0
-        ? calc.estimatedKwh
-        : rate > 0 && calc.baseAmount > 0
-          ? Math.round((calc.baseAmount / rate) * 1000) / 1000
-          : undefined
-      : undefined; // time mode stops on expires_at only — do not set energy auto-stop cap
+    input.mode === "amount" && calc.estimatedKwh != null && calc.estimatedKwh > 0
+      ? calc.estimatedKwh
+      : undefined;
+
+  const tariffId = tariff.id.startsWith("fallback-") ? undefined : tariff.id;
 
   return {
     prepaidAmount: calc.totalAmount,
     targetKwh: calc.estimatedKwh ?? energyCap,
-    tariffId: input.tariffId,
+    tariffId,
+    ratePerKwhSnapshot: tariff.ratePerKwh,
+    sessionFeeSnapshot: tariff.sessionFee,
+    gstPercentSnapshot: tariff.gstPercent,
     prepaidMode: input.mode,
     prepaidValue: input.prepaidValue,
     prepaidTotalInr: calc.totalAmount,
