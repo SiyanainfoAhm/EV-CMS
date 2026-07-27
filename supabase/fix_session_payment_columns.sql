@@ -20,7 +20,17 @@ ALTER TABLE "EV_ChargingSessions"
   ADD COLUMN IF NOT EXISTS settlement_amount NUMERIC(12, 2),
   ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2),
   ADD COLUMN IF NOT EXISTS target_kwh NUMERIC(12, 3),
-  ADD COLUMN IF NOT EXISTS authorization_method TEXT;
+  ADD COLUMN IF NOT EXISTS authorization_method TEXT,
+  ADD COLUMN IF NOT EXISTS rate_per_kwh_snapshot NUMERIC(12, 2),
+  ADD COLUMN IF NOT EXISTS session_fee_snapshot NUMERIC(12, 2),
+  ADD COLUMN IF NOT EXISTS gst_percent_snapshot NUMERIC(5, 2);
+
+COMMENT ON COLUMN "EV_ChargingSessions".rate_per_kwh_snapshot IS
+  'Tariff rate at prepaid purchase time (₹/kWh)';
+COMMENT ON COLUMN "EV_ChargingSessions".session_fee_snapshot IS
+  'Session fee at prepaid purchase time';
+COMMENT ON COLUMN "EV_ChargingSessions".gst_percent_snapshot IS
+  'GST percent at prepaid purchase time';
 
 COMMENT ON COLUMN "EV_ChargingSessions".amount_due IS
   'Post-session amount still owed; must stay 0 for prepaid sessions';

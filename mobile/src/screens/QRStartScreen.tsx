@@ -147,7 +147,7 @@ export default function QRStartScreen({ navigation, route }: Props) {
         userId: user.id,
         calculation: result.calculation,
         paymentPayload: result.paymentPayload,
-        tariffId: pendingStart.charger.tariffId ?? undefined,
+        tariff: result.tariff,
       });
       setPendingStart(null);
       navigation.replace("LiveSession");

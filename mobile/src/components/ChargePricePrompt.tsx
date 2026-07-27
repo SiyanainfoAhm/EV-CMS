@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import AppButton from "./AppButton";
 import * as prepaidPlanService from "../services/prepaidPlanService";
 import * as tariffService from "../services/tariffService";
-import { getEvRatePerKwh } from "../config/tariffConfig";
+import type { ChargerTariff } from "../services/tariffService";
 import {
   DEFAULT_AMOUNT_CHIPS,
   DEFAULT_TIME_CHIPS_MINUTES,
@@ -24,6 +24,7 @@ import {
   calculateAmountPayment,
   calculateTimePayment,
   formatTimeChipLabel,
+  logPrepaidCalculation,
   matchPlanIdByValue,
   sanitizeAmountInput,
   sanitizeMinutesInput,
@@ -47,6 +48,7 @@ export type PrepaidPlanResult = {
   isCustom: boolean;
   calculation: PrepaidPaymentCalculation;
   paymentPayload: PrepaidPaymentOrderPayload;
+  tariff: ChargerTariff;
 };
 
 /** @deprecated Use PrepaidPlanResult */
@@ -75,11 +77,11 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
   const [selection, setSelection] = useState<Selection>(null);
   const [customAmountText, setCustomAmountText] = useState("");
   const [customMinutesText, setCustomMinutesText] = useState("");
-  const [ratePerKwh, setRatePerKwh] = useState(getEvRatePerKwh());
+  const [tariff, setTariff] = useState<ChargerTariff | null>(null);
   const [inlineError, setInlineError] = useState("");
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !charger) return;
     setMode("amount");
     setSelection(null);
     setCustomAmountText("");
@@ -92,18 +94,21 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
       .catch(() => setPlans([]))
       .finally(() => setLoading(false));
 
-    // Rate must come from this charger's tariff (not a global default).
     tariffService
-      .getTariffForCharger({
-        tariffId: charger?.tariffId,
-        type: charger?.type,
+      .getTariffForCharger(charger)
+      .then((t) => {
+        setTariff(t);
+        logPrepaidCalculation("modal tariff loaded", {
+          charger_type: charger.type,
+          tariff_id: t.id,
+          tariff_name: t.name,
+          rate_per_kwh: t.ratePerKwh,
+          session_fee: t.sessionFee,
+          gst_percent: t.gstPercent,
+        });
       })
-      .then((tariff) => {
-        if (tariff && tariff.ratePerKwh > 0) setRatePerKwh(tariff.ratePerKwh);
-        else setRatePerKwh(getEvRatePerKwh());
-      })
-      .catch(() => setRatePerKwh(getEvRatePerKwh()));
-  }, [visible, charger?.tariffId, charger?.type]);
+      .catch(() => setTariff(null));
+  }, [visible, charger?.id, charger?.tariffId, charger?.type, charger?.maxPowerKw]);
 
   const { amountPlans, timePlans } = useMemo(
     () => prepaidPlanService.splitPrepaidPlans(plans),
@@ -129,7 +134,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
   }, [timePlans]);
 
   const resolved = useMemo(() => {
-    if (!selection) {
+    if (!selection || !tariff) {
       return { calculation: null as PrepaidPaymentCalculation | null, error: "", planId: null as string | null, value: null as number | null };
     }
 
@@ -140,7 +145,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
           return { calculation: null, error: validation.error ?? "", planId: null, value: null };
         }
         return {
-          calculation: calculateAmountPayment(validation.value, ratePerKwh),
+          calculation: calculateAmountPayment(validation.value, tariff),
           error: "",
           planId: matchPlanIdByValue(amountPlans, "amount", validation.value),
           value: validation.value,
@@ -156,7 +161,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
         };
       }
       return {
-        calculation: calculateAmountPayment(validation.value, ratePerKwh),
+        calculation: calculateAmountPayment(validation.value, tariff),
         error: "",
         planId: null,
         value: validation.value,
@@ -175,7 +180,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
         };
       }
       return {
-        calculation: calculateTimePayment(charger, validation.value, ratePerKwh),
+        calculation: calculateTimePayment(charger, validation.value, tariff),
         error: "",
         planId: matchPlanIdByValue(timePlans, "time", validation.value),
         value: validation.value,
@@ -195,7 +200,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
       return { calculation: null, error: t("prepaid.unableToCalculate"), planId: null, value: null };
     }
     return {
-      calculation: calculateTimePayment(charger, validation.value, ratePerKwh),
+      calculation: calculateTimePayment(charger, validation.value, tariff),
       error: "",
       planId: null,
       value: validation.value,
@@ -208,7 +213,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
     charger,
     amountPlans,
     timePlans,
-    ratePerKwh,
+    tariff,
     t,
   ]);
 
@@ -218,6 +223,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
 
   const canPay =
     Boolean(charger) &&
+    Boolean(tariff) &&
     selection != null &&
     resolved.calculation != null &&
     resolved.calculation.totalAmount > 0 &&
@@ -246,7 +252,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
   };
 
   const confirm = () => {
-    if (!canPay || !resolved.calculation || resolved.value == null || !selection) return;
+    if (!canPay || !resolved.calculation || resolved.value == null || !selection || !charger || !tariff) return;
 
     const isCustom = selection.kind === "custom";
     const plan =
@@ -257,17 +263,33 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
     const paymentPayload =
       mode === "amount"
         ? buildAmountOrderPayload({
+            charger,
+            tariff,
             planId: resolved.planId,
             isCustom,
             amount: resolved.value,
             calculation: resolved.calculation,
           })
         : buildTimeOrderPayload({
+            charger,
+            tariff,
             planId: resolved.planId,
             isCustom,
             durationMinutes: resolved.value,
             calculation: resolved.calculation,
           });
+
+    logPrepaidCalculation("confirm", {
+      plan_mode: mode,
+      selected_value: resolved.value,
+      estimated_kwh: resolved.calculation.estimatedKwh,
+      subtotal: resolved.calculation.subtotal ?? resolved.calculation.baseAmount,
+      gst_amount: resolved.calculation.gstAmount,
+      total_amount: resolved.calculation.totalAmount,
+      tariff_id: tariff.id,
+      rate_per_kwh: tariff.ratePerKwh,
+      session_fee: tariff.sessionFee,
+    });
 
     onConfirm({
       mode,
@@ -275,6 +297,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
       isCustom,
       calculation: resolved.calculation,
       paymentPayload,
+      tariff,
     });
   };
 
@@ -412,18 +435,50 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
               <Text style={styles.error}>{inlineError}</Text>
             ) : null}
 
-            {resolved.calculation ? (
+            {resolved.calculation && tariff ? (
               <View style={styles.summary}>
-                {ratePerKwh > 0 ? (
-                  <Text style={styles.metaLine}>
-                    {t("prepaid.ratePerKwh", {
-                      defaultValue: "Rate: {{rate}}/kWh",
-                      rate: formatCurrency(ratePerKwh),
-                    })}
+                <Text style={styles.metaLine}>
+                  {t("prepaid.tariffName", {
+                    defaultValue: "Tariff: {{name}}",
+                    name: tariff.name,
+                  })}
+                </Text>
+                <Text style={styles.metaLine}>
+                  {t("prepaid.ratePerKwh", {
+                    defaultValue: "Rate: {{rate}}/kWh",
+                    rate: formatCurrency(tariff.ratePerKwh),
+                  })}
+                </Text>
+                <Text style={styles.metaLine}>
+                  {t("prepaid.sessionFee", {
+                    defaultValue: "Session fee: {{fee}}",
+                    fee:
+                      tariff.sessionFee > 0
+                        ? formatCurrency(tariff.sessionFee)
+                        : t("prepaid.sessionFeeFree", { defaultValue: "Free" }),
+                  })}
+                </Text>
+                <Text style={styles.metaLine}>
+                  {t("prepaid.gstLabel", {
+                    defaultValue: "GST: {{percent}}%",
+                    percent: tariff.gstPercent,
+                  })}
+                </Text>
+                {mode === "time" && resolved.calculation.energyAmount != null ? (
+                  <Text style={styles.summaryLine}>
+                    {t("prepaid.energyAmount", { defaultValue: "Energy" })}:{" "}
+                    {formatCurrency(resolved.calculation.energyAmount)}
+                  </Text>
+                ) : null}
+                {mode === "time" && tariff.sessionFee > 0 ? (
+                  <Text style={styles.summaryLine}>
+                    {t("prepaid.sessionFee", { defaultValue: "Session fee" })}:{" "}
+                    {formatCurrency(tariff.sessionFee)}
                   </Text>
                 ) : null}
                 <Text style={styles.summaryLine}>
-                  {t("prepaid.baseAmount")}: {formatCurrency(resolved.calculation.baseAmount)}
+                  {t("prepaid.baseAmount")}:{" "}
+                  {formatCurrency(resolved.calculation.subtotal ?? resolved.calculation.baseAmount)}
                 </Text>
                 <Text style={styles.summaryLine}>
                   {t("prepaid.gstAmount", { percent: resolved.calculation.gstPercent })}:{" "}
@@ -435,7 +490,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
                 {resolved.calculation.estimatedKwh != null ? (
                   <Text style={styles.metaLine}>
                     {t("prepaid.estimatedEnergy", {
-                      kwh: resolved.calculation.estimatedKwh.toFixed(2),
+                      kwh: resolved.calculation.estimatedKwh.toFixed(3),
                       kw: resolved.calculation.powerKw ?? "—",
                     })}
                   </Text>

@@ -20,9 +20,10 @@ import {
 } from "./razorpayService";
 import * as sessionPaymentService from "./sessionPaymentService";
 import { isPrepaidSession } from "../utils/sessionCompletion";
-import { calculateAmountPayment } from "../utils/prepaidPayment";
+import { calculateAmountPayment, logPrepaidCalculation } from "../utils/prepaidPayment";
 import type { Payment, PrepaidPaymentCalculation } from "../types";
 import type { PrepaidPaymentOrderPayload } from "../utils/prepaidPayment";
+import type { ChargerTariff } from "./tariffService";
 
 export type RazorpaySessionPaymentResult = {
   paymentId: string;
@@ -280,7 +281,7 @@ export type CreateRazorpaySessionPaymentInput = {
   userId?: string;
   calculation: PrepaidPaymentCalculation;
   paymentPayload: PrepaidPaymentOrderPayload;
-  tariffId?: string;
+  tariff: ChargerTariff;
 };
 
 /**
@@ -296,37 +297,51 @@ export async function createRazorpaySessionPayment(
       ? payload.custom_amount ?? payload.base_amount
       : payload.duration_minutes;
 
-  // Ensure calculation carries charger tariff rate for amount-mode kWh cap.
+  const charger = await getChargerById(input.chargerId);
+  const tariff =
+    input.tariff ??
+    (charger
+      ? await tariffService.getTariffForCharger(charger)
+      : await tariffService.getTariffForCharger({
+          tariffId: payload.tariff_id,
+          type: payload.charger_type,
+          maxPowerKw: payload.plan_mode === "time" ? payload.charger_power_kw : 0,
+          model: null,
+          name: "",
+          chargePointId: payload.charge_point_id,
+        }));
+
   let calculation = input.calculation;
-  let tariffId = input.tariffId;
   if (
     payload.plan_mode === "amount" &&
-    (calculation.ratePerKwh == null || !(calculation.ratePerKwh > 0) || calculation.estimatedKwh == null)
+    (calculation.ratePerKwh == null || calculation.estimatedKwh == null)
   ) {
-    const charger = await getChargerById(input.chargerId);
-    const tariff = await tariffService.getTariffForCharger({
-      tariffId: input.tariffId ?? charger?.tariffId,
-      type: charger?.type,
-    });
-    if (tariff && tariff.ratePerKwh > 0) {
-      calculation = calculateAmountPayment(prepaidValue, tariff.ratePerKwh);
-      tariffId = tariff.id;
-    }
-  } else if (!tariffId) {
-    const charger = await getChargerById(input.chargerId);
-    const tariff = await tariffService.getTariffForCharger({
-      tariffId: charger?.tariffId,
-      type: charger?.type,
-    });
-    if (tariff) tariffId = tariff.id;
+    calculation = calculateAmountPayment(prepaidValue, tariff);
   }
+
+  logPrepaidCalculation("payment start", {
+    charger_id: input.chargerId,
+    charger_type: charger?.type ?? payload.charger_type,
+    connector_id: input.connectorId,
+    plan_mode: payload.plan_mode,
+    tariff_id: tariff.id,
+    tariff_name: tariff.name,
+    rate_per_kwh: tariff.ratePerKwh,
+    session_fee: tariff.sessionFee,
+    gst_percent: tariff.gstPercent,
+    selected_value: prepaidValue,
+    estimated_kwh: calculation.estimatedKwh,
+    subtotal: calculation.subtotal ?? calculation.baseAmount,
+    gst_amount: calculation.gstAmount,
+    total_amount: calculation.totalAmount,
+  });
 
   const options = chargingService.buildPrepaidSessionOptions({
     mode: payload.plan_mode,
     planId: payload.plan_id,
     prepaidValue,
     calculation,
-    tariffId,
+    tariff,
   });
   // Caps/expiry are applied only after payment + live start.
   options.paymentStatus = "pending";
@@ -357,7 +372,7 @@ export async function createRazorpaySessionPayment(
 
     await chargingService.attachPrepaidPaymentRecord(
       pending.id,
-      input.calculation,
+      calculation,
       input.userId
     );
 
@@ -404,6 +419,12 @@ export async function createRazorpaySessionPayment(
       throw new Error("Payment failed");
     }
 
+    logPrepaidCalculation("razorpay success", {
+      payment_id: paymentId,
+      pending_session_id: pendingSessionId,
+      total_amount: calculation.totalAmount,
+    });
+
     // Payment succeeded — now start the real OCPP session (like web RemoteStart).
     const paidOptions = {
       ...options,
@@ -421,6 +442,14 @@ export async function createRazorpaySessionPayment(
       paidOptions
     );
     liveSessionId = live.id;
+
+    logPrepaidCalculation("ocpp session started", {
+      live_session_id: liveSessionId,
+      transaction_id: live.transactionId,
+      status: live.status,
+      prepaid_energy_cap_kwh: paidOptions.prepaidEnergyCapKwh,
+      prepaid_duration_minutes: paidOptions.prepaidDurationMinutes,
+    });
 
     await chargingService.migratePaymentToLiveSession({
       pendingSessionId,
