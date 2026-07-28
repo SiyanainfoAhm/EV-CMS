@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getConnection, isConnected, listConnections } from "../ocpp/connections.js";
 import { sendOcppCall } from "../ocpp/caller.js";
 import { config } from "../config.js";
+import { ADMIN_BYPASS_ID_TAG, enableAdminRfidBypass } from "../ocpp/adminBypass.js";
 import { setPendingStartUser } from "../ocpp/pendingStartUser.js";
 import { isSupabaseConfigured } from "../supabase/client.js";
 import * as repo from "../supabase/repository.js";
@@ -69,7 +70,7 @@ ocppRouter.get("/connected", (_req, res) => {
 
 ocppRouter.post("/remote-start", async (req, res) => {
   try {
-    const { chargePointId, connectorId, idTag, prepaidPaid, paymentId, sessionId, userId } =
+    const { chargePointId, connectorId, idTag, bypassRfid, prepaidPaid, paymentId, sessionId, userId } =
       req.body as {
         chargePointId?: string;
         connectorId?: number;
@@ -87,17 +88,18 @@ ocppRouter.post("/remote-start", async (req, res) => {
       return;
     }
     const cpId = String(chargePointId).toUpperCase();
-    const resolvedIdTag = String(idTag ?? "").trim();
+    const adminBypass = Boolean(bypassRfid) || config.bypassRfidAuth;
+    const resolvedIdTag = adminBypass
+      ? ADMIN_BYPASS_ID_TAG
+      : String(idTag ?? "").trim();
+
     if (!resolvedIdTag) {
-      res.status(400).json({ accepted: false, error: "idTag required (MOBILE-{userId} or RFID UID)" });
+      res.status(400).json({ accepted: false, error: "idTag required (MOBILE-{userId}, RFID UID, or admin bypassRfid)" });
       return;
     }
-    if (resolvedIdTag.toUpperCase() === "ADMIN-BYPASS") {
-      res.status(400).json({
-        accepted: false,
-        error: "ADMIN-BYPASS is removed. Use MOBILE-{userId} or an assigned RFID card.",
-      });
-      return;
+
+    if (adminBypass) {
+      enableAdminRfidBypass(cpId);
     }
 
     let charger: repo.ChargerRow | null = null;
@@ -121,6 +123,7 @@ ocppRouter.post("/remote-start", async (req, res) => {
         await repo.logEvent(charger.id, cpId, Number(connectorId), "RemoteStartTransaction", {
           idTag: resolvedIdTag,
           response,
+          bypassRfid: adminBypass,
           prepaidPaid: Boolean(prepaidPaid),
           paymentId: paymentId ?? null,
           sessionId: sessionId ?? null,
@@ -136,7 +139,7 @@ ocppRouter.post("/remote-start", async (req, res) => {
         );
       }
     }
-    res.json({ accepted, response, idTag: resolvedIdTag });
+    res.json({ accepted, response, idTag: resolvedIdTag, bypassRfid: adminBypass });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Remote start failed";
     const prepaidPaid = Boolean((req.body as { prepaidPaid?: boolean })?.prepaidPaid);
@@ -153,7 +156,7 @@ ocppRouter.post("/remote-start", async (req, res) => {
 
 ocppRouter.post("/remote-stop", async (req, res) => {
   try {
-    const { chargePointId, transactionId } = req.body as {
+    const { chargePointId, transactionId, bypassRfid } = req.body as {
       chargePointId?: string;
       transactionId?: number;
       bypassRfid?: boolean;
@@ -163,6 +166,9 @@ ocppRouter.post("/remote-stop", async (req, res) => {
       return;
     }
     const cpId = String(chargePointId).toUpperCase();
+    if (bypassRfid || config.bypassRfidAuth) {
+      enableAdminRfidBypass(cpId);
+    }
     const response = await sendOcppCall(cpId, "RemoteStopTransaction", {
       transactionId: Number(transactionId),
     });

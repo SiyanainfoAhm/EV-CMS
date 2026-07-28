@@ -302,6 +302,7 @@ export default function SessionsPage() {
                   <option value="all">All Auth</option>
                   <option value="RFID">RFID</option>
                   <option value="Mobile">Mobile</option>
+                  <option value="Remote">Admin</option>
                 </select>
                 <input
                   type="text"

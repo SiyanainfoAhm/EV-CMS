@@ -63,7 +63,7 @@ async function insertAuditLog(row: {
   }
 }
 
-export async function logLabBypassRemoteStart(input: {
+export async function logAdminRemoteStart(input: {
   userId: string;
   chargePointId: string;
   connectorId: number;
@@ -71,11 +71,21 @@ export async function logLabBypassRemoteStart(input: {
 }): Promise<void> {
   await insertAuditLog({
     user_id: input.userId,
-    action: "Lab Bypass Remote Start",
+    action: "Admin Remote Start",
     entity_type: "Charger",
     entity_id: input.chargerId,
-    details: `Admin RemoteStart without prepaid on ${input.chargePointId} Gun ${input.connectorId} (allow_admin_bypass)`,
+    details: `Admin RemoteStart on ${input.chargePointId} Gun ${input.connectorId} (attributed to admin user)`,
   });
+}
+
+/** @deprecated Use logAdminRemoteStart */
+export async function logLabBypassRemoteStart(input: {
+  userId: string;
+  chargePointId: string;
+  connectorId: number;
+  chargerId: string;
+}): Promise<void> {
+  return logAdminRemoteStart(input);
 }
 
 /** Admin tried RemoteStart on a production charger (lab bypass off). */
@@ -94,8 +104,8 @@ export async function logBlockedRemoteStart(input: {
   });
 }
 
-/** Lab bypass Start attempted but OCPP/gateway rejected or failed. */
-export async function logFailedLabBypassRemoteStart(input: {
+/** Admin RemoteStart attempted but OCPP/gateway rejected or failed. */
+export async function logFailedAdminRemoteStart(input: {
   userId: string;
   chargePointId: string;
   connectorId: number;
@@ -105,11 +115,22 @@ export async function logFailedLabBypassRemoteStart(input: {
   const reason = input.reason.trim().slice(0, 240) || "unknown error";
   await insertAuditLog({
     user_id: input.userId,
-    action: "Failed Lab Bypass Remote Start",
+    action: "Failed Admin Remote Start",
     entity_type: "Charger",
     entity_id: input.chargerId,
-    details: `Lab bypass RemoteStart failed on ${input.chargePointId} Gun ${input.connectorId}: ${reason}`,
+    details: `Admin RemoteStart failed on ${input.chargePointId} Gun ${input.connectorId}: ${reason}`,
   });
+}
+
+/** @deprecated Use logFailedAdminRemoteStart */
+export async function logFailedLabBypassRemoteStart(input: {
+  userId: string;
+  chargePointId: string;
+  connectorId: number;
+  chargerId: string;
+  reason: string;
+}): Promise<void> {
+  return logFailedAdminRemoteStart(input);
 }
 
 /** Charger allow_admin_bypass enabled or disabled. */

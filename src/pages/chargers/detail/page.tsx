@@ -13,6 +13,8 @@ import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFo
 import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
 import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useAuth } from "@/hooks/useAuth";
+import * as auditLogService from "@/services/auditLogService";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
@@ -98,6 +100,8 @@ async function pollOcppSessionStarted(
 
 export default function ChargerDetailPage() {
   const { formatEnergy } = useUserPreferences();
+  const { user, hasRole } = useAuth();
+  const isWebAdmin = hasRole(["SuperAdmin", "SiteAdmin"]);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [charger, setCharger] = useState<Charger | undefined>();
@@ -244,12 +248,55 @@ export default function ChargerDetailPage() {
 
     try {
       if (type === "RemoteStart") {
-        setActionResult({
-          success: false,
-          message:
-            "Web admin Start without a user is disabled. Start from the mobile prepaid flow, or tap an assigned RFID card at the charger. Admin Bypass has been removed.",
+        if (!isWebAdmin || !user?.id) {
+          setActionResult({
+            success: false,
+            message:
+              "Only admin users can start charging from the web. Mobile users should use the app with prepaid payment; RFID starts at the charger.",
+          });
+          return;
+        }
+        const result = await chargerSessionControl.startAdminChargingSession({
+          chargerId: charger.id,
+          chargePointId: charger.chargePointId,
+          connectorId,
+          adminUserId: user.id,
+          ocppConnected: ocppSocketLive,
+          isSimulated: charger.isSimulated,
         });
-        return;
+        if (result.success) {
+          void auditLogService.logAdminRemoteStart({
+            userId: user.id,
+            chargePointId: charger.chargePointId,
+            connectorId,
+            chargerId: charger.id,
+          });
+        } else {
+          void auditLogService.logFailedAdminRemoteStart({
+            userId: user.id,
+            chargePointId: charger.chargePointId,
+            connectorId,
+            chargerId: charger.id,
+            reason: result.message,
+          });
+        }
+        setActionResult({
+          success: result.success,
+          message: result.success
+            ? `${result.message} (admin start — ADMIN-BYPASS, session under ${user.name})`
+            : result.message,
+        });
+        reloadChargerData();
+        if (result.success && result.mode === "ocpp") {
+          void pollOcppSessionStarted(charger.id, charger.chargePointId, connectorId).then(
+            (followUp) => {
+              if (followUp) {
+                setActionResult({ success: true, message: `${followUp} (admin start)` });
+                reloadChargerData();
+              }
+            },
+          );
+        }
       } else if (type === "RemoteStop") {
         const session = sessions.find((s) => s.connectorId === connectorId);
         if (!session?.transactionId || !session.id) {
@@ -263,7 +310,7 @@ export default function ChargerDetailPage() {
           chargePointId: charger.chargePointId,
           transactionId: session.transactionId,
           sessionId: session.id,
-          bypassRfid: false,
+          bypassRfid: isWebAdmin,
           ocppConnected: ocppSocketLive,
           isSimulated: charger.isSimulated,
         });

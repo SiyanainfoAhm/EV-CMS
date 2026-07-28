@@ -2,6 +2,9 @@ import type { RFIDCard } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapRfid } from "@/utils/supabaseMappers";
 
+/** OCPP idTag for web admin RemoteStart only. */
+export const ADMIN_BYPASS_ID_TAG = "ADMIN-BYPASS";
+
 export interface RfidQuery {
   status?: string; // active | inactive | blocked | all
   search?: string; // uid / bound user name
@@ -94,4 +97,35 @@ export async function unbindRfid(cardId: string): Promise<void> {
     .eq("id", cardId);
 
   if (error) throw error;
+}
+
+/**
+ * Bind ADMIN-BYPASS RFID to the web admin user so OCPP Authorize accepts RemoteStart.
+ * Mobile app never uses this — mobile uses MOBILE-{userId}.
+ */
+export async function ensureAdminBypassAuthorizeTag(userId: string): Promise<string> {
+  const tag = ADMIN_BYPASS_ID_TAG;
+  const uid = userId.trim();
+  if (!uid) {
+    throw new Error("User session not found. Please login again.");
+  }
+
+  const { data: existing, error: findErr } = await requireSupabase()
+    .from("EV_RFIDCards")
+    .select("id, status, user_id")
+    .ilike("uid", tag)
+    .maybeSingle();
+  if (findErr) throw findErr;
+
+  let cardId = (existing as { id: string } | null)?.id;
+  if (!cardId) {
+    const created = await createRfidCard(tag);
+    cardId = created.id;
+  } else if (String((existing as { status?: string }).status).toLowerCase() === "blocked") {
+    await updateRfidStatus(cardId, "active");
+  }
+
+  await bindRfidToUser(cardId, uid);
+  console.log("[auth] admin bypass tag bound", { tag, userId: uid });
+  return tag;
 }
