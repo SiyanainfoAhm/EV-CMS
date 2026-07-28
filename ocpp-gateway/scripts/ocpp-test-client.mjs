@@ -128,7 +128,7 @@ async function beginChargingSession(connectorId, idTag) {
 
   const txId = Number(startResult?.transactionId);
   if (!txId || Number.isNaN(txId)) {
-    throw new Error("StartTransaction did not return transactionId — is ADMIN-BYPASS / RFID OK in CMS?");
+    throw new Error("StartTransaction did not return transactionId — is MOBILE-{userId} / RFID OK in CMS?");
   }
   activeTransactionId = txId;
 

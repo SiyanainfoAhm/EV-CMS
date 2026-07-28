@@ -113,29 +113,23 @@ async function pollSessionStopped(sessionId: string, userId: string, attempts = 
 }
 
 /**
- * Match web admin RemoteStart: RFID bypass + ADMIN-BYPASS Authorize card
- * so the physical charger does not sit on "Waiting for authentication" then stop.
+ * Mobile start auth — never use ADMIN-BYPASS.
+ * idTag = MOBILE-{userId}; OCPP Authorize resolves via EV_RFIDCards.
  */
 async function resolveMobileStartAuth(userId: string): Promise<{
   idTag: string;
   bypassRfid: boolean;
 }> {
-  // Bind ADMIN-BYPASS to this user so gateway Authorize accepts even if
-  // Fly's in-memory bypass window is missing / expired.
-  await rfidService.ensureAdminBypassAuthorizeTag(userId);
-  return { idTag: "ADMIN-BYPASS", bypassRfid: true };
-}
-
-async function ensureChargerLabBypass(chargerId: string): Promise<void> {
-  const { error } = await requireSupabase()
-    .from("EV_Chargers")
-    .update({ allow_admin_bypass: true, updated_at: new Date().toISOString() })
-    .eq("id", chargerId);
-  if (error) {
-    console.warn("[session] enable allow_admin_bypass failed:", error.message);
+  if (!userId?.trim()) {
+    throw new Error("User session not found. Please login again.");
   }
-  // Give PostgREST / gateway a moment to see the flag.
-  await sleep(400);
+  const idTag = await rfidService.ensureMobileAuthorizeTag(userId);
+  console.log("[auth] mobile user_id", userId);
+  console.log("[session] auth_method", "Mobile");
+  console.log("[session] started_by", "mobile");
+  console.log("[session] user_id", userId);
+  console.log("[session] id_tag", idTag);
+  return { idTag, bypassRfid: false };
 }
 
 async function claimConnectorSession(
@@ -164,18 +158,30 @@ async function claimConnectorSession(
       .update({
         user_id: userId,
         authorization_method: "Mobile",
+        started_by: "mobile",
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id)
       .eq("status", "active");
     if (updErr) {
-      // Retry without authorization_method if column missing.
+      // Retry without optional columns if missing.
       const { error: updErr2 } = await requireSupabase()
         .from("EV_ChargingSessions")
-        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .update({
+          user_id: userId,
+          authorization_method: "Mobile",
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", row.id)
         .eq("status", "active");
-      if (updErr2) throw updErr2;
+      if (updErr2) {
+        const { error: updErr3 } = await requireSupabase()
+          .from("EV_ChargingSessions")
+          .update({ user_id: userId, updated_at: new Date().toISOString() })
+          .eq("id", row.id)
+          .eq("status", "active");
+        if (updErr3) throw updErr3;
+      }
     }
   }
   return getSessionById(row.id, userId);
@@ -242,6 +248,7 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
       row.prepaid_energy_cap_kwh != null ? Number(row.prepaid_energy_cap_kwh) : null,
     prepaidExpiresAt: row.prepaid_expires_at != null ? String(row.prepaid_expires_at) : null,
     amountDue: row.amount_due != null ? Number(row.amount_due) : null,
+    authMethod: row.authorization_method != null ? String(row.authorization_method) : null,
   };
 }
 
@@ -279,15 +286,25 @@ export async function getSessionHistory(
 
 export async function getRecentSessions(userId?: string, limit = 5): Promise<ChargingSession[]> {
   const uid = userId ?? requireUserId();
+  if (!uid?.trim()) {
+    throw new Error("User session not found. Please login again.");
+  }
   const { data, error } = await requireSupabase()
     .from("EV_ChargingSessions")
     .select(select)
     .eq("user_id", uid)
     .order("start_time", { ascending: false })
-    .limit(limit);
+    .limit(Math.max(limit * 3, 15));
 
   if (error) throw error;
-  return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
+  return (data ?? [])
+    .map((row) => mapRow(row as Record<string, unknown>))
+    .filter((s) => {
+      const auth = String(s.authMethod ?? "").toLowerCase();
+      if (auth.includes("admin") || auth.includes("bypass")) return false;
+      return true;
+    })
+    .slice(0, limit);
 }
 
 export async function getSessionById(sessionId: string, userId?: string): Promise<ChargingSession | null> {
@@ -319,6 +336,9 @@ export async function startSession(
   options: StartSessionOptions = {}
 ): Promise<ChargingSession> {
   const uid = userId ?? requireUserId();
+  if (!uid?.trim()) {
+    throw new Error("User session not found. Please login again.");
+  }
 
   const existing = await getActiveSession(uid);
   if (existing) return existing;
@@ -376,14 +396,12 @@ export async function startSession(
     return session;
   }
 
-  // Real charger — same gateway RemoteStart as web (RFID bypass + StartTransaction).
+  // Real charger — OCPP RemoteStart with MOBILE-{userId} idTag (never ADMIN-BYPASS).
   if (!ocppService.isOcppGatewayConfigured()) {
     throw new Error(
       "OCPP gateway is not configured. Set EXPO_PUBLIC_OCPP_GATEWAY_API_URL (same as web VITE_OCPP_GATEWAY_API_URL)."
     );
   }
-
-  await ensureChargerLabBypass(chargerId);
 
   // Prefer cable plugged (Preparing) before RemoteStart — otherwise CP accepts
   // then never StartTransaction, or auth-fails within seconds.
@@ -396,6 +414,7 @@ export async function startSession(
   }
 
   const { idTag, bypassRfid } = await resolveMobileStartAuth(uid);
+  console.log("[ocpp] RemoteStart idTag", idTag);
 
   const result = await ocppService.remoteStartTransaction({
     chargePointId,
@@ -408,12 +427,9 @@ export async function startSession(
   });
   if (!result.accepted) {
     throw new Error(
-      `RemoteStart rejected by charger on Gun ${connectorId}. On web, confirm Lab admin bypass is enabled for this charger.`
+      `RemoteStart rejected by charger on Gun ${connectorId}. Ensure the cable is plugged (Preparing) and try again.`
     );
   }
-
-  // Re-bind authorize tag in case another client stole ADMIN-BYPASS during wait.
-  await rfidService.ensureAdminBypassAuthorizeTag(uid);
 
   // Poll + claim for up to ~90s (StartTransaction can lag after Preparing).
   const session = await pollActiveSession(uid, chargerId, connectorId, 90);

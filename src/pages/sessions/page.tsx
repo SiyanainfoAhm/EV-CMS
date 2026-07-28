@@ -97,7 +97,7 @@ export default function SessionsPage() {
         chargePointId: stopModal.chargePointId,
         transactionId: stopModal.transactionId,
         sessionId: stopModal.id,
-        bypassRfid: true,
+        bypassRfid: false,
         ocppConnected,
         isSimulated: charger?.isSimulated ?? false,
       });
@@ -222,7 +222,11 @@ export default function SessionsPage() {
                     <td className="px-5 py-3.5">
                       <div>
                         <p className="text-sm font-medium text-gray-900">{session.userName}</p>
-                        <p className="text-xs text-gray-400">{session.rfidTag}</p>
+                        {session.rfidTag &&
+                        session.rfidTag.toUpperCase() !== "ADMIN-BYPASS" &&
+                        !session.rfidTag.toUpperCase().startsWith("MOBILE-") ? (
+                          <p className="text-xs text-gray-400">{session.rfidTag}</p>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
@@ -232,7 +236,7 @@ export default function SessionsPage() {
                       <span className="text-sm text-gray-600">Gun {session.connectorId} · {session.connectorType}</span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className="text-xs text-gray-600">{session.authMethod ?? "RFID"}</span>
+                      <span className="text-xs text-gray-600">{session.authMethod ?? "—"}</span>
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-700">{formatSessionPrepaid(session)}</p>
@@ -298,8 +302,6 @@ export default function SessionsPage() {
                   <option value="all">All Auth</option>
                   <option value="RFID">RFID</option>
                   <option value="Mobile">Mobile</option>
-                  <option value="QR">QR</option>
-                  <option value="Remote">Remote</option>
                 </select>
                 <input
                   type="text"
@@ -353,7 +355,11 @@ export default function SessionsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-medium text-gray-900">{session.userName}</p>
-                      {session.rfidTag && <p className="text-xs text-gray-400">{session.rfidTag}</p>}
+                      {session.rfidTag &&
+                      session.rfidTag.toUpperCase() !== "ADMIN-BYPASS" &&
+                      !session.rfidTag.toUpperCase().startsWith("MOBILE-") ? (
+                        <p className="text-xs text-gray-400">{session.rfidTag}</p>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="text-sm text-gray-700">{session.chargerName}</p>

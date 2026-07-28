@@ -7,10 +7,12 @@ import { startSimulatorRuntime } from "@/services/simulatorRuntime";
 export type SessionControlMode = "simulated" | "ocpp";
 
 export async function resolveUserIdForIdTag(idTag: string): Promise<string | null> {
+  const tag = idTag.trim();
+  if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") return null;
   const { data, error } = await requireSupabase()
     .from("EV_RFIDCards")
     .select("user_id")
-    .eq("uid", idTag.trim())
+    .ilike("uid", tag)
     .eq("status", "active")
     .maybeSingle();
   if (error) throw error;
@@ -37,12 +39,22 @@ export async function startChargingSession(params: {
   chargePointId: string;
   connectorId: number;
   idTag?: string;
+  userId?: string;
   bypassRfid?: boolean;
   useSimulation?: boolean;
   ocppConnected?: boolean;
   isSimulated?: boolean;
 }): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
-  const bypassRfid = params.bypassRfid !== false;
+  const idTag = (params.idTag ?? "").trim();
+  if (!idTag || idTag.toUpperCase() === "ADMIN-BYPASS") {
+    return {
+      success: false,
+      message:
+        "Web admin Start requires a valid RFID UID or MOBILE-{userId}. Admin Bypass is removed — use mobile prepaid or an assigned RFID card.",
+      mode: "ocpp",
+    };
+  }
+
   if (
     useSimulatedSessions({
       useSimulation: params.useSimulation,
@@ -50,13 +62,12 @@ export async function startChargingSession(params: {
       isSimulated: params.isSimulated,
     })
   ) {
-    const userId = bypassRfid
-      ? (await resolveUserIdForIdTag(params.idTag ?? "")) ?? (await resolveFallbackUserId())
-      : await resolveUserIdForIdTag(params.idTag ?? "");
+    const userId =
+      params.userId?.trim() || (await resolveUserIdForIdTag(idTag));
     if (!userId) {
       return {
         success: false,
-        message: `No active user bound to RFID ${(params.idTag ?? "").trim() || "(none)"}`,
+        message: "RFID card is not assigned to any user.",
         mode: "simulated",
       };
     }
@@ -77,27 +88,17 @@ export async function startChargingSession(params: {
   const result = await ocppService.remoteStartTransaction({
     chargePointId: params.chargePointId,
     connectorId: params.connectorId,
-    bypassRfid,
-    ...(params.idTag?.trim() ? { idTag: params.idTag.trim() } : {}),
+    idTag,
+    bypassRfid: false,
+    ...(params.userId?.trim() ? { userId: params.userId.trim() } : {}),
   });
   return {
     success: result.accepted,
     message: result.accepted
-      ? `RemoteStart accepted on Gun ${params.connectorId} (admin RFID bypass). Waiting for StartTransaction → Charging…`
+      ? `RemoteStart accepted on Gun ${params.connectorId}. Waiting for StartTransaction → Charging…`
       : `RemoteStart rejected by charger on Gun ${params.connectorId}`,
     mode: "ocpp",
   };
-}
-
-async function resolveFallbackUserId(): Promise<string | null> {
-  const { data, error } = await requireSupabase()
-    .from("EV_Users")
-    .select("id")
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as { id: string } | null)?.id ?? null;
 }
 
 export async function stopChargingSession(params: {
@@ -109,7 +110,6 @@ export async function stopChargingSession(params: {
   ocppConnected?: boolean;
   isSimulated?: boolean;
 }): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
-  const bypassRfid = params.bypassRfid !== false;
   if (
     useSimulatedSessions({
       useSimulation: params.useSimulation,
@@ -128,7 +128,7 @@ export async function stopChargingSession(params: {
   const result = await ocppService.remoteStopTransaction({
     chargePointId: params.chargePointId,
     transactionId: params.transactionId,
-    bypassRfid,
+    bypassRfid: false,
   });
   return {
     success: result.accepted,

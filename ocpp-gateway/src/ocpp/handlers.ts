@@ -97,20 +97,25 @@ async function handleCall(
         }
         const connectorId = Number(payload.connectorId ?? 1);
         const preferredUserId = takePendingStartUser(conn.chargePointId, connectorId);
-        const transactionId = await repo.startTransaction({
-          chargerId: conn.chargerDbId,
-          chargePointId: conn.chargePointId,
-          connectorId,
-          idTag,
-          meterStart: Number(payload.meterStart ?? 0),
-          timestamp: String(payload.timestamp ?? ocppNow()),
-          chargerType: charger.charger_type,
-          preferredUserId,
-        });
-        sendResult(conn, uniqueId, {
-          transactionId,
-          idTagInfo: { status: "Accepted" },
-        });
+        try {
+          const transactionId = await repo.startTransaction({
+            chargerId: conn.chargerDbId,
+            chargePointId: conn.chargePointId,
+            connectorId,
+            idTag,
+            meterStart: Number(payload.meterStart ?? 0),
+            timestamp: String(payload.timestamp ?? ocppNow()),
+            chargerType: charger.charger_type,
+            preferredUserId,
+          });
+          sendResult(conn, uniqueId, {
+            transactionId,
+            idTagInfo: { status: "Accepted" },
+          });
+        } catch (err) {
+          console.error("[ocpp] StartTransaction rejected:", err instanceof Error ? err.message : err);
+          sendResult(conn, uniqueId, { idTagInfo: { status: "Invalid" } });
+        }
         break;
       }
 

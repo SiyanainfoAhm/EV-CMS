@@ -110,6 +110,9 @@ export function mapSession(
 ): ChargingSession {
   const startTime = row.start_time as string;
   const endTime = row.end_time as string | null;
+  const rawRfid = (rfid?.uid as string) ?? undefined;
+  const rfidTag =
+    rawRfid && rawRfid.toUpperCase() !== "ADMIN-BYPASS" ? rawRfid : undefined;
   return {
     id: row.id as string,
     transactionId: row.transaction_id as number,
@@ -118,9 +121,9 @@ export function mapSession(
     chargePointId: (charger?.charge_point_id as string) ?? "",
     connectorId: row.connector_id as number,
     connectorType: "",
-    userName: (user?.full_name as string) ?? "",
+    userName: resolveSessionUserDisplayName(user),
     userId: row.user_id as string,
-    rfidTag: (rfid?.uid as string) ?? undefined,
+    rfidTag,
     startTime,
     endTime: endTime ?? undefined,
     duration: formatDuration(startTime, endTime),
@@ -132,7 +135,7 @@ export function mapSession(
     endMeter: row.end_meter != null ? Number(row.end_meter) : undefined,
     amount: row.amount != null ? Number(row.amount) : undefined,
     stopReason: (row.stop_reason as string) ?? undefined,
-    authMethod: (row.authorization_method as string) ?? undefined,
+    authMethod: resolveSessionAuthMethod(row.authorization_method as string | null | undefined),
     prepaidMode: (row.prepaid_mode as ChargingSession["prepaidMode"]) ?? null,
     prepaidValue: row.prepaid_value != null ? Number(row.prepaid_value) : null,
     prepaidTotalInr: row.prepaid_total_inr != null ? Number(row.prepaid_total_inr) : null,
@@ -143,6 +146,31 @@ export function mapSession(
     settlementAmount: row.settlement_amount != null ? Number(row.settlement_amount) : null,
     refundAmount: row.refund_amount != null ? Number(row.refund_amount) : null,
   };
+}
+
+/** USER column: always from EV_Users via user_id — never show ADMIN-BYPASS / idTag. */
+export function resolveSessionUserDisplayName(
+  user?: Record<string, unknown> | null
+): string {
+  const name = String(user?.full_name ?? "").trim();
+  if (name && name.toUpperCase() !== "ADMIN-BYPASS") return name;
+  const email = String(user?.email ?? "").trim();
+  if (email) return email;
+  const phone = String(user?.phone ?? "").trim();
+  if (phone) return phone;
+  return "Unknown User";
+}
+
+/** AUTH column: Mobile | RFID | Legacy / Unknown for old Admin Bypass rows. */
+export function resolveSessionAuthMethod(method?: string | null): string {
+  const m = String(method ?? "").trim();
+  if (m === "Mobile" || m === "RFID") return m;
+  if (!m) return "—";
+  const lower = m.toLowerCase();
+  if (lower.includes("admin") || lower.includes("bypass") || lower === "remote" || lower === "qr") {
+    return "Legacy / Unknown";
+  }
+  return "Legacy / Unknown";
 }
 
 export function mapUser(row: Record<string, unknown>): User {

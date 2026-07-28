@@ -19,12 +19,11 @@ async function assertUserCanCharge(userId: string): Promise<void> {
 }
 
 async function assertRfidOrMobileAuth(userId: string): Promise<void> {
-  const cards = await rfidService.getUserRfidCards(userId);
-  const hasActive = cards.some((c) => c.status === "active");
-  if (!hasActive) {
-    // Mobile authorization path — allow demo users without RFID
-    return;
+  if (!userId?.trim()) {
+    throw new Error("User session not found. Please login again.");
   }
+  // Ensure MOBILE-{userId} authorize tag exists for OCPP (never ADMIN-BYPASS).
+  await rfidService.ensureMobileAuthorizeTag(userId);
 }
 
 export type StartChargingPrepaidOptions = {

@@ -226,18 +226,29 @@ export async function unbindRfid(cardId: string, userId?: string): Promise<void>
 }
 
 /**
- * Ensure ADMIN-BYPASS is an active RFID bound to this user.
- * Uses assignOrUpdateRfidCard — never inserts a second row for the same user.
+ * Ensure MOBILE-{userId} idTag for OCPP RemoteStart.
+ * Does not write EV_RFIDCards (one-card-per-user) — gateway Authorize accepts MOBILE-* via EV_Users.
+ */
+export async function ensureMobileAuthorizeTag(userId?: string): Promise<string> {
+  const uid = userId ?? requireUserId();
+  if (!uid?.trim()) {
+    throw new Error("User session not found. Please login again.");
+  }
+  const tag = `MOBILE-${uid}`;
+  console.log("[auth] mobile authorize tag", tag);
+  return tag;
+}
+
+/**
+ * @deprecated Use ensureMobileAuthorizeTag — ADMIN-BYPASS is removed.
  */
 export async function ensureAdminBypassAuthorizeTag(userId?: string): Promise<string> {
-  const uid = userId ?? requireUserId();
-  await assignOrUpdateRfidCard(uid, "ADMIN-BYPASS");
-  return "ADMIN-BYPASS";
+  return ensureMobileAuthorizeTag(userId);
 }
 
 /**
  * Ensure the user has an active idTag for OCPP Authorize / RemoteStart.
- * Reuses existing user card or provisions MOBILE-* virtual tag via assignOrUpdateRfidCard.
+ * Prefers a physical RFID card; otherwise returns MOBILE-{userId}.
  */
 export async function ensureActiveIdTag(userId?: string): Promise<string> {
   const uid = userId ?? requireUserId();
@@ -246,8 +257,8 @@ export async function ensureActiveIdTag(userId?: string): Promise<string> {
   const activeReal = cards.find(
     (c) =>
       c.uid?.trim() &&
-      !c.uid.startsWith("MOBILE-") &&
-      c.uid !== "ADMIN-BYPASS" &&
+      !c.uid.toUpperCase().startsWith("MOBILE-") &&
+      c.uid.toUpperCase() !== "ADMIN-BYPASS" &&
       String(c.status).toLowerCase() === "active"
   );
   if (activeReal?.uid?.trim()) {
@@ -257,8 +268,8 @@ export async function ensureActiveIdTag(userId?: string): Promise<string> {
   const ownedReal = cards.find(
     (c) =>
       c.uid?.trim() &&
-      !c.uid.startsWith("MOBILE-") &&
-      c.uid !== "ADMIN-BYPASS" &&
+      !c.uid.toUpperCase().startsWith("MOBILE-") &&
+      c.uid.toUpperCase() !== "ADMIN-BYPASS" &&
       String(c.status).toLowerCase() !== "blocked"
   );
   if (ownedReal) {
@@ -266,7 +277,5 @@ export async function ensureActiveIdTag(userId?: string): Promise<string> {
     return normalizeRfidUid(card.uid);
   }
 
-  const tag = `MOBILE-${uid.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-  const card = await assignOrUpdateRfidCard(uid, tag);
-  return normalizeRfidUid(card.uid);
+  return ensureMobileAuthorizeTag(uid);
 }

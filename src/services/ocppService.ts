@@ -38,8 +38,11 @@ export interface RemoteStartParams {
   chargePointId: string;
   connectorId: number;
   idTag?: string;
-  /** Web admin remote start — skip RFID DB check on gateway Authorize/StartTransaction. */
+  /** @deprecated Admin Bypass removed — ignored by gateway. */
   bypassRfid?: boolean;
+  userId?: string;
+  prepaidPaid?: boolean;
+  paymentId?: string;
 }
 
 export interface RemoteStopParams {
