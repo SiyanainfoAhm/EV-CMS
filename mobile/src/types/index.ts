@@ -101,6 +101,7 @@ export interface ChargingSession {
   prepaidEnergyCapKwh?: number | null;
   prepaidExpiresAt?: string | null;
   amountDue?: number | null;
+  authMethod?: string | null;
   gatewayTxnId?: string | null;
 }
 

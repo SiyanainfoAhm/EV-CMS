@@ -284,7 +284,13 @@ BEGIN
   IF v_tariff_id IS NULL THEN
     SELECT id INTO v_tariff_id FROM "EV_Tariffs" WHERE is_active = true ORDER BY created_at DESC LIMIT 1;
   END IF;
-  SELECT id INTO v_rfid_id FROM "EV_RFIDCards" WHERE user_id = p_user_id AND status = 'active' LIMIT 1;
+  SELECT id INTO v_rfid_id
+  FROM "EV_RFIDCards"
+  WHERE user_id = p_user_id
+    AND status = 'active'
+    AND upper(uid) <> 'ADMIN-BYPASS'
+    AND uid NOT ILIKE 'MOBILE-%'
+  LIMIT 1;
 
   v_txn := (EXTRACT(EPOCH FROM NOW())::INTEGER % 2000000000);
 
@@ -293,7 +299,8 @@ BEGIN
     start_time, energy_kwh, current_power_kw, status, authorization_method
   ) VALUES (
     v_txn, p_charger_id, p_connector_id, p_user_id, v_rfid_id, v_tariff_id,
-    NOW(), 0, 0, 'active', 'RFID'
+    NOW(), 0, 0, 'active',
+    CASE WHEN v_rfid_id IS NULL THEN 'Mobile' ELSE 'RFID' END
   )
   RETURNING id INTO v_session_id;
 

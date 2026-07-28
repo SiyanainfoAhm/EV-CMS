@@ -14,7 +14,7 @@ function mapSessionRows(data: Record<string, unknown>[]): ChargingSession[] {
 const sessionSelect = `
   *,
   EV_Chargers ( name, charge_point_id ),
-  EV_Users ( full_name ),
+  EV_Users ( full_name, email, phone ),
   EV_RFIDCards ( uid )
 `;
 

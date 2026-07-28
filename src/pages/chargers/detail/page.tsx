@@ -13,8 +13,6 @@ import { ChargerFormModal, chargerToForm } from "@/components/chargers/ChargerFo
 import { buildOcppWebSocketUrl } from "@/utils/ocppUrls";
 import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import { useAuth } from "@/hooks/useAuth";
-import * as auditLogService from "@/services/auditLogService";
 import {
   connectivityFromHeartbeat,
   formatHeartbeatAgo,
@@ -100,7 +98,6 @@ async function pollOcppSessionStarted(
 
 export default function ChargerDetailPage() {
   const { formatEnergy } = useUserPreferences();
-  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [charger, setCharger] = useState<Charger | undefined>();
@@ -247,65 +244,12 @@ export default function ChargerDetailPage() {
 
     try {
       if (type === "RemoteStart") {
-        if (!charger.allowAdminBypass) {
-          if (user?.id) {
-            void auditLogService.logBlockedRemoteStart({
-              userId: user.id,
-              chargePointId: charger.chargePointId,
-              connectorId,
-              chargerId: charger.id,
-            });
-          }
-          setActionResult({
-            success: false,
-            message:
-              "Prepaid required — enable Lab admin bypass on this charger (Edit) for test Start without payment, or start from the mobile prepaid flow.",
-          });
-          return;
-        }
-        const result = await chargerSessionControl.startChargingSession({
-          chargerId: charger.id,
-          chargePointId: charger.chargePointId,
-          connectorId,
-          bypassRfid: true,
-          ocppConnected: ocppSocketLive,
-          isSimulated: charger.isSimulated,
-        });
-        if (user?.id) {
-          if (result.success) {
-            void auditLogService.logLabBypassRemoteStart({
-              userId: user.id,
-              chargePointId: charger.chargePointId,
-              connectorId,
-              chargerId: charger.id,
-            });
-          } else {
-            void auditLogService.logFailedLabBypassRemoteStart({
-              userId: user.id,
-              chargePointId: charger.chargePointId,
-              connectorId,
-              chargerId: charger.id,
-              reason: result.message,
-            });
-          }
-        }
         setActionResult({
-          success: result.success,
-          message: result.success
-            ? `${result.message} (lab bypass — prepaid skipped)`
-            : result.message,
+          success: false,
+          message:
+            "Web admin Start without a user is disabled. Start from the mobile prepaid flow, or tap an assigned RFID card at the charger. Admin Bypass has been removed.",
         });
-        reloadChargerData();
-        if (result.success && result.mode === "ocpp") {
-          void pollOcppSessionStarted(charger.id, charger.chargePointId, connectorId).then(
-            (followUp) => {
-              if (followUp) {
-                setActionResult({ success: true, message: `${followUp} (lab bypass)` });
-                reloadChargerData();
-              }
-            },
-          );
-        }
+        return;
       } else if (type === "RemoteStop") {
         const session = sessions.find((s) => s.connectorId === connectorId);
         if (!session?.transactionId || !session.id) {
@@ -319,7 +263,7 @@ export default function ChargerDetailPage() {
           chargePointId: charger.chargePointId,
           transactionId: session.transactionId,
           sessionId: session.id,
-          bypassRfid: true,
+          bypassRfid: false,
           ocppConnected: ocppSocketLive,
           isSimulated: charger.isSimulated,
         });
@@ -348,15 +292,6 @@ export default function ChargerDetailPage() {
       reloadChargerData();
     } catch (e) {
       const message = e instanceof Error ? e.message : "OCPP command failed — is the gateway running?";
-      if (type === "RemoteStart" && charger.allowAdminBypass && user?.id) {
-        void auditLogService.logFailedLabBypassRemoteStart({
-          userId: user.id,
-          chargePointId: charger.chargePointId,
-          connectorId,
-          chargerId: charger.id,
-          reason: message,
-        });
-      }
       setActionResult({
         success: false,
         message,
@@ -548,18 +483,6 @@ export default function ChargerDetailPage() {
               <div>
                 <p className="text-xs text-gray-400 mb-1">Firmware Version</p>
                 <p className="text-sm font-medium text-gray-900">{charger.firmwareVersion}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Lab admin bypass</p>
-                {charger.allowAdminBypass ? (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-800 border border-amber-200">
-                    Enabled — Start without prepaid
-                  </span>
-                ) : (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-50 text-gray-600 border border-gray-200">
-                    Off — prepaid required
-                  </span>
-                )}
               </div>
               <div>
                 <p className="text-xs text-gray-400 mb-1">Max Power</p>

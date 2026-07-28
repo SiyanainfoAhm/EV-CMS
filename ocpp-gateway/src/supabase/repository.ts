@@ -1,5 +1,3 @@
-import { config } from "../config.js";
-import { isAdminRfidBypassActive } from "../ocpp/adminBypass.js";
 import { getSupabase } from "./client.js";
 
 export interface ChargerRow {
@@ -45,8 +43,6 @@ const OCPP_STOP_REASON: Record<string, string> = {
   Local: "Local",
   Reboot: "Reboot",
 };
-
-let fallbackUserId: string | null = null;
 
 export async function findChargerByChargePointId(chargePointId: string): Promise<ChargerRow | null> {
   const cpId = chargePointId.trim();
@@ -184,46 +180,73 @@ export async function recordStatusNotification(
 }
 
 export async function lookupRfid(idTag: string): Promise<RfidLookup | null> {
+  const tag = idTag.trim();
+  if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") return null;
   const { data, error } = await getSupabase()
     .from("EV_RFIDCards")
     .select("id, uid, user_id, status")
-    .ilike("uid", idTag.trim())
+    .ilike("uid", tag)
     .maybeSingle();
   if (error) throw error;
-  if (!data || data.status !== "active" || !data.user_id) return null;
+  if (!data || data.status !== "active" || !data.user_id) {
+    console.log("[auth] rfid lookup result", {
+      tag,
+      found: Boolean(data),
+      status: data?.status ?? null,
+      userId: data?.user_id ?? null,
+    });
+    return null;
+  }
+  console.log("[auth] rfid lookup result", { tag, cardId: data.id, userId: data.user_id });
   return { cardId: data.id, userId: data.user_id, uid: data.uid };
 }
 
+/** @deprecated No anonymous/admin fallback — sessions require a real user. */
 export async function getFallbackUserId(): Promise<string> {
-  if (fallbackUserId) return fallbackUserId;
-  const { data, error } = await getSupabase()
-    .from("EV_Users")
-    .select("id")
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data?.id) throw new Error("No active user in EV_Users for OCPP sessions");
-  fallbackUserId = data.id;
-  return data.id;
+  throw new Error("User session not found. Please login again.");
 }
 
 export async function authorizeIdTag(
   idTag: string,
-  chargePointId?: string
+  _chargePointId?: string
 ): Promise<"Accepted" | "Invalid" | "Blocked"> {
-  if (config.bypassRfidAuth || (chargePointId && isAdminRfidBypassActive(chargePointId))) {
+  const tag = idTag.trim();
+  if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") {
+    return "Invalid";
+  }
+
+  // Mobile prepaid / app start: MOBILE-{userId} — no RFID card required.
+  if (tag.toUpperCase().startsWith("MOBILE-")) {
+    const userId = tag.slice("MOBILE-".length).trim();
+    if (!userId) return "Invalid";
+    const { data, error } = await getSupabase()
+      .from("EV_Users")
+      .select("id, status")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return "Invalid";
+    if (String(data.status).toLowerCase() !== "active") return "Blocked";
+    console.log("[auth] mobile user_id", userId);
     return "Accepted";
   }
+
   const { data, error } = await getSupabase()
     .from("EV_RFIDCards")
     .select("id, status, user_id")
-    .ilike("uid", idTag.trim())
+    .ilike("uid", tag)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return "Invalid";
+  if (!data) {
+    console.log("[auth] rfid lookup result", { tag, found: false });
+    return "Invalid";
+  }
   if (data.status !== "active") return "Blocked";
-  if (!data.user_id) return "Invalid";
+  if (!data.user_id) {
+    console.log("[auth] rfid lookup result", { tag, found: true, userId: null });
+    return "Invalid";
+  }
+  console.log("[auth] rfid lookup result", { tag, cardId: data.id, userId: data.user_id });
   return "Accepted";
 }
 
@@ -287,26 +310,66 @@ export async function startTransaction(params: {
   /** Prefer this user (mobile/web RemoteStart) over RFID / fallback. */
   preferredUserId?: string | null;
 }): Promise<number> {
-  const rfid = await lookupRfid(params.idTag);
-  const userId =
-    params.preferredUserId?.trim() || rfid?.userId || (await getFallbackUserId());
+  const idTag = params.idTag.trim();
+  if (!idTag || idTag.toUpperCase() === "ADMIN-BYPASS") {
+    throw new Error("ADMIN-BYPASS is removed. Use MOBILE-{userId} or an assigned RFID card.");
+  }
+
+  const isMobileTag = idTag.toUpperCase().startsWith("MOBILE-");
+  const preferredUserId = params.preferredUserId?.trim() || null;
+  const mobileUserId = isMobileTag ? idTag.slice("MOBILE-".length).trim() : null;
+  const rfid = isMobileTag ? null : await lookupRfid(idTag);
+
+  let userId: string | null = preferredUserId || mobileUserId || rfid?.userId || null;
+  let authMethod: "Mobile" | "RFID";
+  let startedBy: "mobile" | "rfid";
+
+  if (preferredUserId || isMobileTag) {
+    authMethod = "Mobile";
+    startedBy = "mobile";
+    if (!userId) {
+      throw new Error("User session not found. Please login again.");
+    }
+  } else if (rfid?.userId) {
+    userId = rfid.userId;
+    authMethod = "RFID";
+    startedBy = "rfid";
+  } else {
+    throw new Error("RFID card is not assigned to any user.");
+  }
+
+  console.log("[session] auth_method", authMethod);
+  console.log("[session] started_by", startedBy);
+  console.log("[session] user_id", userId);
+  console.log("[session] id_tag", idTag);
+
   const transactionId = await nextTransactionId();
   const tariffId = await getTariffIdForCharger(params.chargerId, params.chargerType);
   const now = params.timestamp || new Date().toISOString();
 
-  const { error: sessionError } = await getSupabase().from("EV_ChargingSessions").insert({
+  const baseInsert: Record<string, unknown> = {
     transaction_id: transactionId,
     charger_id: params.chargerId,
     connector_id: params.connectorId,
     user_id: userId,
-    rfid_card_id: rfid?.cardId ?? null,
+    rfid_card_id: authMethod === "RFID" ? rfid?.cardId ?? null : null,
     tariff_id: tariffId,
     start_time: now,
     energy_kwh: 0,
     start_meter: params.meterStart / 1000,
     status: "active",
-    authorization_method: rfid ? "RFID" : params.preferredUserId ? "Mobile" : "RFID",
-  });
+    authorization_method: authMethod,
+    started_by: startedBy,
+  };
+
+  let sessionError = (
+    await getSupabase().from("EV_ChargingSessions").insert(baseInsert)
+  ).error;
+
+  if (sessionError && /started_by/i.test(sessionError.message)) {
+    delete baseInsert.started_by;
+    sessionError = (await getSupabase().from("EV_ChargingSessions").insert(baseInsert)).error;
+  }
   if (sessionError) throw sessionError;
 
   await getSupabase()
@@ -320,7 +383,7 @@ export async function startTransaction(params: {
     .update({ status: "online", last_heartbeat_at: now, updated_at: now })
     .eq("id", params.chargerId);
 
-  if (rfid) {
+  if (rfid && authMethod === "RFID") {
     await getSupabase()
       .from("EV_RFIDCards")
       .update({ last_used_at: now, updated_at: now })
@@ -329,8 +392,11 @@ export async function startTransaction(params: {
 
   await logEvent(params.chargerId, params.chargePointId, params.connectorId, "StartTransaction", {
     transactionId,
-    idTag: params.idTag,
+    idTag,
     meterStart: params.meterStart,
+    userId,
+    authMethod,
+    startedBy,
   });
 
   return transactionId;
