@@ -47,7 +47,7 @@ function mapCharger(row: Record<string, unknown>): Charger {
     lastHeartbeat: (row.last_heartbeat_at as string) ?? null,
     isSimulated: Boolean(row.is_simulated),
     tariffId: row.tariff_id != null ? String(row.tariff_id) : null,
-    allowAdminBypass: Boolean(row.allow_admin_bypass),
+    allowAdminBypass: row.allow_admin_bypass !== false,
     connectors: connectors.map(mapConnector),
   };
 }

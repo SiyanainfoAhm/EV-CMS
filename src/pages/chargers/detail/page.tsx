@@ -102,9 +102,12 @@ export default function ChargerDetailPage() {
   const { formatEnergy } = useUserPreferences();
   const { user, hasRole } = useAuth();
   const isWebAdmin = hasRole(["SuperAdmin", "SiteAdmin"]);
+  const webAdminStartDisabledMessage =
+    "Web admin start is disabled for this charger. Enable Allow Web Admin Start / Stop from Edit Charger.";
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [charger, setCharger] = useState<Charger | undefined>();
+  const allowWebAdminStart = charger?.allowAdminBypass !== false;
   const [mockActiveSessions, setMockActiveSessions] = useState<ChargingSession[]>([]);
   const [ocppEvents, setOcppEvents] = useState<chargerService.ChargerEvent[]>([]);
   const [ocppTab, setOcppTab] = useState<"recent" | "all">("recent");
@@ -256,11 +259,25 @@ export default function ChargerDetailPage() {
           });
           return;
         }
+        if (!allowWebAdminStart) {
+          void auditLogService.logBlockedRemoteStart({
+            userId: user.id,
+            chargePointId: charger.chargePointId,
+            connectorId,
+            chargerId: charger.id,
+          });
+          setActionResult({
+            success: false,
+            message: webAdminStartDisabledMessage,
+          });
+          return;
+        }
         const result = await chargerSessionControl.startAdminChargingSession({
           chargerId: charger.id,
           chargePointId: charger.chargePointId,
           connectorId,
           adminUserId: user.id,
+          allowAdminBypass: allowWebAdminStart,
           ocppConnected: ocppSocketLive,
           isSimulated: charger.isSimulated,
         });
@@ -532,6 +549,18 @@ export default function ChargerDetailPage() {
                 <p className="text-sm font-medium text-gray-900">{charger.firmwareVersion}</p>
               </div>
               <div>
+                <p className="text-xs text-gray-400 mb-1">Web admin start</p>
+                {allowWebAdminStart ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    On — web admin start allowed
+                  </span>
+                ) : (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-50 text-gray-600 border border-gray-200">
+                    Off — prepaid/RFID only
+                  </span>
+                )}
+              </div>
+              <div>
                 <p className="text-xs text-gray-400 mb-1">Max Power</p>
                 <p className="text-sm font-medium text-gray-900">{charger.maxPowerKw} kW</p>
               </div>
@@ -601,6 +630,12 @@ export default function ChargerDetailPage() {
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-900 mb-4">Connectors &amp; Remote Commands</h3>
+            {isWebAdmin && !allowWebAdminStart ? (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2.5">
+                <i className="ri-information-line text-amber-600 mt-0.5"></i>
+                <p className="text-xs text-amber-800">{webAdminStartDisabledMessage}</p>
+              </div>
+            ) : null}
             <div className="space-y-3">
               {charger.connectors.map((conn) => (
                 <div
@@ -648,16 +683,25 @@ export default function ChargerDetailPage() {
                         !charger.isSimulated && (action.type === "RemoteStart" || action.type === "RemoteStop");
                       const startBlocked =
                         action.type === "RemoteStart" && !canRemoteStartConnector(conn.status);
+                      const adminStartBlocked =
+                        action.type === "RemoteStart" &&
+                        (!isWebAdmin || !allowWebAdminStart);
                       const disabled =
                         charger.status === "decommissioned" ||
                         gunBusy ||
                         noSession ||
                         startBlocked ||
+                        adminStartBlocked ||
                         (needsSocket && !ocppSocketLive);
                       return (
                       <button
                         key={action.type}
                         disabled={disabled}
+                        title={
+                          action.type === "RemoteStart" && adminStartBlocked
+                            ? webAdminStartDisabledMessage
+                            : undefined
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoteAction(action.type, conn.connectorId);

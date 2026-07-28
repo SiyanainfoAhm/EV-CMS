@@ -113,7 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_ev_sessions_settlement_status
 -- =============================================================================
 
 ALTER TABLE "EV_Chargers"
-  ADD COLUMN IF NOT EXISTS allow_admin_bypass BOOLEAN NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS allow_admin_bypass BOOLEAN NOT NULL DEFAULT true;
 
 COMMENT ON COLUMN "EV_Chargers".allow_admin_bypass IS
   'When true, web admin may RemoteStart without prepaid (lab/test). Production should stay false.';

@@ -22,3 +22,15 @@ SET status = 'active',
     updated_at = NOW()
 WHERE upper(uid) = 'ADMIN-BYPASS'
   AND lower(status) = 'blocked';
+
+-- Web admin start enabled by default on all chargers.
+ALTER TABLE public."EV_Chargers"
+  ADD COLUMN IF NOT EXISTS allow_admin_bypass BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE public."EV_Chargers"
+  ALTER COLUMN allow_admin_bypass SET DEFAULT true;
+
+UPDATE public."EV_Chargers"
+SET allow_admin_bypass = true,
+    updated_at = NOW()
+WHERE allow_admin_bypass IS DISTINCT FROM true;

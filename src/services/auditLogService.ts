@@ -100,7 +100,7 @@ export async function logBlockedRemoteStart(input: {
     action: "Blocked Remote Start",
     entity_type: "Charger",
     entity_id: input.chargerId,
-    details: `RemoteStart blocked — prepaid required (lab bypass off) on ${input.chargePointId} Gun ${input.connectorId}`,
+    details: `RemoteStart blocked — web admin start disabled on ${input.chargePointId} Gun ${input.connectorId}`,
   });
 }
 
@@ -133,8 +133,8 @@ export async function logFailedLabBypassRemoteStart(input: {
   return logFailedAdminRemoteStart(input);
 }
 
-/** Charger allow_admin_bypass enabled or disabled. */
-export async function logLabBypassFlagChange(input: {
+/** Charger allow_admin_bypass enabled or disabled (web admin ADMIN-BYPASS). */
+export async function logWebAdminStartFlagChange(input: {
   userId: string;
   chargerId: string;
   chargePointId: string;
@@ -144,13 +144,24 @@ export async function logLabBypassFlagChange(input: {
   const verb = input.enabled ? "Enabled" : "Disabled";
   await insertAuditLog({
     user_id: input.userId,
-    action: `${verb} Lab Admin Bypass`,
+    action: `${verb} Web Admin Start`,
     entity_type: "Charger",
     entity_id: input.chargerId,
     details: input.isCreate
-      ? `Created charger ${input.chargePointId} with lab admin bypass ${input.enabled ? "on" : "off"}`
-      : `Lab admin bypass ${input.enabled ? "enabled" : "disabled"} on ${input.chargePointId}`,
+      ? `Created charger ${input.chargePointId} with web admin start ${input.enabled ? "on" : "off"}`
+      : `Web admin start/stop ${input.enabled ? "enabled" : "disabled"} on ${input.chargePointId}`,
   });
+}
+
+/** @deprecated Use logWebAdminStartFlagChange */
+export async function logLabBypassFlagChange(input: {
+  userId: string;
+  chargerId: string;
+  chargePointId: string;
+  enabled: boolean;
+  isCreate?: boolean;
+}): Promise<void> {
+  return logWebAdminStartFlagChange(input);
 }
 
 export async function logPrepaidPlanCreated(input: {

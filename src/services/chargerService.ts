@@ -130,7 +130,7 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
       is_simulated: false,
-      allow_admin_bypass: Boolean(input.allowAdminBypass),
+      allow_admin_bypass: input.allowAdminBypass !== false,
     })
     .select("*")
     .single();
@@ -199,7 +199,7 @@ export async function updateCharger(id: string, input: ChargerUpdateInput): Prom
       max_power_kw: input.maxPowerKw,
       location: input.location.trim(),
       tariff_id: input.tariffId || null,
-      allow_admin_bypass: Boolean(input.allowAdminBypass),
+      allow_admin_bypass: input.allowAdminBypass !== false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)

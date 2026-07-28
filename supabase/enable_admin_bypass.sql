@@ -2,7 +2,7 @@
 -- Run in Supabase SQL Editor, then retry mobile Start.
 
 ALTER TABLE "EV_Chargers"
-  ADD COLUMN IF NOT EXISTS allow_admin_bypass BOOLEAN NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS allow_admin_bypass BOOLEAN NOT NULL DEFAULT true;
 
 UPDATE "EV_Chargers"
 SET allow_admin_bypass = true,
