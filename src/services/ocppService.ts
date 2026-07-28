@@ -38,7 +38,7 @@ export interface RemoteStartParams {
   chargePointId: string;
   connectorId: number;
   idTag?: string;
-  /** @deprecated Admin Bypass removed — ignored by gateway. */
+  /** Web admin RemoteStart — sends ADMIN-BYPASS idTag to OCPP when true. */
   bypassRfid?: boolean;
   userId?: string;
   prepaidPaid?: boolean;

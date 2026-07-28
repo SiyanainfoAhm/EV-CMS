@@ -1,4 +1,6 @@
 import { getSupabase } from "./client.js";
+import { config } from "../config.js";
+import { isAdminRfidBypassActive } from "../ocpp/adminBypass.js";
 
 export interface ChargerRow {
   id: string;
@@ -181,7 +183,7 @@ export async function recordStatusNotification(
 
 export async function lookupRfid(idTag: string): Promise<RfidLookup | null> {
   const tag = idTag.trim();
-  if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") return null;
+  if (!tag) return null;
   const { data, error } = await getSupabase()
     .from("EV_RFIDCards")
     .select("id, uid, user_id, status")
@@ -208,10 +210,22 @@ export async function getFallbackUserId(): Promise<string> {
 
 export async function authorizeIdTag(
   idTag: string,
-  _chargePointId?: string
+  chargePointId?: string
 ): Promise<"Accepted" | "Invalid" | "Blocked"> {
   const tag = idTag.trim();
-  if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") {
+  if (!tag) return "Invalid";
+
+  // Web admin ADMIN-BYPASS — accept during bypass window or global test flag.
+  if (tag.toUpperCase() === "ADMIN-BYPASS") {
+    if (
+      config.bypassRfidAuth ||
+      (chargePointId && isAdminRfidBypassActive(chargePointId))
+    ) {
+      console.log("[auth] admin bypass authorize", { tag, chargePointId });
+      return "Accepted";
+    }
+    const rfid = await lookupRfid(tag);
+    if (rfid?.userId) return "Accepted";
     return "Invalid";
   }
 
@@ -311,20 +325,28 @@ export async function startTransaction(params: {
   preferredUserId?: string | null;
 }): Promise<number> {
   const idTag = params.idTag.trim();
-  if (!idTag || idTag.toUpperCase() === "ADMIN-BYPASS") {
-    throw new Error("ADMIN-BYPASS is removed. Use MOBILE-{userId} or an assigned RFID card.");
+  if (!idTag) {
+    throw new Error("idTag required for StartTransaction.");
   }
 
+  const isAdminBypassTag = idTag.toUpperCase() === "ADMIN-BYPASS";
   const isMobileTag = idTag.toUpperCase().startsWith("MOBILE-");
   const preferredUserId = params.preferredUserId?.trim() || null;
   const mobileUserId = isMobileTag ? idTag.slice("MOBILE-".length).trim() : null;
-  const rfid = isMobileTag ? null : await lookupRfid(idTag);
+  const rfid = await lookupRfid(idTag);
 
   let userId: string | null = preferredUserId || mobileUserId || rfid?.userId || null;
-  let authMethod: "Mobile" | "RFID";
-  let startedBy: "mobile" | "rfid";
+  let authMethod: "Mobile" | "RFID" | "Remote";
+  let startedBy: "mobile" | "rfid" | "admin";
 
-  if (preferredUserId || isMobileTag) {
+  if (isAdminBypassTag) {
+    if (!preferredUserId && !rfid?.userId) {
+      throw new Error("User session not found. Please login again.");
+    }
+    userId = preferredUserId || rfid!.userId;
+    authMethod = "Remote";
+    startedBy = "admin";
+  } else if (preferredUserId || isMobileTag) {
     authMethod = "Mobile";
     startedBy = "mobile";
     if (!userId) {
@@ -352,7 +374,7 @@ export async function startTransaction(params: {
     charger_id: params.chargerId,
     connector_id: params.connectorId,
     user_id: userId,
-    rfid_card_id: authMethod === "RFID" ? rfid?.cardId ?? null : null,
+    rfid_card_id: authMethod === "RFID" || isAdminBypassTag ? rfid?.cardId ?? null : null,
     tariff_id: tariffId,
     start_time: now,
     energy_kwh: 0,
@@ -383,7 +405,7 @@ export async function startTransaction(params: {
     .update({ status: "online", last_heartbeat_at: now, updated_at: now })
     .eq("id", params.chargerId);
 
-  if (rfid && authMethod === "RFID") {
+  if (rfid && (authMethod === "RFID" || isAdminBypassTag)) {
     await getSupabase()
       .from("EV_RFIDCards")
       .update({ last_used_at: now, updated_at: now })

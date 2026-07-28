@@ -2,13 +2,30 @@ import { isSimulationEnabled } from "@/utils/simulationMode";
 import { requireSupabase } from "@/utils/supabaseClient";
 import * as ocppService from "@/services/ocppService";
 import * as simulator from "@/services/chargerSimulatorService";
+import * as rfidService from "@/services/rfidService";
 import { startSimulatorRuntime } from "@/services/simulatorRuntime";
 
 export type SessionControlMode = "simulated" | "ocpp";
 
+/** OCPP idTag for web admin RemoteStart (RFID bypass at charger). */
+export const ADMIN_BYPASS_ID_TAG = "ADMIN-BYPASS";
+
+/** OCPP idTag for mobile app starts. */
+export function buildMobileIdTag(userId: string): string {
+  const uid = userId.trim();
+  if (!uid) {
+    throw new Error("User session not found. Please login again.");
+  }
+  return `MOBILE-${uid}`;
+}
+
 export async function resolveUserIdForIdTag(idTag: string): Promise<string | null> {
   const tag = idTag.trim();
   if (!tag || tag.toUpperCase() === "ADMIN-BYPASS") return null;
+  if (tag.toUpperCase().startsWith("MOBILE-")) {
+    const userId = tag.slice("MOBILE-".length).trim();
+    return userId || null;
+  }
   const { data, error } = await requireSupabase()
     .from("EV_RFIDCards")
     .select("user_id")
@@ -45,15 +62,20 @@ export async function startChargingSession(params: {
   ocppConnected?: boolean;
   isSimulated?: boolean;
 }): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
-  const idTag = (params.idTag ?? "").trim();
-  if (!idTag || idTag.toUpperCase() === "ADMIN-BYPASS") {
+  const userId = params.userId?.trim() || null;
+  let idTag = (params.idTag ?? "").trim();
+  if (!idTag && userId) {
+    idTag = buildMobileIdTag(userId);
+  }
+  if (!idTag) {
     return {
       success: false,
-      message:
-        "Web admin Start requires a valid RFID UID or MOBILE-{userId}. Admin Bypass is removed — use mobile prepaid or an assigned RFID card.",
+      message: "Start requires a logged-in user or valid RFID.",
       mode: "ocpp",
     };
   }
+
+  const useBypass = Boolean(params.bypassRfid) && idTag.toUpperCase() === ADMIN_BYPASS_ID_TAG;
 
   if (
     useSimulatedSessions({
@@ -62,12 +84,13 @@ export async function startChargingSession(params: {
       isSimulated: params.isSimulated,
     })
   ) {
-    const userId =
-      params.userId?.trim() || (await resolveUserIdForIdTag(idTag));
-    if (!userId) {
+    const resolvedUserId = userId || (await resolveUserIdForIdTag(idTag));
+    if (!resolvedUserId) {
       return {
         success: false,
-        message: "RFID card is not assigned to any user.",
+        message: userId
+          ? "User session not found. Please login again."
+          : "RFID card is not assigned to any user.",
         mode: "simulated",
       };
     }
@@ -75,7 +98,7 @@ export async function startChargingSession(params: {
     const sessionId = await simulator.simulateStartSession(
       params.chargerId,
       params.connectorId,
-      userId,
+      resolvedUserId,
     );
     await simulator.simulateMeterValue(sessionId);
     return {
@@ -88,9 +111,9 @@ export async function startChargingSession(params: {
   const result = await ocppService.remoteStartTransaction({
     chargePointId: params.chargePointId,
     connectorId: params.connectorId,
-    idTag,
-    bypassRfid: false,
-    ...(params.userId?.trim() ? { userId: params.userId.trim() } : {}),
+    idTag: useBypass ? ADMIN_BYPASS_ID_TAG : idTag,
+    bypassRfid: useBypass,
+    ...(userId ? { userId } : {}),
   });
   return {
     success: result.accepted,
@@ -99,6 +122,45 @@ export async function startChargingSession(params: {
       : `RemoteStart rejected by charger on Gun ${params.connectorId}`,
     mode: "ocpp",
   };
+}
+
+/** Web admin RemoteStart — OCPP ADMIN-BYPASS idTag; session attributed to logged-in admin. */
+export async function startAdminChargingSession(params: {
+  chargerId: string;
+  chargePointId: string;
+  connectorId: number;
+  adminUserId: string;
+  ocppConnected?: boolean;
+  isSimulated?: boolean;
+}): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
+  const adminUserId = params.adminUserId.trim();
+  if (!adminUserId) {
+    return {
+      success: false,
+      message: "User session not found. Please login again.",
+      mode: "ocpp",
+    };
+  }
+
+  if (
+    !useSimulatedSessions({
+      ocppConnected: params.ocppConnected,
+      isSimulated: params.isSimulated,
+    })
+  ) {
+    await rfidService.ensureAdminBypassAuthorizeTag(adminUserId);
+  }
+
+  return startChargingSession({
+    chargerId: params.chargerId,
+    chargePointId: params.chargePointId,
+    connectorId: params.connectorId,
+    userId: adminUserId,
+    idTag: ADMIN_BYPASS_ID_TAG,
+    bypassRfid: true,
+    ocppConnected: params.ocppConnected,
+    isSimulated: params.isSimulated,
+  });
 }
 
 export async function stopChargingSession(params: {
@@ -128,7 +190,7 @@ export async function stopChargingSession(params: {
   const result = await ocppService.remoteStopTransaction({
     chargePointId: params.chargePointId,
     transactionId: params.transactionId,
-    bypassRfid: false,
+    bypassRfid: params.bypassRfid !== false,
   });
   return {
     success: result.accepted,

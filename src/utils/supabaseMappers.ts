@@ -161,10 +161,10 @@ export function resolveSessionUserDisplayName(
   return "Unknown User";
 }
 
-/** AUTH column: Mobile | RFID | Legacy / Unknown for old Admin Bypass rows. */
+/** AUTH column: Mobile | RFID | Remote (admin) | Legacy / Unknown. */
 export function resolveSessionAuthMethod(method?: string | null): string {
   const m = String(method ?? "").trim();
-  if (m === "Mobile" || m === "RFID") return m;
+  if (m === "Mobile" || m === "RFID" || m === "Remote") return m === "Remote" ? "Admin" : m;
   if (!m) return "—";
   const lower = m.toLowerCase();
   if (lower.includes("admin") || lower.includes("bypass") || lower === "remote" || lower === "qr") {

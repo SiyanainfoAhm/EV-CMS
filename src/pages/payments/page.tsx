@@ -148,8 +148,8 @@ export default function PaymentsPage() {
         <i className="ri-information-line text-gray-500 text-lg mt-0.5"></i>
         <p className="text-xs text-gray-600">
           Session payments are prepaid collections. Configure amount/time presets under{" "}
-          <strong>Prepaid Plans</strong>. Charging starts only from the mobile prepaid flow or an
-          assigned RFID card — Admin Bypass is not available.
+          <strong>Prepaid Plans</strong>. End users start via the mobile app; admins can Start/Stop
+          from Charger Detail (session attributed to the admin user).
         </p>
       </div>
 
