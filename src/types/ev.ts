@@ -38,8 +38,8 @@ export interface Charger {
   lastHeartbeat?: string | null;
   location: string;
   isSimulated?: boolean;
-  /** Lab/test only — admin may Start without prepaid. */
-  allowAdminBypass?: boolean;
+  /** Web admin may Start/Stop via ADMIN-BYPASS when true. Mobile/RFID ignore this flag. */
+  allowAdminBypass?: boolean | null;
   connectivity?: "online" | "offline" | "stale";
   tariffId?: string | null;
   tariff?: Tariff | null;

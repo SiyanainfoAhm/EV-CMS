@@ -124,12 +124,13 @@ export async function startChargingSession(params: {
   };
 }
 
-/** Web admin RemoteStart — OCPP ADMIN-BYPASS idTag; session attributed to logged-in admin. */
+/** Web admin RemoteStart — OCPP ADMIN-BYPASS; requires charger.allow_admin_bypass. */
 export async function startAdminChargingSession(params: {
   chargerId: string;
   chargePointId: string;
   connectorId: number;
   adminUserId: string;
+  allowAdminBypass?: boolean;
   ocppConnected?: boolean;
   isSimulated?: boolean;
 }): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
@@ -138,6 +139,14 @@ export async function startAdminChargingSession(params: {
     return {
       success: false,
       message: "User session not found. Please login again.",
+      mode: "ocpp",
+    };
+  }
+  if (params.allowAdminBypass === false) {
+    return {
+      success: false,
+      message:
+        "Web admin start is disabled for this charger. Enable Allow Web Admin Start / Stop from Edit Charger.",
       mode: "ocpp",
     };
   }

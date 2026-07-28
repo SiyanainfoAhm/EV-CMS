@@ -89,6 +89,27 @@ ocppRouter.post("/remote-start", async (req, res) => {
     }
     const cpId = String(chargePointId).toUpperCase();
     const adminBypass = Boolean(bypassRfid) || config.bypassRfidAuth;
+    const isPrepaidPaid = Boolean(prepaidPaid);
+
+    let charger: repo.ChargerRow | null = null;
+    if (isSupabaseConfigured()) {
+      charger = await repo.findChargerByChargePointId(cpId);
+      if (
+        adminBypass &&
+        !isPrepaidPaid &&
+        charger &&
+        charger.allow_admin_bypass === false &&
+        !config.bypassRfidAuth
+      ) {
+        res.status(403).json({
+          accepted: false,
+          error:
+            "Web admin start is disabled for this charger. Enable Allow Web Admin Start / Stop from Edit Charger.",
+        });
+        return;
+      }
+    }
+
     const resolvedIdTag = adminBypass
       ? ADMIN_BYPASS_ID_TAG
       : String(idTag ?? "").trim();
@@ -100,11 +121,6 @@ ocppRouter.post("/remote-start", async (req, res) => {
 
     if (adminBypass) {
       enableAdminRfidBypass(cpId);
-    }
-
-    let charger: repo.ChargerRow | null = null;
-    if (isSupabaseConfigured()) {
-      charger = await repo.findChargerByChargePointId(cpId);
     }
 
     console.log("[ocpp] RemoteStart idTag", resolvedIdTag);

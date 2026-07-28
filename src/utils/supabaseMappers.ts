@@ -94,7 +94,7 @@ export function mapCharger(
     lastHeartbeat: (row.last_heartbeat_at as string | null) ?? undefined,
     location: (row.location as string) ?? "",
     isSimulated: Boolean(row.is_simulated),
-    allowAdminBypass: Boolean(row.allow_admin_bypass),
+    allowAdminBypass: row.allow_admin_bypass !== false,
     connectivity: connectivityFromHeartbeat(row.last_heartbeat_at as string),
     tariffId: (row.tariff_id as string | null) ?? null,
     tariff: tariffRow ? mapTariff(tariffRow) : null,

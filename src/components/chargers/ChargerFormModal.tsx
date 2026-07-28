@@ -8,8 +8,10 @@ import {
 } from "@/utils/validation";
 import { buildOcppWebSocketUrl, getOcppPathPattern } from "@/utils/ocppUrls";
 import { useOcppGatewayConfig } from "@/hooks/useOcppGatewayConfig";
+import { useAuth } from "@/hooks/useAuth";
 import * as chargerService from "@/services/chargerService";
 import * as tariffService from "@/services/tariffService";
+import * as auditLogService from "@/services/auditLogService";
 import type { Charger, Tariff } from "@/types/ev";
 
 export const emptyChargerForm: ChargerFormFields = {
@@ -23,7 +25,7 @@ export const emptyChargerForm: ChargerFormFields = {
   maxPowerKw: 60,
   location: "",
   tariffId: "",
-  allowAdminBypass: false,
+  allowAdminBypass: true,
 };
 
 export function chargerToForm(charger: Charger): ChargerFormFields {
@@ -38,7 +40,7 @@ export function chargerToForm(charger: Charger): ChargerFormFields {
     maxPowerKw: charger.maxPowerKw,
     location: charger.location,
     tariffId: charger.tariffId ?? "",
-    allowAdminBypass: Boolean(charger.allowAdminBypass),
+    allowAdminBypass: charger.allowAdminBypass !== false,
   };
 }
 
@@ -66,6 +68,7 @@ export function ChargerFormModal({
   onSaved,
   onError,
 }: ChargerFormModalProps) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<ChargerFormFields>(initialForm);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof ChargerFormFields, string>>>({});
   const [saving, setSaving] = useState(false);
@@ -129,13 +132,25 @@ export function ChargerFormModal({
         maxPowerKw: formData.maxPowerKw,
         location: formData.location,
         tariffId: formData.tariffId || null,
-        allowAdminBypass: false,
+        allowAdminBypass: Boolean(formData.allowAdminBypass),
       };
 
       const saved =
         isEdit && editingId
           ? await chargerService.updateCharger(editingId, payload)
           : await chargerService.createCharger({ chargePointId: formData.chargePointId, ...payload });
+
+      const prevBypass = Boolean(initialForm.allowAdminBypass);
+      const nextBypass = Boolean(payload.allowAdminBypass);
+      if (user?.id && (nextBypass !== prevBypass || (!isEdit && nextBypass))) {
+        void auditLogService.logWebAdminStartFlagChange({
+          userId: user.id,
+          chargerId: saved.id,
+          chargePointId: saved.chargePointId,
+          enabled: nextBypass,
+          isCreate: !isEdit,
+        });
+      }
 
       onSaved(saved);
       onClose();
@@ -268,6 +283,27 @@ export function ChargerFormModal({
                   placeholder="e.g. DFCCIL Yard, New Delhi"
                 />
               </FormField>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.allowAdminBypass)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, allowAdminBypass: e.target.checked })
+                  }
+                  className="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="text-sm font-medium text-gray-900">
+                    Allow Web Admin Start / Stop
+                  </span>
+                  <span className="block text-xs text-gray-600 mt-0.5">
+                    Allows SuperAdmin/SiteAdmin to start or stop this charger from the web panel
+                    using ADMIN-BYPASS. Mobile users and RFID charging are unaffected.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-4">
