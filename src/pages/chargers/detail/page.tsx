@@ -16,9 +16,10 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useAuth } from "@/hooks/useAuth";
 import * as auditLogService from "@/services/auditLogService";
 import {
-  connectivityFromHeartbeat,
+  chargerStatusDotClass,
+  chargerStatusTextClass,
+  formatChargerStatusLabel,
   formatHeartbeatAgo,
-  type ConnectivityLabel,
 } from "@/utils/chargerConnectivity";
 import {
   canRemoteStartConnector,
@@ -39,34 +40,6 @@ function getRelativeTime(isoStr: string): string {
   if (diffHrs < 24) return `${diffHrs}h ago`;
   const diffDays = Math.floor(diffHrs / 24);
   return `${diffDays}d ago`;
-}
-
-function getConnectivityColor(connectivity: ConnectivityLabel | "faulted"): string {
-  switch (connectivity) {
-    case "online":
-      return "bg-emerald-500";
-    case "stale":
-      return "bg-amber-400";
-    case "offline":
-      return "bg-gray-400";
-    case "faulted":
-      return "bg-red-500";
-    default:
-      return "bg-gray-400";
-  }
-}
-
-function getConnectivityTextClass(connectivity: ConnectivityLabel | "faulted"): string {
-  switch (connectivity) {
-    case "online":
-      return "text-emerald-600";
-    case "stale":
-      return "text-amber-600";
-    case "faulted":
-      return "text-red-500";
-    default:
-      return "text-gray-500";
-  }
 }
 
 function sleep(ms: number) {
@@ -193,13 +166,6 @@ export default function ChargerDetailPage() {
       </div>
     );
   }
-
-  const connectivityLabel: ConnectivityLabel | "faulted" =
-    charger.status === "decommissioned"
-      ? "offline"
-      : charger.status === "faulted"
-        ? "faulted"
-        : connectivityFromHeartbeat(charger.lastHeartbeat);
 
   const handleDecommission = async () => {
     if (!charger) return;
@@ -391,9 +357,9 @@ export default function ChargerDetailPage() {
             <span className="text-xs text-gray-500">{charger.manufacturer}</span>
             <span className="text-gray-300">·</span>
             <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${getConnectivityColor(connectivityLabel)}`}></div>
-              <span className={`text-xs font-medium capitalize ${getConnectivityTextClass(connectivityLabel)}`}>
-                {connectivityLabel}
+              <div className={`w-2 h-2 rounded-full ${chargerStatusDotClass(charger.status)}`}></div>
+              <span className={`text-xs font-medium capitalize ${chargerStatusTextClass(charger.status)}`}>
+                {formatChargerStatusLabel(charger.status)}
               </span>
             </div>
           </div>
