@@ -55,7 +55,7 @@ export function useDashboardData(range: DashboardRange | TimeRange = "today") {
   useSupabaseRealtime(refresh);
 
   useEffect(() => {
-    const ms = Math.max(5000, systemSettings.autoRefreshInterval * 1000);
+    const ms = Math.max(30000, systemSettings.autoRefreshInterval * 1000);
     const timer = setInterval(refresh, ms);
     return () => clearInterval(timer);
   }, [refresh, systemSettings.autoRefreshInterval, refreshTick]);

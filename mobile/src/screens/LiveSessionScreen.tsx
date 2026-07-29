@@ -20,7 +20,7 @@ import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "LiveSession">;
 
-const POLL_MS = 2000;
+const POLL_MS = 5000;
 
 function formatEnergy(kwh: number): string {
   return Number.isFinite(kwh) ? kwh.toFixed(2) : "0.00";

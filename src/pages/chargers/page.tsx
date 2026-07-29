@@ -26,8 +26,6 @@ import type { ChargerFormFields } from "@/utils/validation";
 
 import {
 
-  connectivityFromHeartbeat,
-
   formatHeartbeatAgo,
 
   isOfflineByStatus,
@@ -159,7 +157,7 @@ export default function ChargersPage() {
 
     loadFleet();
 
-    const timer = setInterval(loadFleet, 15000);
+    const timer = setInterval(loadFleet, 30000);
 
     return () => clearInterval(timer);
 
@@ -220,6 +218,17 @@ export default function ChargersPage() {
 
   const mockActiveSessions = sessionsData ?? [];
 
+  useEffect(() => {
+    if (mockChargers.length > 0) {
+      console.log('[web chargers/status]', mockChargers.map((c) => ({
+        id: c.chargePointId,
+        status: c.status,
+        normalizedStatus: String(c.status || '').toLowerCase().trim(),
+        connectors: c.connectors?.map((x) => x.status),
+      })));
+    }
+  }, [mockChargers]);
+
 
 
   const stats = useMemo(() => {
@@ -228,7 +237,8 @@ export default function ChargersPage() {
 
     const offline = mockChargers.filter((c) => isOfflineByStatus(c.status)).length;
 
-    const faulted = mockChargers.filter((c) => c.status === "faulted").length;
+    const FAULTED_STATUSES = new Set(["faulted", "error", "unavailable"]);
+    const faulted = mockChargers.filter((c) => FAULTED_STATUSES.has(String(c.status || "").toLowerCase().trim())).length;
 
     const chargingConnectors = mockChargers.reduce(
 
@@ -252,7 +262,7 @@ export default function ChargersPage() {
 
       if (statusFilter === "offline") return isOfflineByStatus(c.status);
 
-      if (statusFilter === "faulted") return c.status === "faulted";
+      if (statusFilter === "faulted") return ["faulted", "error", "unavailable"].includes(String(c.status || "").toLowerCase().trim());
 
       if (statusFilter === "decommissioned") return c.status === "decommissioned";
 
@@ -625,26 +635,20 @@ export default function ChargersPage() {
                       <div
 
                         className={`w-2 h-2 rounded-full ${
-
-                          connectivityFromHeartbeat(charger.lastHeartbeat) === "online"
-
+                          isOnlineByStatus(charger.status)
                             ? "bg-emerald-500"
-
-                            : connectivityFromHeartbeat(charger.lastHeartbeat) === "offline"
-
+                            : isOfflineByStatus(charger.status)
                               ? "bg-gray-400"
-
-                              : "bg-amber-400"
-
+                              : ["faulted", "error", "unavailable"].includes(String(charger.status || "").toLowerCase().trim())
+                                ? "bg-red-500"
+                                : "bg-amber-400"
                         }`}
 
                       ></div>
 
                       <span className="text-xs font-medium text-gray-700 capitalize">
 
-                        {connectivityFromHeartbeat(charger.lastHeartbeat)}
-
-                        {charger.status === "faulted" ? " · faulted" : ""}
+                        {String(charger.status || "unknown").toLowerCase()}
 
                       </span>
 
