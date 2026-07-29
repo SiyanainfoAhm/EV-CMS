@@ -11,6 +11,28 @@ export function isOfflineByStatus(status?: string | null): boolean {
   return String(status || "").toLowerCase().trim() === "offline";
 }
 
+const FAULTED_STATUSES = new Set(["faulted", "error", "unavailable"]);
+
+/** Status badge dot — matches chargers list Status column. */
+export function chargerStatusDotClass(status?: string | null): string {
+  if (isOnlineByStatus(status)) return "bg-emerald-500";
+  if (isOfflineByStatus(status)) return "bg-gray-400";
+  if (FAULTED_STATUSES.has(String(status || "").toLowerCase().trim())) return "bg-red-500";
+  return "bg-amber-400";
+}
+
+/** Status badge text — matches chargers list Status column. */
+export function chargerStatusTextClass(status?: string | null): string {
+  if (isOnlineByStatus(status)) return "text-emerald-600";
+  if (isOfflineByStatus(status)) return "text-gray-500";
+  if (FAULTED_STATUSES.has(String(status || "").toLowerCase().trim())) return "text-red-500";
+  return "text-amber-600";
+}
+
+export function formatChargerStatusLabel(status?: string | null): string {
+  return String(status || "unknown").toLowerCase();
+}
+
 export const HEARTBEAT_ONLINE_MS = 5 * 60 * 1000;
 export const HEARTBEAT_OFFLINE_MS = 15 * 60 * 1000;
 
