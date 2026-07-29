@@ -55,6 +55,9 @@ type StatusFilter = "all" | "online" | "offline" | "faulted" | "decommissioned";
 
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
 
+/** Add Charger — local dev only; stripped from production builds (Vercel live). */
+const SHOW_ADD_CHARGER_BUTTON = import.meta.env.DEV;
+
 type SortKey = "name" | "type" | "ocpp" | "status" | "location" | "tariff" | "lastHeartbeat";
 
 const PER_PAGE = 10;
@@ -421,14 +424,15 @@ export default function ChargersPage() {
 
         </div>
 
-        <button
-          onClick={openAddModal}
-          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap flex items-center gap-2"
-        >
-          <i className="ri-add-line"></i>
-          Add Charger
-        </button>
-
+        {SHOW_ADD_CHARGER_BUTTON && (
+          <button
+            onClick={openAddModal}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors whitespace-nowrap flex items-center gap-2"
+          >
+            <i className="ri-add-line"></i>
+            Add Charger
+          </button>
+        )}
       </div>
 
 
