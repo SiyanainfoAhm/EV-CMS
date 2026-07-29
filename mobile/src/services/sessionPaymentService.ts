@@ -208,6 +208,8 @@ export function mapSessionPaymentErrorMessage(code: string): string {
     case "SESSION_PAYMENT_BACKEND_NOT_CONFIGURED":
     case "Razorpay credentials not configured on server":
       return "razorpay.gatewayNotConfigured";
+    case "HDFC payment gateway is not configured yet.":
+      return "HDFC payment gateway is not configured yet.";
     case "Session payment not found":
     case "PAYMENT_NOT_FOUND":
       return "session.paymentNotFound";

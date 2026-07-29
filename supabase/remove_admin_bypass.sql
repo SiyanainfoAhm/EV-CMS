@@ -19,9 +19,10 @@ WHERE NOT EXISTS (
 
 UPDATE public."EV_RFIDCards"
 SET status = 'active',
+    user_id = NULL,
     updated_at = NOW()
 WHERE upper(uid) = 'ADMIN-BYPASS'
-  AND lower(status) = 'blocked';
+  AND (lower(status) = 'blocked' OR user_id IS NOT NULL);
 
 -- Web admin start enabled by default on all chargers.
 ALTER TABLE public."EV_Chargers"

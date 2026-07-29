@@ -100,8 +100,9 @@ export async function unbindRfid(cardId: string): Promise<void> {
 }
 
 /**
- * Bind ADMIN-BYPASS RFID to the web admin user so OCPP Authorize accepts RemoteStart.
- * Mobile app never uses this — mobile uses MOBILE-{userId}.
+ * Ensure shared ADMIN-BYPASS RFID exists for OCPP RemoteStart.
+ * Do not bind it to an admin user — multiple admins share this idTag; session
+ * attribution uses the logged-in admin's user_id from RemoteStart (preferredUserId).
  */
 export async function ensureAdminBypassAuthorizeTag(userId: string): Promise<string> {
   const tag = ADMIN_BYPASS_ID_TAG;
@@ -121,11 +122,17 @@ export async function ensureAdminBypassAuthorizeTag(userId: string): Promise<str
   if (!cardId) {
     const created = await createRfidCard(tag);
     cardId = created.id;
-  } else if (String((existing as { status?: string }).status).toLowerCase() === "blocked") {
-    await updateRfidStatus(cardId, "active");
+  } else {
+    const row = existing as { status?: string; user_id?: string | null };
+    if (String(row.status).toLowerCase() === "blocked") {
+      await updateRfidStatus(cardId, "active");
+    }
+    // Self-heal legacy binds from older builds that bound ADMIN-BYPASS to one admin.
+    if (row.user_id) {
+      await unbindRfid(cardId);
+    }
   }
 
-  await bindRfidToUser(cardId, uid);
-  console.log("[auth] admin bypass tag bound", { tag, userId: uid });
+  console.log("[auth] admin bypass tag ready", { tag, adminUserId: uid });
   return tag;
 }
