@@ -21,6 +21,44 @@ import {
 
 const STATUS_OPTIONS = ["open", "in_progress", "resolved", "closed"] as const;
 const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
+const PER_PAGE = 10;
+
+type SortKey = "subject" | "userName" | "status" | "priority" | "assignedToName" | "createdAt";
+
+const STATUS_SORT_ORDER: Record<string, number> = {
+  open: 0,
+  in_progress: 1,
+  resolved: 2,
+  closed: 3,
+};
+
+const PRIORITY_SORT_ORDER: Record<string, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
+
+function compareTickets(a: SupportTicket, b: SupportTicket, key: SortKey): number {
+  switch (key) {
+    case "subject":
+      return a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" });
+    case "userName":
+      return (a.userName || "").localeCompare(b.userName || "", undefined, { sensitivity: "base" });
+    case "status":
+      return (STATUS_SORT_ORDER[a.status] ?? 99) - (STATUS_SORT_ORDER[b.status] ?? 99);
+    case "priority":
+      return (PRIORITY_SORT_ORDER[a.priority] ?? 99) - (PRIORITY_SORT_ORDER[b.priority] ?? 99);
+    case "assignedToName":
+      return (a.assignedToName || "Unassigned").localeCompare(b.assignedToName || "Unassigned", undefined, {
+        sensitivity: "base",
+      });
+    case "createdAt":
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    default:
+      return 0;
+  }
+}
 
 function statusBadgeClass(status: string): string {
   switch (status) {
@@ -73,6 +111,9 @@ export default function SupportTicketsPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortKey, setSortKey] = useState<SortKey>("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
   const showToast = (msg: string) => {
@@ -93,9 +134,20 @@ export default function SupportTicketsPage() {
       .catch((e) => showToast(e instanceof Error ? e.message : "Failed to load tickets"));
 
   useEffect(() => {
+    setCurrentPage(1);
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, priorityFilter, debouncedSearch, dateStart, dateEnd]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "createdAt" ? "desc" : "asc");
+    }
+    setCurrentPage(1);
+  };
 
   useEffect(() => {
     userService
@@ -121,6 +173,37 @@ export default function SupportTicketsPage() {
       resolved: tickets.filter((t) => t.status === "resolved" || t.status === "closed").length,
     };
   }, [tickets]);
+
+  const sortedTickets = useMemo(() => {
+    const rows = [...tickets];
+    rows.sort((a, b) => {
+      const cmp = compareTickets(a, b, sortKey);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return rows;
+  }, [tickets, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedTickets.length / PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedTickets = sortedTickets.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  const sortIcon = (key: SortKey) => {
+    if (sortKey !== key) return "ri-arrow-up-down-line text-gray-300";
+    return sortDir === "asc" ? "ri-arrow-up-s-line text-emerald-600" : "ri-arrow-down-s-line text-emerald-600";
+  };
+
+  const renderSortHeader = (label: string, column: SortKey, className: string) => (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => toggleSort(column)}
+        className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-gray-600 transition-colors"
+      >
+        {label}
+        <i className={`${sortIcon(column)} text-sm`}></i>
+      </button>
+    </th>
+  );
 
   const openDetail = async (ticket: SupportTicket) => {
     setSelectedId(ticket.id);
@@ -327,34 +410,26 @@ export default function SupportTicketsPage() {
           <table className="w-full min-w-[880px] table-fixed">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[20%]">
-                  Subject
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[14%]">
-                  User
-                </th>
+                {renderSortHeader("Subject", "subject", "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[20%]")}
+                {renderSortHeader("User", "userName", "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[14%]")}
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[8%]">
                   Files
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[9%]">
-                  Status
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[9%]">
-                  Priority
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[12%]">
-                  Assigned
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[12%]">
-                  Created
-                </th>
+                {renderSortHeader("Status", "status", "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[9%]")}
+                {renderSortHeader("Priority", "priority", "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[9%]")}
+                {renderSortHeader(
+                  "Assigned",
+                  "assignedToName",
+                  "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[12%]"
+                )}
+                {renderSortHeader("Created", "createdAt", "text-left px-4 py-3 text-xs font-medium text-gray-400 w-[12%]")}
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-[8%]">
                   Action
                 </th>
               </tr>
             </thead>
             <tbody>
-              {tickets.map((ticket) => (
+              {paginatedTickets.map((ticket) => (
                 <tr key={ticket.id} className="border-b border-gray-50 hover:bg-[#f9faf7] transition-colors">
                   <td className="px-4 py-3.5 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate" title={ticket.subject}>
@@ -419,6 +494,45 @@ export default function SupportTicketsPage() {
               <i className="ri-customer-service-2-line text-gray-300 text-xl"></i>
             </div>
             <p className="text-sm text-gray-400">No support tickets found</p>
+          </div>
+        )}
+
+        {tickets.length > 0 && totalPages > 1 && (
+          <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              Showing {(safePage - 1) * PER_PAGE + 1}-{Math.min(safePage * PER_PAGE, sortedTickets.length)} of{" "}
+              {sortedTickets.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+                disabled={safePage === 1}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <i className="ri-arrow-left-s-line text-gray-500"></i>
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${
+                    safePage === p ? "bg-emerald-600 text-white" : "text-gray-500 hover:bg-gray-100"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
+                disabled={safePage === totalPages}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <i className="ri-arrow-right-s-line text-gray-500"></i>
+              </button>
+            </div>
           </div>
         )}
       </div>
