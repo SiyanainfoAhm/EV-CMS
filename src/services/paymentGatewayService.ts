@@ -5,6 +5,59 @@
 
 import * as paymentService from "@/services/paymentService";
 import { isPaymentMockEnabled, PAYMENT_MOCK_GATEWAY_NAME } from "@/utils/paymentMockMode";
+import {
+  getActivePaymentGateway,
+  getPaymentGatewayConfig,
+  isTestingMode,
+  setPaymentGatewayTestingMode,
+} from "@/services/paymentGatewayConfigService";
+import {
+  normalizePaymentFailure,
+  normalizePaymentSuccess,
+  type CreatePaymentOrderInput,
+  type CreatePaymentOrderResult,
+  type VerifyPaymentInput,
+  type VerifyPaymentResult,
+} from "@/types/paymentGateway";
+import { hdfcPaymentGateway } from "@/services/gateways/hdfcPaymentGateway";
+
+export {
+  getPaymentGatewayConfig,
+  isTestingMode,
+  getActivePaymentGateway,
+  setPaymentGatewayTestingMode,
+  normalizePaymentSuccess,
+  normalizePaymentFailure,
+};
+
+/**
+ * Backend-oriented create — routes by EV_SystemConfig.testing_mode.
+ * Mobile prepaid uses Supabase edge functions; this is for shared server/admin callers.
+ */
+export async function createPaymentOrder(
+  input: CreatePaymentOrderInput
+): Promise<CreatePaymentOrderResult> {
+  const cfg = await getPaymentGatewayConfig();
+  const gateway = cfg.active_gateway;
+  console.log("[payment-order] gateway", gateway);
+  if (gateway === "hdfc") {
+    return hdfcPaymentGateway.createOrder(input);
+  }
+  throw new Error(
+    "Razorpay order creation runs via edge function ev-cms-mobile-session-create-razorpay-order"
+  );
+}
+
+export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPaymentResult> {
+  const gateway = input.gateway || (await getActivePaymentGateway());
+  console.log("[payment] normalized status verify", gateway);
+  if (gateway === "hdfc") {
+    return hdfcPaymentGateway.verifyPayment(input);
+  }
+  throw new Error(
+    "Razorpay verification runs via edge function ev-cms-mobile-session-verify-razorpay-payment"
+  );
+}
 
 const paymentUrl = import.meta.env.VITE_PAYMENT_GATEWAY_URL || "";
 

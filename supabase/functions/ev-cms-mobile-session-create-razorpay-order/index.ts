@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  isHdfcEnvConfigured,
+  loadPaymentGatewayConfig,
+} from "../_shared/paymentGateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,12 +26,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const keyId = Deno.env.get("RAZORPAY_KEY_ID") ?? "";
-    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET") ?? "";
-    if (!keyId || !keySecret) {
-      return json({ error: "Razorpay credentials not configured on server" }, 500);
-    }
-
     const userId = req.headers.get("x-user-id") ?? "";
     if (!userId) {
       return json({ error: "X-User-Id header required" }, 401);
@@ -43,6 +41,24 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    const gatewayConfig = await loadPaymentGatewayConfig(supabase);
+    const activeGateway = gatewayConfig.active_gateway;
+    console.log("[payment-order] gateway", activeGateway);
+
+    if (activeGateway === "hdfc") {
+      if (!isHdfcEnvConfigured()) {
+        return json({ error: "HDFC payment gateway is not configured yet.", gateway: "hdfc", testing_mode: false }, 503);
+      }
+      // Full HDFC create will be added when client provides integration details.
+      return json({ error: "HDFC payment gateway is not configured yet.", gateway: "hdfc", testing_mode: false }, 503);
+    }
+
+    const keyId = Deno.env.get("RAZORPAY_KEY_ID") ?? "";
+    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET") ?? "";
+    if (!keyId || !keySecret) {
+      return json({ error: "Razorpay credentials not configured on server" }, 500);
+    }
 
     const { error: syncErr } = await supabase.rpc("ev_sync_session_payment_bill", {
       p_user_id: userId,
@@ -79,20 +95,42 @@ Deno.serve(async (req) => {
       return json({ error: "INVALID_AMOUNT" }, 400);
     }
 
-    const existingOrderId = payment.gateway_order_id ? String(payment.gateway_order_id) : "";
+    const existingOrderId = payment.gateway_order_id
+      ? String(payment.gateway_order_id)
+      : payment.gateway_txn_id
+        ? String(payment.gateway_txn_id)
+        : "";
     const amountPaise = Math.round(totalAmount * 100);
 
     if (amountPaise < 100) {
       return json({ error: "MINIMUM_PAYMENT_AMOUNT" }, 400);
     }
 
+    const snapshotUpdate = {
+      gateway: "razorpay",
+      testing_mode: gatewayConfig.testing_mode,
+      updated_at: new Date().toISOString(),
+    };
+
     if (existingOrderId) {
+      await supabase
+        .from("EV_Payments")
+        .update({
+          ...snapshotUpdate,
+          gateway_order_id: existingOrderId,
+        })
+        .eq("id", paymentId);
+
+      console.log("[razorpay] order created (reuse)", existingOrderId);
       return json({
+        gateway: "razorpay",
+        testing_mode: gatewayConfig.testing_mode,
         payment_order_id: paymentId,
         razorpay_order_id: existingOrderId,
+        gateway_order_id: existingOrderId,
         amount: totalAmount,
         amount_paise: amountPaise,
-        currency: "INR",
+        currency: gatewayConfig.active_currency || "INR",
         key_id: keyId,
         status: "pending",
       });
@@ -106,13 +144,15 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         amount: amountPaise,
-        currency: body.currency ?? "INR",
+        currency: body.currency ?? gatewayConfig.active_currency ?? "INR",
         receipt: `session_${paymentId.replace(/-/g, "").slice(0, 20)}`,
         notes: {
           payment_id: paymentId,
           session_id: sessionId,
           user_id: userId,
           purpose: "session_payment",
+          gateway: "razorpay",
+          testing_mode: String(gatewayConfig.testing_mode),
         },
       }),
     });
@@ -123,6 +163,7 @@ Deno.serve(async (req) => {
     }
 
     const rzOrder = await rzRes.json();
+    console.log("[razorpay] order created", rzOrder.id);
 
     const { error: bindErr } = await supabase.rpc("ev_bind_session_razorpay_order", {
       p_user_id: userId,
@@ -134,9 +175,22 @@ Deno.serve(async (req) => {
       return json({ error: bindErr.message }, 500);
     }
 
+    await supabase
+      .from("EV_Payments")
+      .update({
+        ...snapshotUpdate,
+        gateway_order_id: rzOrder.id,
+        gateway_txn_id: rzOrder.id,
+        raw_gateway_response: { order_id: rzOrder.id, status: rzOrder.status },
+      })
+      .eq("id", paymentId);
+
     return json({
+      gateway: "razorpay",
+      testing_mode: gatewayConfig.testing_mode,
       payment_order_id: paymentId,
       razorpay_order_id: rzOrder.id,
+      gateway_order_id: rzOrder.id,
       amount: totalAmount,
       amount_paise: amountPaise,
       currency: rzOrder.currency ?? "INR",

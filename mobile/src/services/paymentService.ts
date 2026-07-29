@@ -1,7 +1,6 @@
 import {
   canUseRazorpayBackend,
   isRazorpayClientConfigured,
-  isRazorpayGateway,
   isRazorpayPaymentReady,
   paymentConfig,
 } from "../config/paymentConfig";
@@ -19,6 +18,11 @@ import {
   type RazorpayCheckoutOptions,
 } from "./razorpayService";
 import * as sessionPaymentService from "./sessionPaymentService";
+import {
+  getActivePaymentGateway,
+  getPaymentGatewayConfig,
+} from "./paymentGatewayConfigService";
+import { HDFC_NOT_CONFIGURED, openHdfcCheckout } from "./hdfcPaymentService";
 import { isPrepaidSession } from "../utils/sessionCompletion";
 import { calculateAmountPayment, logPrepaidCalculation } from "../utils/prepaidPayment";
 import type { Payment, PrepaidPaymentCalculation } from "../types";
@@ -101,6 +105,30 @@ async function completeRazorpaySessionCheckout(
   order: CreateRazorpayOrderResponse,
   checkoutOptions?: RazorpayCheckoutOptions
 ): Promise<RazorpaySessionPaymentResult> {
+  const gateway = order.gateway ?? "razorpay";
+  console.log("[payment-order] gateway", gateway);
+
+  if (gateway === "hdfc") {
+    try {
+      await openHdfcCheckout({
+        gateway: "hdfc",
+        checkout_url: order.checkout_url,
+        checkout_payload: order.checkout_payload,
+        payment_order_id: order.payment_order_id,
+        gateway_order_id: order.gateway_order_id ?? order.razorpay_order_id,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : HDFC_NOT_CONFIGURED;
+      return {
+        paymentId: order.payment_order_id,
+        sessionId,
+        status: "failed",
+        checkoutFailed: true,
+        errorMessage: message,
+      };
+    }
+  }
+
   try {
     const checkout = await openRazorpayCheckout(order, checkoutOptions);
 
@@ -110,6 +138,8 @@ async function completeRazorpaySessionCheckout(
       razorpay_payment_id: checkout.razorpay_payment_id,
       razorpay_signature: checkout.razorpay_signature ?? "",
     });
+
+    console.log("[payment] normalized status", verified.status);
 
     return {
       paymentId: verified.payment_id,
@@ -130,12 +160,10 @@ async function completeRazorpaySessionCheckout(
   }
 }
 
+/** Sync UI helper — env readiness. Active gateway is resolved from DB at order create. */
 export function checkGatewayConfigured(): boolean {
   if (!paymentConfig.gatewayEnabled) return false;
-  if (isRazorpayGateway()) {
-    return isRazorpayPaymentReady() || paymentConfig.mockEnabled;
-  }
-  return true;
+  return isRazorpayPaymentReady() || paymentConfig.mockEnabled || Boolean(paymentConfig.supabaseUrl);
 }
 
 export function isPaymentMockEnabled(): boolean {
@@ -154,10 +182,10 @@ export function getGatewayPendingMessage(): string {
   if (!paymentConfig.gatewayEnabled) {
     return "razorpay.gatewayNotConfigured";
   }
-  if (isRazorpayGateway() && !isRazorpayClientConfigured()) {
+  if (!isRazorpayClientConfigured() && !paymentConfig.supabaseUrl) {
     return "razorpay.keyMissing";
   }
-  if (isRazorpayGateway() && !canUseRazorpayBackend()) {
+  if (!canUseRazorpayBackend()) {
     return "razorpay.gatewayNotConfigured";
   }
   return "razorpay.title";
@@ -267,8 +295,22 @@ async function getSessionPaymentFallback(sessionId: string, userId: string): Pro
 }
 
 export async function processRazorpaySessionPayment(sessionId: string): Promise<RazorpaySessionPaymentResult> {
+  const cfg = await getPaymentGatewayConfig(true);
+  console.log("[payment-config] testing_mode", cfg.testing_mode);
+  console.log("[payment-config] active_gateway", cfg.active_gateway);
+
   const order = await sessionPaymentService.createRazorpaySessionOrder(sessionId);
-  return completeRazorpaySessionCheckout(sessionId, order, {
+  const gateway = order.gateway ?? cfg.active_gateway;
+
+  if (gateway === "hdfc") {
+    return completeRazorpaySessionCheckout(sessionId, { ...order, gateway: "hdfc" }, {
+      description: "Charging session payment",
+      purpose: "session_payment",
+      sessionId,
+    });
+  }
+
+  return completeRazorpaySessionCheckout(sessionId, { ...order, gateway: "razorpay" }, {
     description: "Charging session payment",
     purpose: "session_payment",
     sessionId,
@@ -376,16 +418,19 @@ export async function createRazorpaySessionPayment(
       input.userId
     );
 
+    const activeGateway = await getActivePaymentGateway();
+    console.log("[payment-config] active_gateway", activeGateway);
+
     if (!checkGatewayConfigured()) {
       throw new Error("Unable to create payment order");
     }
-    if (!canOpenRazorpayCheckout() && !isPaymentMockEnabled()) {
+    if (activeGateway === "razorpay" && !canOpenRazorpayCheckout() && !isPaymentMockEnabled()) {
       throw new Error("Unable to create payment order");
     }
 
     let paymentId = "";
 
-    if (isPaymentMockEnabled() && !canOpenRazorpayCheckout()) {
+    if (isPaymentMockEnabled() && activeGateway === "razorpay" && !canOpenRazorpayCheckout()) {
       const summary = await getSessionPayment(pending.id, input.userId);
       if (summary?.paymentId) {
         await requireSupabase()
@@ -393,6 +438,7 @@ export async function createRazorpaySessionPayment(
           .update({
             status: "success",
             gateway: "mock",
+            testing_mode: true,
             gateway_txn_id: `mock_${Date.now()}`,
             updated_at: new Date().toISOString(),
           })

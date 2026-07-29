@@ -38,11 +38,16 @@ function isRazorpayNativeLinkError(error: unknown): boolean {
 export type CreateRazorpayOrderResponse = {
   payment_order_id: string;
   razorpay_order_id: string;
+  gateway_order_id?: string;
+  gateway?: "razorpay" | "hdfc";
+  testing_mode?: boolean;
   amount: number;
   amount_paise: number;
   currency: string;
   key_id: string;
   status: string;
+  checkout_url?: string;
+  checkout_payload?: Record<string, string>;
   prefill?: {
     name?: string;
     email?: string;

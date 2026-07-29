@@ -17,6 +17,8 @@ import {
   validatePasswordChange,
   validateProfileForm,
 } from "@/utils/validation";
+import * as paymentGatewayConfigService from "@/services/paymentGatewayConfigService";
+import type { PaymentGatewayConfig } from "@/types/paymentGateway";
 
 interface ProfileForm {
   name: string;
@@ -81,12 +83,25 @@ export default function SettingsPage() {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [paymentGwConfig, setPaymentGwConfig] = useState<PaymentGatewayConfig | null>(null);
+  const [paymentGwLoading, setPaymentGwLoading] = useState(false);
+  const [paymentGwSaving, setPaymentGwSaving] = useState(false);
 
   useEffect(() => {
     if (activeTab === "security" && userId) {
       reloadLoginHistory();
     }
   }, [activeTab, userId, reloadLoginHistory]);
+
+  useEffect(() => {
+    if (activeTab !== "system") return;
+    setPaymentGwLoading(true);
+    void paymentGatewayConfigService
+      .getPaymentGatewayConfig()
+      .then(setPaymentGwConfig)
+      .catch(() => setPaymentGwConfig(null))
+      .finally(() => setPaymentGwLoading(false));
+  }, [activeTab]);
 
   useEffect(() => {
     if (!profile) return;
@@ -346,6 +361,28 @@ export default function SettingsPage() {
       showToast(e instanceof Error ? e.message : "Archive job failed — run phase2_web_admin.sql migration");
     } finally {
       setArchiving(false);
+    }
+  };
+
+  const handlePaymentTestingModeToggle = async (testingMode: boolean) => {
+    if (!user || !isWebSuperAdmin(user.role)) return;
+    setPaymentGwSaving(true);
+    try {
+      const next = await paymentGatewayConfigService.setPaymentGatewayTestingMode(user.id, testingMode);
+      setPaymentGwConfig(next);
+      showToast(
+        testingMode
+          ? "Testing Mode ON — new payments use Razorpay"
+          : "Testing Mode OFF — new payments use HDFC"
+      );
+    } catch (e) {
+      showToast(
+        e instanceof Error
+          ? e.message
+          : "Failed to update payment gateway — run supabase/payment_gateway_config.sql"
+      );
+    } finally {
+      setPaymentGwSaving(false);
     }
   };
 
@@ -936,6 +973,92 @@ export default function SettingsPage() {
                 Session timeout, refresh rate, and display formats apply immediately after save.
               </p>
             </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">Payment Gateway</h3>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-5">
+              Testing Mode uses Razorpay. Production Mode uses HDFC. Changing this affects new
+              payment orders only.
+            </p>
+            {paymentGwLoading ? (
+              <p className="text-xs text-gray-400">Loading payment gateway config…</p>
+            ) : paymentGwConfig ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Testing Mode</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      ON = Razorpay · OFF = HDFC (credentials stay in server env)
+                    </p>
+                  </div>
+                  {user && isWebSuperAdmin(user.role) ? (
+                    <button
+                      type="button"
+                      disabled={paymentGwSaving}
+                      onClick={() =>
+                        void handlePaymentTestingModeToggle(!paymentGwConfig.testing_mode)
+                      }
+                      className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/30 disabled:opacity-50 ${
+                        paymentGwConfig.testing_mode ? "bg-emerald-600" : "bg-gray-300"
+                      }`}
+                      role="switch"
+                      aria-checked={paymentGwConfig.testing_mode}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          paymentGwConfig.testing_mode ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  ) : (
+                    <span
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                        paymentGwConfig.testing_mode
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : "bg-gray-100 text-gray-600 border border-gray-200"
+                      }`}
+                    >
+                      {paymentGwConfig.testing_mode ? "ON" : "OFF"}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-gray-100 bg-[#f9faf7] px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+                      Test Gateway
+                    </p>
+                    <p className="text-sm font-medium text-gray-900 capitalize">
+                      {paymentGwConfig.test_gateway}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-[#f9faf7] px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+                      Production Gateway
+                    </p>
+                    <p className="text-sm font-medium text-gray-900 uppercase">
+                      {paymentGwConfig.production_gateway}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-emerald-600/80 mb-1">
+                      Active Gateway
+                    </p>
+                    <p className="text-sm font-semibold text-emerald-800 capitalize">
+                      {paymentGwConfig.active_gateway}
+                    </p>
+                  </div>
+                </div>
+                {!user || !isWebSuperAdmin(user.role) ? (
+                  <p className="text-xs text-gray-400">View only — Super Admin can change Testing Mode.</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs text-rose-600">
+                Payment gateway config unavailable. Run{" "}
+                <code className="text-[10px]">supabase/payment_gateway_config.sql</code> in Supabase.
+              </p>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
