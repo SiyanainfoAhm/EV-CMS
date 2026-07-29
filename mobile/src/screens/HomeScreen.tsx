@@ -17,7 +17,7 @@ import { isSimulationEnabled } from "../utils/simulationMode";
 import AdminNoticeBanner from "../components/AdminNoticeBanner";
 import { getMobileMenuRoutes } from "../utils/rfpRoles";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
-import { isOfflineByHeartbeat, isOnlineByHeartbeat } from "../utils/chargerConnectivity";
+import { canStartCharging } from "../services/chargerService";
 import type { ChargingSession } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -80,8 +80,8 @@ export default function HomeScreen({ navigation }: Props) {
         sessionService.getActiveSession(userId),
         sessionService.getRecentSessions(userId, 3),
       ]);
-      setOnlineCount(chargers.filter((c) => isOnlineByHeartbeat(c.lastHeartbeat)).length);
-      setOfflineCount(chargers.filter((c) => isOfflineByHeartbeat(c.lastHeartbeat)).length);
+      setOnlineCount(chargers.filter((c) => canStartCharging(c)).length);
+      setOfflineCount(chargers.filter((c) => (c.status || "").toLowerCase().trim() === "offline").length);
       setChargingCount(
         chargers.reduce((n, c) => n + c.connectors.filter((x) => x.status === "Charging").length, 0)
       );

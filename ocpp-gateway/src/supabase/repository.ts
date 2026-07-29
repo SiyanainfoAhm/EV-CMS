@@ -216,6 +216,7 @@ export async function authorizeIdTag(
   if (!tag) return "Invalid";
 
   // Web admin ADMIN-BYPASS — accept during bypass window or global test flag.
+  // No RFID card lookup needed; the bypass window is set by RemoteStart.
   if (tag.toUpperCase() === "ADMIN-BYPASS") {
     if (
       config.bypassRfidAuth ||
@@ -224,8 +225,7 @@ export async function authorizeIdTag(
       console.log("[auth] admin bypass authorize", { tag, chargePointId });
       return "Accepted";
     }
-    const rfid = await lookupRfid(tag);
-    if (rfid?.userId) return "Accepted";
+    console.log("[auth] admin bypass rejected — no active bypass window", { tag, chargePointId });
     return "Invalid";
   }
 
@@ -340,10 +340,10 @@ export async function startTransaction(params: {
   let startedBy: "mobile" | "rfid" | "admin";
 
   if (isAdminBypassTag) {
-    if (!preferredUserId && !rfid?.userId) {
+    if (!preferredUserId) {
       throw new Error("User session not found. Please login again.");
     }
-    userId = preferredUserId || rfid!.userId;
+    userId = preferredUserId;
     authMethod = "Remote";
     startedBy = "admin";
   } else if (preferredUserId || isMobileTag) {

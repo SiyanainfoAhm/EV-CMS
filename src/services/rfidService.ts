@@ -100,39 +100,16 @@ export async function unbindRfid(cardId: string): Promise<void> {
 }
 
 /**
- * Ensure shared ADMIN-BYPASS RFID exists for OCPP RemoteStart.
- * Do not bind it to an admin user — multiple admins share this idTag; session
- * attribution uses the logged-in admin's user_id from RemoteStart (preferredUserId).
+ * Return the ADMIN-BYPASS idTag for web admin RemoteStart.
+ * No RFID card lookup or creation needed — the OCPP gateway accepts ADMIN-BYPASS
+ * via the in-memory bypass window opened by RemoteStart, not via EV_RFIDCards.
+ * Session attribution uses preferredUserId (the admin's user_id).
  */
 export async function ensureAdminBypassAuthorizeTag(userId: string): Promise<string> {
-  const tag = ADMIN_BYPASS_ID_TAG;
   const uid = userId.trim();
   if (!uid) {
     throw new Error("User session not found. Please login again.");
   }
-
-  const { data: existing, error: findErr } = await requireSupabase()
-    .from("EV_RFIDCards")
-    .select("id, status, user_id")
-    .ilike("uid", tag)
-    .maybeSingle();
-  if (findErr) throw findErr;
-
-  let cardId = (existing as { id: string } | null)?.id;
-  if (!cardId) {
-    const created = await createRfidCard(tag);
-    cardId = created.id;
-  } else {
-    const row = existing as { status?: string; user_id?: string | null };
-    if (String(row.status).toLowerCase() === "blocked") {
-      await updateRfidStatus(cardId, "active");
-    }
-    // Self-heal legacy binds from older builds that bound ADMIN-BYPASS to one admin.
-    if (row.user_id) {
-      await unbindRfid(cardId);
-    }
-  }
-
-  console.log("[auth] admin bypass tag ready", { tag, adminUserId: uid });
-  return tag;
+  console.log("[auth] admin bypass tag ready", { tag: ADMIN_BYPASS_ID_TAG, adminUserId: uid });
+  return ADMIN_BYPASS_ID_TAG;
 }
