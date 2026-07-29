@@ -28,6 +28,8 @@ import {
 
   formatHeartbeatAgo,
 
+  heartbeatAgeMs,
+
   isOfflineByStatus,
 
   isOnlineByStatus,
@@ -53,6 +55,51 @@ type StatusFilter = "all" | "online" | "offline" | "faulted" | "decommissioned";
 
 type TypeFilter = "all" | "DC Fast" | "AC Slow";
 
+type SortKey = "name" | "type" | "ocpp" | "status" | "location" | "tariff" | "lastHeartbeat";
+
+const PER_PAGE = 10;
+
+const STATUS_SORT_ORDER: Record<string, number> = {
+  online: 0,
+  available: 0,
+  faulted: 1,
+  offline: 2,
+  decommissioned: 3,
+};
+
+function compareChargers(
+  a: Charger,
+  b: Charger,
+  key: SortKey,
+  ocppConnectedIds: Set<string>
+): number {
+  switch (key) {
+    case "name":
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    case "type":
+      return a.type.localeCompare(b.type, undefined, { sensitivity: "base" });
+    case "ocpp": {
+      const aLive = ocppConnectedIds.has(a.chargePointId.toUpperCase()) ? 1 : 0;
+      const bLive = ocppConnectedIds.has(b.chargePointId.toUpperCase()) ? 1 : 0;
+      return aLive - bLive;
+    }
+    case "status": {
+      const aKey = String(a.status || "").toLowerCase();
+      const bKey = String(b.status || "").toLowerCase();
+      return (STATUS_SORT_ORDER[aKey] ?? 99) - (STATUS_SORT_ORDER[bKey] ?? 99);
+    }
+    case "location":
+      return a.location.localeCompare(b.location, undefined, { sensitivity: "base" });
+    case "tariff":
+      return tariffLabel(a).localeCompare(tariffLabel(b), undefined, { sensitivity: "base" });
+    case "lastHeartbeat":
+      // Newer heartbeat first when ascending age (smaller age = more recent)
+      return heartbeatAgeMs(a.lastHeartbeat) - heartbeatAgeMs(b.lastHeartbeat);
+    default:
+      return 0;
+  }
+}
+
 export default function ChargersPage() {
 
   const navigate = useNavigate();
@@ -77,6 +124,10 @@ export default function ChargersPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [ocppConnectedIds, setOcppConnectedIds] = useState<Set<string>>(new Set());
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const debouncedSearch = useDebouncedValue(searchQuery, 250);
 
@@ -272,7 +323,53 @@ export default function ChargersPage() {
 
   }, [mockChargers, statusFilter]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, typeFilter, manufacturerFilter, debouncedSearch]);
 
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "lastHeartbeat" || key === "ocpp" ? "desc" : "asc");
+    }
+    setCurrentPage(1);
+  };
+
+  const sortedChargers = useMemo(() => {
+    const rows = [...filteredChargers];
+    rows.sort((a, b) => {
+      const cmp = compareChargers(a, b, sortKey, ocppConnectedIds);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return rows;
+  }, [filteredChargers, sortKey, sortDir, ocppConnectedIds]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedChargers.length / PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedChargers = sortedChargers.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  const sortIcon = (key: SortKey) => {
+    if (sortKey !== key) return "ri-arrow-up-down-line text-gray-300";
+    return sortDir === "asc" ? "ri-arrow-up-s-line text-emerald-600" : "ri-arrow-down-s-line text-emerald-600";
+  };
+
+  const renderSortHeader = (label: string, column: SortKey, className: string) => (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleSort(column);
+        }}
+        className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-gray-600 transition-colors"
+      >
+        {label}
+        <i className={`${sortIcon(column)} text-sm`}></i>
+      </button>
+    </th>
+  );
 
   const handleSaved = async (saved: Charger) => {
 
@@ -518,21 +615,21 @@ export default function ChargersPage() {
 
               <tr className="border-b border-gray-100">
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Charger</th>
+                {renderSortHeader("Charger", "name", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
+                {renderSortHeader("Type", "type", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">OCPP</th>
+                {renderSortHeader("OCPP", "ocpp", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
+                {renderSortHeader("Status", "status", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Location</th>
+                {renderSortHeader("Location", "location", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Tariff</th>
+                {renderSortHeader("Tariff", "tariff", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
                 <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Connectors</th>
 
-                <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Last Heartbeat</th>
+                {renderSortHeader("Last Heartbeat", "lastHeartbeat", "text-left px-5 py-3 text-xs font-medium text-gray-400")}
 
                 <th className="text-right px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
 
@@ -542,7 +639,7 @@ export default function ChargersPage() {
 
             <tbody>
 
-              {filteredChargers.map((charger) => (
+              {paginatedChargers.map((charger) => (
 
                 <tr
 
@@ -805,6 +902,45 @@ export default function ChargersPage() {
 
           </div>
 
+        )}
+
+        {filteredChargers.length > 0 && totalPages > 1 && (
+          <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              Showing {(safePage - 1) * PER_PAGE + 1}-{Math.min(safePage * PER_PAGE, sortedChargers.length)} of{" "}
+              {sortedChargers.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+                disabled={safePage === 1}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <i className="ri-arrow-left-s-line text-gray-500"></i>
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${
+                    safePage === p ? "bg-emerald-600 text-white" : "text-gray-500 hover:bg-gray-100"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
+                disabled={safePage === totalPages}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <i className="ri-arrow-right-s-line text-gray-500"></i>
+              </button>
+            </div>
+          </div>
         )}
 
       </div>
