@@ -1,6 +1,10 @@
 import type { ChargingSession } from "@/types/ev";
 import { requireSupabase } from "@/utils/supabaseClient";
 import { mapSession } from "@/utils/supabaseMappers";
+import {
+  applyUserNamesToSessions,
+  loadUserDisplayNameMap,
+} from "@/utils/sessionUserNames";
 
 function mapSessionRows(data: Record<string, unknown>[]): ChargingSession[] {
   return data.map((row) => {
@@ -9,6 +13,15 @@ function mapSessionRows(data: Record<string, unknown>[]): ChargingSession[] {
     const rfid = row.EV_RFIDCards as Record<string, unknown> | null;
     return mapSession(row, charger, user, rfid);
   });
+}
+
+async function mapSessionRowsWithNames(data: Record<string, unknown>[]): Promise<ChargingSession[]> {
+  const sessions = mapSessionRows(data);
+  if (sessions.length === 0) return sessions;
+  const needsNames = sessions.some((s) => !s.userName || s.userName === "Unknown User");
+  if (!needsNames) return sessions;
+  const names = await loadUserDisplayNameMap();
+  return applyUserNamesToSessions(sessions, names);
 }
 
 const sessionSelect = `
@@ -47,7 +60,7 @@ export async function getActiveSessions(): Promise<ChargingSession[]> {
     .order("start_time", { ascending: false });
 
   if (error) throw error;
-  return mapSessionRows((data as Record<string, unknown>[]) ?? []);
+  return mapSessionRowsWithNames((data as Record<string, unknown>[]) ?? []);
 }
 
 export async function getSessionHistory(query: SessionsHistoryQuery = {}): Promise<ChargingSession[]> {
@@ -67,7 +80,7 @@ export async function getSessionHistory(query: SessionsHistoryQuery = {}): Promi
   const { data, error } = await q;
 
   if (error) throw error;
-  let rows = mapSessionRows((data as Record<string, unknown>[]) ?? []);
+  let rows = await mapSessionRowsWithNames((data as Record<string, unknown>[]) ?? []);
 
   const s = search.trim();
   if (s) rows = rows.filter((session) => matchesSearch(session, s));
@@ -84,11 +97,6 @@ export async function getSessionById(id: string): Promise<ChargingSession | unde
 
   if (error) throw error;
   if (!data) return undefined;
-  const row = data as Record<string, unknown>;
-  return mapSession(
-    row,
-    row.EV_Chargers as Record<string, unknown>,
-    row.EV_Users as Record<string, unknown>,
-    row.EV_RFIDCards as Record<string, unknown>
-  );
+  const rows = await mapSessionRowsWithNames([data as Record<string, unknown>]);
+  return rows[0];
 }
