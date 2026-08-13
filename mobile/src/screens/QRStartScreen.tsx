@@ -8,7 +8,7 @@ import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import QrCameraScanner from "../components/QrCameraScanner";
 import ChargePricePrompt, { type PrepaidPlanResult } from "../components/ChargePricePrompt";
-import * as paymentService from "../services/paymentService";
+import * as chargingService from "../services/chargingService";
 import * as chargerService from "../services/chargerService";
 import { useAuth } from "../context/AuthContext";
 import { isMobileEndUser } from "../utils/rfpRoles";
@@ -141,24 +141,22 @@ export default function QRStartScreen({ navigation, route }: Props) {
     setLoading(true);
     setError("");
     try {
-      await paymentService.createRazorpaySessionPayment({
+      await chargingService.startChargingWithSessionLimit({
         chargerId: pendingStart.charger.id,
         connectorId: pendingStart.connectorId,
         userId: user.id,
+        mode: result.mode,
+        prepaidValue: result.selectedValue,
         calculation: result.calculation,
-        paymentPayload: result.paymentPayload,
         tariff: result.tariff,
+        planId: result.plan?.id ?? null,
       });
       setPendingStart(null);
       navigation.replace("LiveSession");
     } catch (e) {
       const message = e instanceof Error ? e.message : t("charger.startFailed");
-      if (/Payment cancelled/i.test(message)) {
-        Alert.alert(t("common.error"), t("prepaid.paymentCancelled"));
-      } else if (/not online/i.test(message)) {
+      if (/not online/i.test(message)) {
         Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
-      } else if (/Payment failed|Unable to create payment order/i.test(message)) {
-        Alert.alert(t("common.error"), t("prepaid.paymentFailed"));
       } else if (/Session could not be started/i.test(message)) {
         Alert.alert(t("common.error"), t("prepaid.sessionStartFailed"));
       } else {

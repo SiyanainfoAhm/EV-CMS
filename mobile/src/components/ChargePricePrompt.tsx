@@ -46,6 +46,8 @@ export type PrepaidPlanResult = {
   mode: PrepaidMode;
   plan: EVPrepaidPlan | null;
   isCustom: boolean;
+  /** Selected amount (₹) or duration (minutes). */
+  selectedValue: number;
   calculation: PrepaidPaymentCalculation;
   paymentPayload: PrepaidPaymentOrderPayload;
   tariff: ChargerTariff;
@@ -295,6 +297,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
       mode,
       plan,
       isCustom,
+      selectedValue: resolved.value,
       calculation: resolved.calculation,
       paymentPayload,
       tariff,

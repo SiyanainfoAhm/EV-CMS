@@ -1,6 +1,8 @@
 # DFCCIL EV CMS — Mobile App Flow
 
-Client-facing guide to how the DFCCIL EV CMS mobile app works end to end: login, charger selection, prepaid payment, OCPP start/stop, live session, and receipt.
+Client-facing guide to how the DFCCIL EV CMS mobile app works end to end.
+
+> **Update:** In-app prepaid gateway checkout (Razorpay/HDFC) before charging has been removed from the mobile UI. Amount/time selection is now a **session limit** only. Payment is collected **physically / offline** after charging. Bill and receipt screens show Offline / Unpaid / Paid Offline status.
 
 This document describes **mobile end-user** behaviour. Web admin RemoteStart is a separate path and is not used by the mobile app.
 
@@ -14,9 +16,9 @@ This document describes **mobile end-user** behaviour. Web admin RemoteStart is 
 4. [Find chargers](#4-find-chargers)
 5. [Charger status rules](#5-charger-status-rules)
 6. [Select charger and connector](#6-select-charger-and-connector)
-7. [Prepaid plans (Pay by Amount / Pay by Time)](#7-prepaid-plans-pay-by-amount--pay-by-time)
+7. [Session limits (Charge by Amount / Time)](#7-session-limits-charge-by-amount--time)
 8. [Tariff calculation (`EV_Tariffs`)](#8-tariff-calculation-ev_tariffs)
-9. [Payment and gateway selection](#9-payment-and-gateway-selection)
+9. [Offline payment (no in-app gateway)](#9-offline-payment-no-in-app-gateway)
 10. [Mobile logged-in user session start](#10-mobile-logged-in-user-session-start)
 11. [RFID-mapped user flow](#11-rfid-mapped-user-flow)
 12. [OCPP RemoteStart / RemoteStop](#12-ocpp-remotestart--remotestop)
@@ -32,17 +34,14 @@ This document describes **mobile end-user** behaviour. Web admin RemoteStart is 
 
 ```
 Login
-  → Dashboard (Home)
-  → Find Chargers (Online tab)
-  → Select online charger
-  → Select connector (Preparing preferred)
-  → Select prepaid plan (Amount or Time)
-  → Pay (Razorpay or HDFC per config)
-  → Payment verification (Edge Function)
+  → Home / Find Chargers
+  → Station / Charger screen (select available connector)
+  → Charge by Time or Charge by Amount Limit
+  → Start Charging (no online payment)
   → OCPP RemoteStart (MOBILE-{userId})
   → Live session
   → Auto-stop or manual Stop
-  → Session summary / receipt
+  → Bill / Receipt (Physical / Offline payment)
 ```
 
 **Attribution rules**

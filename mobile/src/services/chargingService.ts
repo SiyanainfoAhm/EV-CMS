@@ -176,9 +176,9 @@ export async function applyPrepaidLimitsToLiveSession(
       : undefined;
 
   const update: Record<string, unknown> = {
-    payment_mode: "prepaid",
-    payment_status: o.paymentStatus ?? "paid",
-    settlement_status: o.settlementStatus ?? "active",
+    payment_mode: o.paymentMode ?? "offline",
+    payment_status: o.paymentStatus ?? "unpaid",
+    settlement_status: o.settlementStatus ?? "pending_collection",
     updated_at: new Date().toISOString(),
   };
   if (paymentId) {
@@ -233,11 +233,13 @@ export async function applyPrepaidLimitsToLiveSession(
     }
   }
 
-  // Best-effort amount_due = 0 when column exists.
-  await requireSupabase()
-    .from("EV_ChargingSessions")
-    .update({ amount_due: 0, updated_at: new Date().toISOString() })
-    .eq("id", sessionId);
+  // Keep amount_due for offline collection when provided; otherwise leave unset.
+  if (o.amountDue != null) {
+    await requireSupabase()
+      .from("EV_ChargingSessions")
+      .update({ amount_due: o.amountDue, updated_at: new Date().toISOString() })
+      .eq("id", sessionId);
+  }
 }
 
 export async function migratePaymentToLiveSession(input: {
@@ -284,23 +286,51 @@ export async function startCharging(
   await assertRfidOrMobileAuth(uid);
   await assertChargerOnlineForMobile(chargerId);
   const session = await sessionService.startSession(chargerId, connectorId, uid, {
-    prepaidPaid: options?.paymentStatus === "paid",
+    // Offline / physical collection — no gateway prepayment required to start.
+    prepaidPaid: true,
     paymentId: undefined,
   });
 
-  const hasPrepaid =
-    (options?.prepaidTotalInr != null && options.prepaidTotalInr > 0) ||
-    (options?.prepaidAmount != null && options.prepaidAmount > 0) ||
-    options?.prepaidMode != null;
-
-  if (hasPrepaid && options?.paymentStatus === "paid") {
+  const hasSessionLimit = options?.prepaidMode != null;
+  if (hasSessionLimit) {
     await applyPrepaidLimitsToLiveSession(session.id, {
       ...options,
-      paymentStatus: "paid",
+      paymentMode: options.paymentMode ?? "offline",
+      paymentStatus: options.paymentStatus ?? "unpaid",
+      settlementStatus: options.settlementStatus ?? "pending_collection",
     });
   }
 
   return session;
+}
+
+/**
+ * Start charging after connector + session mode selection (no online payment).
+ * Amount/time values are session limits for auto-stop and final bill estimate.
+ */
+export async function startChargingWithSessionLimit(input: {
+  chargerId: string;
+  connectorId: number;
+  userId?: string;
+  mode: "amount" | "time";
+  prepaidValue: number;
+  calculation: PrepaidPaymentCalculation;
+  tariff: ChargerTariff;
+  planId?: string | null;
+}): Promise<ChargingSession> {
+  const options = buildPrepaidSessionOptions({
+    mode: input.mode,
+    planId: input.planId,
+    prepaidValue: input.prepaidValue,
+    calculation: input.calculation,
+    tariff: input.tariff,
+  });
+  options.paymentMode = "offline";
+  options.paymentStatus = "unpaid";
+  options.settlementStatus = "pending_collection";
+  options.amountDue = input.calculation.totalAmount;
+
+  return startCharging(input.chargerId, input.connectorId, input.userId, options);
 }
 
 export async function markSessionPrepaidPaid(
@@ -429,11 +459,11 @@ export function buildPrepaidSessionOptions(
     prepaidEnergyCapKwh: energyCap,
     prepaidPlanId: input.planId ?? undefined,
     prepaidExpiresAt: undefined,
-    settlementStatus: "active",
-    paymentMode: "prepaid",
-    paymentStatus: "pending",
+    settlementStatus: "pending_collection",
+    paymentMode: "offline",
+    paymentStatus: "unpaid",
     prepaidDurationMinutes: input.mode === "time" ? Number(input.prepaidValue) : undefined,
-    amountDue: 0,
+    amountDue: calc.totalAmount,
   };
 }
 

@@ -31,12 +31,9 @@ function formatPower(kw: number | undefined | null): string {
   return kw.toFixed(1);
 }
 
-/** Client backup if gateway has not yet auto-stopped on prepaid amount/time. */
-function shouldAutoStopPrepaid(session: ChargingSession, nowMs: number): boolean {
-  const paid =
-    String(session.paymentMode || "").toLowerCase() === "prepaid" &&
-    ["paid", "success"].includes(String(session.paymentStatus || "").toLowerCase());
-  if (!paid) return false;
+/** Client backup auto-stop for time / amount session limits (no online payment). */
+function shouldAutoStopSession(session: ChargingSession, nowMs: number): boolean {
+  if (!session.prepaidMode) return false;
 
   const startMs = new Date(session.startTime).getTime();
   const ageMs = Number.isFinite(startMs) ? nowMs - startMs : 0;
@@ -94,7 +91,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
         lastSessionIdRef.current = s.id;
         setSession(s);
 
-        if (!autoStopRef.current && !stopping && shouldAutoStopPrepaid(s, Date.now())) {
+        if (!autoStopRef.current && !stopping && shouldAutoStopSession(s, Date.now())) {
           autoStopRef.current = true;
           setStopping(true);
           try {
@@ -177,14 +174,14 @@ export default function LiveSessionScreen({ navigation }: Props) {
   // `now` forces a re-render so duration advances every second.
   const durationLive = formatSessionDuration(session.startTime, new Date(now).toISOString());
 
-  let prepaidLimitLabel: string | null = null;
+  let limitLabel: string | null = null;
   if (session.prepaidMode === "amount" && session.prepaidEnergyCapKwh != null) {
-    prepaidLimitLabel = `${t("session.kwhConsumed")}: ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)} kWh`;
+    limitLabel = `${t("session.limitSelected", { defaultValue: "Selected limit" })}: ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)} kWh`;
   } else if (session.prepaidMode === "time") {
     const mins = session.prepaidDurationMinutes;
     if (mins) {
-      prepaidLimitLabel = t("session.prepaidTimeLimit", {
-        defaultValue: "Prepaid time: {{minutes}} min",
+      limitLabel = t("session.prepaidTimeLimit", {
+        defaultValue: "Time limit: {{minutes}} min",
         minutes: mins,
       });
     }
@@ -239,11 +236,11 @@ export default function LiveSessionScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {prepaidLimitLabel ? <Text style={styles.prepaidLimit}>{prepaidLimitLabel}</Text> : null}
+        {limitLabel ? <Text style={styles.prepaidLimit}>{limitLabel}</Text> : null}
 
         {session.prepaidTotalInr != null || session.prepaidAmount != null ? (
           <Text style={styles.amount}>
-            {t("session.prepaidPaid", { defaultValue: "Prepaid" })}:{" "}
+            {t("session.estimatedAmount")}:{" "}
             {formatCurrency(session.prepaidTotalInr ?? session.prepaidAmount ?? 0)}
           </Text>
         ) : session.amount != null ? (
