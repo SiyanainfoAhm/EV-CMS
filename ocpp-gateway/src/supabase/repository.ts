@@ -590,12 +590,21 @@ export async function recordMeterValues(params: {
     rawSamples: params.rawSamples ?? null,
   });
 
-  // Prepaid auto-stop only after payment is collected — never while checkout is pending.
+  // Session-limit auto-stop (time / amount):
+  // - Offline / physical: payment_mode=offline, payment_status=unpaid — still enforce limits.
+  // - Legacy prepaid: only after payment is collected (never while checkout pending).
   const paymentStatus = String((session as { payment_status?: string }).payment_status ?? "").toLowerCase();
   const paymentMode = String((session as { payment_mode?: string }).payment_mode ?? "").toLowerCase();
-  const prepaidPaid =
-    paymentMode === "prepaid" && (paymentStatus === "paid" || paymentStatus === "success");
-  if (!prepaidPaid) {
+  const prepaidMode = session.prepaid_mode as string | null;
+  const hasSessionLimit = prepaidMode === "amount" || prepaidMode === "time";
+  if (!hasSessionLimit) {
+    return null;
+  }
+  const legacyPrepaidPending =
+    paymentMode === "prepaid" &&
+    paymentStatus !== "paid" &&
+    paymentStatus !== "success";
+  if (legacyPrepaidPending) {
     return null;
   }
 
@@ -613,7 +622,6 @@ export async function recordMeterValues(params: {
     return null;
   }
 
-  const prepaidMode = session.prepaid_mode as string | null;
   if (prepaidMode === "amount") {
     let cap =
       session.prepaid_energy_cap_kwh != null ? Number(session.prepaid_energy_cap_kwh) : NaN;

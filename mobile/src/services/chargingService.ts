@@ -228,7 +228,7 @@ export async function applyPrepaidLimitsToLiveSession(
     if (err2) {
       console.warn("[prepaid] failed to apply amount/time caps:", err2.message);
       throw new Error(
-        "Payment succeeded but prepaid amount/time limits could not be saved. Run supabase/fix_session_payment_columns.sql."
+        "Session started but time/amount limits could not be saved. Run supabase/fix_session_payment_columns.sql."
       );
     }
   }
@@ -318,6 +318,14 @@ export async function startChargingWithSessionLimit(input: {
   tariff: ChargerTariff;
   planId?: string | null;
 }): Promise<ChargingSession> {
+  if (input.mode === "amount") {
+    const energyBudget = Number(input.calculation.energyAmount ?? 0);
+    const kwh = Number(input.calculation.estimatedKwh ?? 0);
+    if (!(energyBudget > 0) || !(kwh > 0)) {
+      throw new Error("Amount limit is too low for this charger tariff.");
+    }
+  }
+
   const options = buildPrepaidSessionOptions({
     mode: input.mode,
     planId: input.planId,
@@ -328,6 +336,7 @@ export async function startChargingWithSessionLimit(input: {
   options.paymentMode = "offline";
   options.paymentStatus = "unpaid";
   options.settlementStatus = "pending_collection";
+  // During the session, amount_due tracks the selected bill limit; settled on stop.
   options.amountDue = input.calculation.totalAmount;
 
   return startCharging(input.chargerId, input.connectorId, input.userId, options);
@@ -438,7 +447,8 @@ export function buildPrepaidSessionOptions(
   const calc = input.calculation;
   const tariff = input.tariff;
 
-  // Amount mode: energy cap from (base - session fee) / rate; time mode uses duration only.
+  // Amount mode: kWh cap from final-bill limit (selected ₹ incl. GST).
+  // Time mode: duration minutes → prepaid_expires_at on apply.
   const energyCap =
     input.mode === "amount" && calc.estimatedKwh != null && calc.estimatedKwh > 0
       ? calc.estimatedKwh
@@ -467,12 +477,55 @@ export function buildPrepaidSessionOptions(
   };
 }
 
+/** After stop: set amount_due to actual final bill from energy + tariff snapshots. */
+export async function settleOfflineSessionBill(sessionId: string): Promise<void> {
+  const { data, error } = await requireSupabase()
+    .from("EV_ChargingSessions")
+    .select(
+      "energy_kwh, rate_per_kwh_snapshot, session_fee_snapshot, gst_percent_snapshot, payment_mode, amount, prepaid_total_inr"
+    )
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error || !data) return;
+
+  const row = data as Record<string, unknown>;
+  const mode = String(row.payment_mode ?? "").toLowerCase();
+  if (mode !== "offline" && mode !== "postpaid") return;
+
+  const energy = Number(row.energy_kwh ?? 0);
+  const rate = Number(row.rate_per_kwh_snapshot ?? 0);
+  const fee = Number(row.session_fee_snapshot ?? 0);
+  const gstPct = Number(row.gst_percent_snapshot ?? 0);
+  if (!(rate > 0) && !(energy > 0)) return;
+
+  const energyAmount = Math.round(energy * rate * 100) / 100;
+  const subtotal = Math.round((energyAmount + Math.max(0, fee)) * 100) / 100;
+  const gstAmount = Math.round(subtotal * (gstPct / 100) * 100) / 100;
+  const total = Math.round((subtotal + gstAmount) * 100) / 100;
+
+  await requireSupabase()
+    .from("EV_ChargingSessions")
+    .update({
+      amount: total,
+      amount_due: total,
+      payment_mode: "offline",
+      payment_status: "unpaid",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId);
+}
+
 export async function stopCharging(
   sessionId: string,
   userId?: string
 ): Promise<ChargingSession | null> {
   const uid = userId ?? requireUserId();
   await sessionService.stopSession(sessionId, uid);
+  try {
+    await settleOfflineSessionBill(sessionId);
+  } catch (e) {
+    console.warn("[session] settleOfflineSessionBill failed:", e);
+  }
   return sessionService.getSessionById(sessionId, uid);
 }
 

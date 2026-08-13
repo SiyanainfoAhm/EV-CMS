@@ -19,11 +19,13 @@ import type { ChargerTariff } from "../services/tariffService";
 import {
   DEFAULT_AMOUNT_CHIPS,
   DEFAULT_TIME_CHIPS_MINUTES,
+  AMOUNT_LIMIT_TOO_LOW,
   buildAmountOrderPayload,
   buildTimeOrderPayload,
   calculateAmountPayment,
   calculateTimePayment,
   formatTimeChipLabel,
+  isAmountLimitFeasible,
   logPrepaidCalculation,
   matchPlanIdByValue,
   sanitizeAmountInput,
@@ -146,8 +148,12 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
         if (!validation.valid || validation.value == null) {
           return { calculation: null, error: validation.error ?? "", planId: null, value: null };
         }
+        const calculation = calculateAmountPayment(validation.value, tariff);
+        if (!isAmountLimitFeasible(calculation)) {
+          return { calculation: null, error: AMOUNT_LIMIT_TOO_LOW, planId: null, value: null };
+        }
         return {
-          calculation: calculateAmountPayment(validation.value, tariff),
+          calculation,
           error: "",
           planId: matchPlanIdByValue(amountPlans, "amount", validation.value),
           value: validation.value,
@@ -162,8 +168,12 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
           value: null,
         };
       }
+      const calculation = calculateAmountPayment(validation.value, tariff);
+      if (!isAmountLimitFeasible(calculation)) {
+        return { calculation: null, error: AMOUNT_LIMIT_TOO_LOW, planId: null, value: null };
+      }
       return {
-        calculation: calculateAmountPayment(validation.value, tariff),
+        calculation,
         error: "",
         planId: null,
         value: validation.value,

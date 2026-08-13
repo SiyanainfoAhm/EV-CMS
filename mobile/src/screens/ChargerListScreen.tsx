@@ -18,7 +18,14 @@ import * as chargerService from "../services/chargerService";
 import SimulationModeBadge from "../components/SimulationModeBadge";
 import { isSimulationEnabled } from "../utils/simulationMode";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
-import { isDcCharger, isConnectorSelectable } from "../utils/dfccilDisplay";
+import {
+  buildChargerDisplayIndexMap,
+  isConnectorSelectable,
+  isDcCharger,
+  isVisibleFleetCharger,
+  logChargerNumbering,
+  summarizeVisibleChargers,
+} from "../utils/dfccilDisplay";
 import type { Charger, ChargerStatusFilter } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -50,8 +57,12 @@ export default function ChargerListScreen({ navigation }: Props) {
     setError("");
     try {
       const data = await chargerService.fetchChargers("");
-      setAllChargers(data);
-      if (data.length === 0) setError(t("charger.noneAvailable"));
+      const visible = data.filter(isVisibleFleetCharger);
+      setAllChargers(visible);
+      const indexMap = buildChargerDisplayIndexMap(visible);
+      logChargerNumbering(visible, indexMap);
+      console.log("[charger-inventory]", summarizeVisibleChargers(visible));
+      if (visible.length === 0) setError(t("charger.noneAvailable"));
     } catch (e) {
       setAllChargers([]);
       setError(e instanceof Error ? e.message : t("charger.loadFailed"));
@@ -81,21 +92,7 @@ export default function ChargerListScreen({ navigation }: Props) {
     });
   };
 
-  const indexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    let ac = 0;
-    let dc = 0;
-    for (const c of allChargers) {
-      if (isDcCharger(c)) {
-        dc += 1;
-        map.set(c.id, dc);
-      } else {
-        ac += 1;
-        map.set(c.id, ac);
-      }
-    }
-    return map;
-  }, [allChargers]);
+  const indexMap = useMemo(() => buildChargerDisplayIndexMap(allChargers), [allChargers]);
 
   const chargers = useMemo(() => {
     let list = chargerService.filterChargers(allChargers, status);
@@ -117,6 +114,8 @@ export default function ChargerListScreen({ navigation }: Props) {
     return list;
   }, [allChargers, status, search, extra]);
 
+  const inventory = useMemo(() => summarizeVisibleChargers(allChargers), [allChargers]);
+
   return (
     <ScrollView
       style={styles.root}
@@ -125,6 +124,12 @@ export default function ChargerListScreen({ navigation }: Props) {
     >
       <Header title={t("charger.listTitle")} subtitle={t("charger.listSubtitle")} onBack={() => navigation.goBack()} />
       {isSimulationEnabled() ? <SimulationModeBadge compact /> : null}
+      <Text style={styles.inventory}>
+        Active {inventory.totalActive} · AC {inventory.activeAc} · DC {inventory.activeDc}
+        {inventory.missingCoordinates > 0
+          ? ` · ${inventory.missingCoordinates} missing map coords`
+          : ""}
+      </Text>
       <TextInput
         style={styles.search}
         placeholder="Search Charger Name"
@@ -175,6 +180,12 @@ export default function ChargerListScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md },
+  inventory: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+    fontWeight: "600",
+  },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,

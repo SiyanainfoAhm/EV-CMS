@@ -249,6 +249,12 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
     prepaidExpiresAt: row.prepaid_expires_at != null ? String(row.prepaid_expires_at) : null,
     amountDue: row.amount_due != null ? Number(row.amount_due) : null,
     authMethod: row.authorization_method != null ? String(row.authorization_method) : null,
+    ratePerKwhSnapshot:
+      row.rate_per_kwh_snapshot != null ? Number(row.rate_per_kwh_snapshot) : null,
+    sessionFeeSnapshot:
+      row.session_fee_snapshot != null ? Number(row.session_fee_snapshot) : null,
+    gstPercentSnapshot:
+      row.gst_percent_snapshot != null ? Number(row.gst_percent_snapshot) : null,
   };
 }
 

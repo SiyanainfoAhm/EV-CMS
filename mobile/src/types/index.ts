@@ -103,6 +103,9 @@ export interface ChargingSession {
   amountDue?: number | null;
   authMethod?: string | null;
   gatewayTxnId?: string | null;
+  ratePerKwhSnapshot?: number | null;
+  sessionFeeSnapshot?: number | null;
+  gstPercentSnapshot?: number | null;
 }
 
 export interface Payment {
