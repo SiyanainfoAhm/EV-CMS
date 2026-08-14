@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ScrollView, StyleSheet, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
@@ -31,6 +31,11 @@ function formatPower(kw: number | undefined | null): string {
   return kw.toFixed(1);
 }
 
+function clampPercent(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, n));
+}
+
 function estimateLiveBill(session: ChargingSession): number | null {
   const rate = Number(session.ratePerKwhSnapshot ?? 0);
   if (!(rate > 0)) {
@@ -41,29 +46,87 @@ function estimateLiveBill(session: ChargingSession): number | null {
   const gstPct = Math.max(0, Number(session.gstPercentSnapshot ?? 0));
   const energyAmount = session.energyKwh * rate;
   const subtotal = energyAmount + fee;
-  return Math.round((subtotal * (1 + gstPct / 100)) * 100) / 100;
+  return Math.round(subtotal * (1 + gstPct / 100) * 100) / 100;
+}
+
+type SessionLimitProgress = {
+  mode: "time" | "amount";
+  progressPercent: number;
+  limitTitle: string;
+  usedLabel: string;
+  limitMinutes?: number;
+  elapsedMinutes?: number;
+  amountLimit?: number;
+  currentBill?: number;
+};
+
+/** Session-limit progress (time or amount). Not SoC / prepaid payment progress. */
+function getSessionLimitProgress(
+  session: ChargingSession,
+  nowMs: number
+): SessionLimitProgress | null {
+  const mode = session.prepaidMode;
+  if (mode !== "time" && mode !== "amount") return null;
+
+  if (mode === "time") {
+    const limitMinutes = Number(session.prepaidDurationMinutes ?? 0);
+    if (!(limitMinutes > 0)) return null;
+    const startMs = new Date(session.startTime).getTime();
+    const elapsedMs = Number.isFinite(startMs) ? Math.max(0, nowMs - startMs) : 0;
+    const elapsedMinutes = elapsedMs / 60_000;
+    const progressPercent = clampPercent((elapsedMinutes / limitMinutes) * 100);
+    const usedMins = Math.min(limitMinutes, Math.floor(elapsedMinutes));
+    return {
+      mode: "time",
+      progressPercent,
+      limitTitle: `Time limit: ${limitMinutes} min`,
+      usedLabel: `${usedMins} min of ${limitMinutes} min used`,
+      limitMinutes,
+      elapsedMinutes,
+    };
+  }
+
+  const amountLimit = Number(session.prepaidTotalInr ?? session.prepaidAmount ?? 0);
+  if (!(amountLimit > 0)) return null;
+  const currentBill = estimateLiveBill(session) ?? 0;
+  const progressPercent = clampPercent((currentBill / amountLimit) * 100);
+  return {
+    mode: "amount",
+    progressPercent,
+    limitTitle: `Amount limit: ${formatCurrency(amountLimit)}`,
+    usedLabel: `${formatCurrency(currentBill)} of ${formatCurrency(amountLimit)} used`,
+    amountLimit,
+    currentBill,
+  };
 }
 
 /**
- * Client backup auto-stop for time / amount session limits.
- * Does NOT require payment_status === paid (offline flow).
+ * Auto-stop when session limit progress reaches 100%.
+ * Also honors expire-at / energy-cap as backup for offline sessions.
+ * Does NOT require payment_status === paid.
  */
-function shouldAutoStopSession(session: ChargingSession, nowMs: number): boolean {
+function shouldAutoStopSession(
+  session: ChargingSession,
+  nowMs: number,
+  progress: SessionLimitProgress | null
+): boolean {
   const status = String(session.status || "").toLowerCase();
   if (status !== "active" && status !== "charging") return false;
   if (session.prepaidMode !== "amount" && session.prepaidMode !== "time") return false;
 
   const startMs = new Date(session.startTime).getTime();
   const ageMs = Number.isFinite(startMs) ? nowMs - startMs : 0;
-  // Never stop in the first 20s — avoids false stops from absolute meter registers.
+  // Avoid false stops in the first 20s from noisy meter values.
   if (ageMs < 20_000) return false;
+
+  if (progress && progress.progressPercent >= 100) return true;
 
   if (session.prepaidMode === "amount") {
     const cap = session.prepaidEnergyCapKwh;
-    if (cap == null || !(cap > 0)) return false;
-    const maxPlausible = Math.max(1, (ageMs / 3_600_000) * 400 + 1);
-    if (session.energyKwh > maxPlausible) return false;
-    if (session.energyKwh >= cap) return true;
+    if (cap != null && cap > 0) {
+      const maxPlausible = Math.max(1, (ageMs / 3_600_000) * 400 + 1);
+      if (session.energyKwh <= maxPlausible && session.energyKwh >= cap) return true;
+    }
   }
 
   if (session.prepaidMode === "time") {
@@ -88,7 +151,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
   const [now, setNow] = useState(Date.now());
   const lastSessionIdRef = useRef<string | null>(null);
   const navigatingRef = useRef(false);
-  const autoStopRef = useRef(false);
+  const isAutoStoppingRef = useRef(false);
   const sessionRef = useRef<ChargingSession | null>(null);
 
   const finishToSummary = useCallback(
@@ -102,16 +165,17 @@ export default function LiveSessionScreen({ navigation }: Props) {
 
   const runAutoStopIfNeeded = useCallback(
     async (s: ChargingSession, nowMs: number) => {
-      if (!user || navigatingRef.current || autoStopRef.current || stopping) return;
-      if (!shouldAutoStopSession(s, nowMs)) return;
-      autoStopRef.current = true;
+      if (!user || navigatingRef.current || isAutoStoppingRef.current || stopping) return;
+      const progress = getSessionLimitProgress(s, nowMs);
+      if (!shouldAutoStopSession(s, nowMs, progress)) return;
+
+      isAutoStoppingRef.current = true;
       setStopping(true);
       try {
-        // stopCharging → sessionService.stopSession → OCPP RemoteStop
         const completed = await chargingService.stopCharging(s.id, user.id);
         finishToSummary(completed?.id ?? s.id);
       } catch (e) {
-        autoStopRef.current = false;
+        isAutoStoppingRef.current = false;
         setError(e instanceof Error ? e.message : t("session.stopFailed"));
       } finally {
         setStopping(false);
@@ -126,6 +190,9 @@ export default function LiveSessionScreen({ navigation }: Props) {
       const s = await chargingService.getActiveSession(user.id);
       setError("");
       if (s) {
+        if (lastSessionIdRef.current && lastSessionIdRef.current !== s.id) {
+          isAutoStoppingRef.current = false;
+        }
         lastSessionIdRef.current = s.id;
         sessionRef.current = s;
         setSession(s);
@@ -147,7 +214,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       navigatingRef.current = false;
-      autoStopRef.current = false;
+      // Do not clear isAutoStopping mid-flight — prevents repeated stop calls.
       void load();
       const id = setInterval(() => void load(), POLL_MS);
       const unsub = chargingService.subscribeActiveSession(() => void load());
@@ -160,7 +227,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
 
   useSupabaseRealtime(() => void load(), !!user);
 
-  // 1s clock + time-limit check (more accurate than 5s poll alone).
+  // 1s clock + limit-limit check (more accurate than 5s poll alone).
   useEffect(() => {
     if (!session) return;
     const id = setInterval(() => {
@@ -173,17 +240,20 @@ export default function LiveSessionScreen({ navigation }: Props) {
   }, [session?.id, runAutoStopIfNeeded]);
 
   const stop = () => {
-    if (!session) return;
+    if (!session || isAutoStoppingRef.current) return;
     confirmAction(
       t("session.stopCharging"),
       t("session.stopConfirmBody"),
       t("common.confirm"),
       async () => {
+        if (isAutoStoppingRef.current) return;
+        isAutoStoppingRef.current = true;
         setStopping(true);
         try {
           const completed = await chargingService.stopCharging(session.id, user?.id);
           finishToSummary(completed?.id ?? session.id);
         } catch (e) {
+          isAutoStoppingRef.current = false;
           Alert.alert(t("common.error"), e instanceof Error ? e.message : t("session.stopFailed"));
         } finally {
           setStopping(false);
@@ -192,6 +262,11 @@ export default function LiveSessionScreen({ navigation }: Props) {
       { subtitle: t("session.stopConfirm"), destructive: true }
     );
   };
+
+  const limitProgress = useMemo(
+    () => (session ? getSessionLimitProgress(session, now) : null),
+    [session, now]
+  );
 
   if (!session) {
     return (
@@ -203,37 +278,9 @@ export default function LiveSessionScreen({ navigation }: Props) {
     );
   }
 
-  const soc = session.soc != null && Number.isFinite(session.soc) ? Math.round(session.soc) : null;
   const durationLive = formatSessionDuration(session.startTime, new Date(now).toISOString());
   const liveBill = estimateLiveBill(session);
-
-  let limitLabel: string | null = null;
-  if (session.prepaidMode === "amount") {
-    const amountLimit = session.prepaidTotalInr ?? session.prepaidAmount;
-    const parts = [
-      amountLimit != null ? `Amount limit: ${formatCurrency(Number(amountLimit))}` : null,
-      session.prepaidEnergyCapKwh != null
-        ? `kWh ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)}`
-        : null,
-    ].filter(Boolean);
-    limitLabel = parts.join(" · ") || null;
-  } else if (session.prepaidMode === "time") {
-    const mins = session.prepaidDurationMinutes;
-    if (mins) {
-      const remainingMs = session.prepaidExpiresAt
-        ? new Date(session.prepaidExpiresAt).getTime() - now
-        : Number.isFinite(new Date(session.startTime).getTime())
-          ? new Date(session.startTime).getTime() + mins * 60_000 - now
-          : NaN;
-      const remainingMin = Number.isFinite(remainingMs)
-        ? Math.max(0, Math.ceil(remainingMs / 60_000))
-        : null;
-      limitLabel =
-        remainingMin != null
-          ? `Time limit: ${mins} min · ~${remainingMin} min left`
-          : `Time limit: ${mins} min`;
-    }
-  }
+  const progressPercent = limitProgress?.progressPercent ?? 0;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -256,21 +303,9 @@ export default function LiveSessionScreen({ navigation }: Props) {
           })}
         </Text>
         <Text style={styles.meta}>
-          {session.chargePointId} · {t("session.connector")} {session.connectorId}
+          {t("session.connector")} {session.connectorId}
+          {session.chargePointId ? ` · ${session.chargePointId}` : ""}
         </Text>
-
-        <View style={styles.socBlock}>
-          <Text style={styles.socValue}>{soc != null ? `${soc}%` : "—"}</Text>
-          <Text style={styles.socLabel}>{t("session.soc")}</Text>
-          <View style={styles.socTrack}>
-            <View
-              style={[
-                styles.socFill,
-                { width: `${soc != null ? Math.min(100, Math.max(0, soc)) : 0}%` },
-              ]}
-            />
-          </View>
-        </View>
 
         <View style={styles.stats}>
           <View style={styles.stat}>
@@ -287,11 +322,23 @@ export default function LiveSessionScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {limitLabel ? <Text style={styles.prepaidLimit}>{limitLabel}</Text> : null}
+        {limitProgress ? (
+          <View style={styles.limitBlock}>
+            <Text style={styles.limitSection}>{t("session.sessionLimit", { defaultValue: "Session limit" })}</Text>
+            <Text style={styles.limitTitle}>{limitProgress.limitTitle}</Text>
+            <Text style={styles.usedLabel}>{limitProgress.usedLabel}</Text>
+
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+            </View>
+            <Text style={styles.progressPct}>{Math.round(progressPercent)}%</Text>
+          </View>
+        ) : null}
 
         {liveBill != null ? (
           <Text style={styles.amount}>
-            {t("session.estimatedAmount")}: {formatCurrency(liveBill)}
+            {t("session.estimatedAmount", { defaultValue: "Estimated bill" })}:{" "}
+            {formatCurrency(liveBill)}
           </Text>
         ) : null}
       </AppCard>
@@ -301,6 +348,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
         onPress={stop}
         variant="outline"
         loading={stopping}
+        disabled={stopping}
         style={styles.button}
       />
     </ScrollView>
@@ -332,31 +380,55 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 12, fontWeight: "700", color: colors.emerald },
   charger: { fontSize: 18, fontWeight: "800", color: colors.text },
   meta: { color: colors.textMuted, marginTop: 4 },
-  socBlock: { marginTop: spacing.lg, alignItems: "center" },
-  socValue: { fontSize: 36, fontWeight: "800", color: colors.emerald },
-  socLabel: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  socTrack: {
-    marginTop: spacing.sm,
-    height: 8,
-    width: "100%",
-    borderRadius: 999,
-    backgroundColor: "#e5e7eb",
-    overflow: "hidden",
-  },
-  socFill: { height: "100%", backgroundColor: colors.emerald },
   stats: { flexDirection: "row", marginTop: spacing.lg, gap: spacing.sm },
   stat: { flex: 1, alignItems: "center" },
   statVal: { fontSize: 16, fontWeight: "800", color: colors.text },
   statLbl: { fontSize: 11, color: colors.textMuted, marginTop: 4, textAlign: "center" },
-  prepaidLimit: {
-    marginTop: spacing.md,
+  limitBlock: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  limitSection: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  limitTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.text,
+    textAlign: "center",
+  },
+  usedLabel: {
+    marginTop: 4,
     fontSize: 13,
     fontWeight: "600",
     color: colors.orange,
     textAlign: "center",
   },
+  progressTrack: {
+    marginTop: spacing.md,
+    height: 10,
+    width: "100%",
+    borderRadius: 999,
+    backgroundColor: "#e5e7eb",
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", backgroundColor: colors.emerald, borderRadius: 999 },
+  progressPct: {
+    marginTop: 8,
+    fontSize: 20,
+    fontWeight: "800",
+    color: colors.emerald,
+    textAlign: "center",
+  },
   amount: {
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     fontSize: 15,
     fontWeight: "700",
     color: colors.text,
