@@ -6,6 +6,7 @@ export type CompletionBannerState = {
   messageKey: string;
   showPayButton: boolean;
   isPrepaidPaid: boolean;
+  isOfflineBill: boolean;
 };
 
 function lower(value: unknown): string {
@@ -14,64 +15,43 @@ function lower(value: unknown): string {
     .trim();
 }
 
+/** Session used amount/time limits (legacy prepaid columns or offline limits). */
 export function isPrepaidSession(session: ChargingSession | null | undefined): boolean {
   if (!session) return false;
-  if (lower(session.paymentMode) === "prepaid") return true;
-  if (lower(session.paymentStatus) === "paid" && (session.prepaidMode || session.prepaidTotalInr)) {
-    return true;
-  }
   if (session.prepaidMode === "amount" || session.prepaidMode === "time") return true;
   if ((session.prepaidTotalInr ?? 0) > 0) return true;
   return false;
 }
 
+export function isOfflinePaymentSession(session: ChargingSession | null | undefined): boolean {
+  const mode = lower(session?.paymentMode);
+  return mode === "offline" || mode === "postpaid" || mode === "physical" || isPrepaidSession(session);
+}
+
+/**
+ * In-app Pay Now is disabled — billing is physical/offline after charging.
+ */
 export function shouldShowPostSessionPayment(
-  session: ChargingSession | null | undefined,
-  payment?: SessionPaymentSummary | null
+  _session?: ChargingSession | null,
+  _payment?: SessionPaymentSummary | null
 ): boolean {
-  const paymentMode = lower(session?.paymentMode);
-  const paymentStatus = lower(session?.paymentStatus ?? payment?.status);
-  const amountDue = Number(
-    session?.amountDue != null ? session.amountDue : payment?.amountDue ?? 0
-  );
-
-  if (paymentMode === "prepaid") return false;
-  if (isPrepaidSession(session)) return false;
-  if (paymentStatus === "paid" || paymentStatus === "success") return false;
-  if (payment && (payment.status === "paid" || payment.status === "success") && Number(payment.amountDue) <= 0) {
-    return false;
-  }
-
-  return amountDue > 0;
+  return false;
 }
 
 export function getCompletionBannerState(
   session: ChargingSession | null | undefined,
   payment?: SessionPaymentSummary | null
 ): CompletionBannerState {
-  if (isPrepaidSession(session) || lower(session?.paymentStatus) === "paid" || lower(payment?.status) === "paid" || lower(payment?.status) === "success") {
-    if (isPrepaidSession(session) || lower(session?.paymentMode) === "prepaid") {
-      return {
-        titleKey: "session.chargingCompletedTitle",
-        messageKey: "session.prepaidAlreadyPaid",
-        showPayButton: false,
-        isPrepaidPaid: true,
-      };
-    }
+  const status = lower(session?.paymentStatus ?? payment?.status);
+  const collected = status === "paid" || status === "success" || status === "collected" || status === "paid_offline";
+
+  if (isOfflinePaymentSession(session)) {
     return {
       titleKey: "session.chargingCompletedTitle",
-      messageKey: "session.paymentCompleted",
+      messageKey: collected ? "session.paymentCompleted" : "session.prepaidAlreadyPaid",
       showPayButton: false,
       isPrepaidPaid: false,
-    };
-  }
-
-  if (shouldShowPostSessionPayment(session, payment)) {
-    return {
-      titleKey: "session.chargingCompletedTitle",
-      messageKey: "session.paymentPendingHint",
-      showPayButton: true,
-      isPrepaidPaid: false,
+      isOfflineBill: true,
     };
   }
 
@@ -80,5 +60,16 @@ export function getCompletionBannerState(
     messageKey: "session.completedSuccessfully",
     showPayButton: false,
     isPrepaidPaid: false,
+    isOfflineBill: true,
   };
+}
+
+export function offlineCollectionStatusLabel(
+  session: ChargingSession | null | undefined,
+  payment?: SessionPaymentSummary | null
+): "Unpaid" | "Paid Offline" | "Collected" {
+  const status = lower(session?.paymentStatus ?? payment?.status);
+  if (status === "collected") return "Collected";
+  if (status === "paid" || status === "success" || status === "paid_offline") return "Paid Offline";
+  return "Unpaid";
 }

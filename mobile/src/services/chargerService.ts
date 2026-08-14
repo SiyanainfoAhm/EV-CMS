@@ -160,8 +160,21 @@ export async function fetchChargers(search = ""): Promise<Charger[]> {
   }
 
   const list = (data ?? []).map((row) => mapCharger(row as Record<string, unknown>));
-  const filtered = isSimulationEnabled() ? list : list.filter((c) => !c.isSimulated);
+  // Hide simulated unless Simulation Mode; never show decommissioned in mobile fleet.
+  let filtered = list.filter((c) => String(c.status || "").toLowerCase() !== "decommissioned");
+  filtered = isSimulationEnabled() ? filtered : filtered.filter((c) => !c.isSimulated);
   console.log("[chargers] fetched count:", filtered.length);
+  console.log(
+    "[chargers] fetched",
+    filtered.map((c) => ({
+      id: c.chargePointId,
+      status: c.status,
+      type: c.type,
+      isSimulated: c.isSimulated,
+      hasCoords: c.latitude != null && c.longitude != null,
+      normalizedStatus: String(c.status || "").toLowerCase().trim(),
+    }))
+  );
   if (filtered.length > 0) {
     console.log("[chargers] first charger:", filtered[0]);
   } else {

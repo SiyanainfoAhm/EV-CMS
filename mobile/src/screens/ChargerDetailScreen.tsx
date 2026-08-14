@@ -1,112 +1,104 @@
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, StyleSheet, Alert, Pressable, RefreshControl } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  Pressable,
+  RefreshControl,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import Header from "../components/Header";
-import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
-import StatusBadge from "../components/StatusBadge";
+import StationChargerBlock from "../components/StationChargerBlock";
 import ChargePricePrompt, { type PrepaidPlanResult } from "../components/ChargePricePrompt";
-import * as chargerService from "../services/chargerService";
-import * as paymentService from "../services/paymentService";
-import * as tariffService from "../services/tariffService";
-import type { ActiveTariff } from "../services/tariffService";
-import { useAuth } from "../context/AuthContext";
 import AdminNoticeBanner from "../components/AdminNoticeBanner";
+import * as chargerService from "../services/chargerService";
+import * as chargingService from "../services/chargingService";
+import * as tariffService from "../services/tariffService";
+import { useAuth } from "../context/AuthContext";
 import { isMobileEndUser } from "../utils/rfpRoles";
-import { formatHeartbeatAgo } from "../utils/chargerConnectivity";
 import { showChargingErrorAlert } from "../utils/chargingErrors";
-import { formatCurrency } from "../utils/format";
-import {
-  translateChargerLocation,
-  translateChargerName,
-  translateChargerType,
-} from "../utils/translateRecord";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
+import {
+  buildChargerDisplayIndexMap,
+  defaultDisplayRate,
+  dfccilChargerDisplayName,
+  isVisibleFleetCharger,
+} from "../utils/dfccilDisplay";
 import type { Charger, ChargerConnector } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ChargerDetail">;
+type DetailTab = "connectors" | "details";
 
-function FieldRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View style={fieldStyles.row}>
-      <Text style={fieldStyles.label}>{label}</Text>
-      <View style={fieldStyles.valueWrap}>{children}</View>
-    </View>
-  );
-}
-
-const fieldStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  label: { fontWeight: "600", color: colors.text, flex: 1 },
-  valueWrap: { flex: 1.2, alignItems: "flex-end" },
-});
-
+/**
+ * Connector selection for ONE selected charger.
+ * Does not list sibling chargers — go back to Find Chargers to pick another.
+ */
 export default function ChargerDetailScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const canCharge = user ? isMobileEndUser(user.role) : false;
+  const chargerId = route.params.id;
+
   const [charger, setCharger] = useState<Charger | undefined>();
-  const [selected, setSelected] = useState<ChargerConnector | undefined>();
+  const [displayIndex, setDisplayIndex] = useState<number | undefined>();
+  const [ratePerKwh, setRatePerKwh] = useState(DEFAULT_FALLBACK_RATE);
   const [busyConnectors, setBusyConnectors] = useState<Set<number>>(new Set());
-  const [tariff, setTariff] = useState<ActiveTariff | null>(null);
+  const [selectedConnector, setSelectedConnector] = useState<ChargerConnector | null>(null);
+  const [tab, setTab] = useState<DetailTab>("connectors");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pricePromptVisible, setPricePromptVisible] = useState(false);
-
-  const applyCharger = useCallback((c: Charger | undefined, busyIds: Set<number>) => {
-    setCharger(c);
-    setBusyConnectors(busyIds);
-    if (!c) return;
-    const sorted = [...c.connectors].sort((a, b) => a.connectorId - b.connectorId);
-    const firstStartable = sorted.find((conn) =>
-      chargerService.canStartOnConnector(conn.status, busyIds.has(conn.connectorId))
-    );
-    setSelected((prev) => {
-      if (prev) {
-        const stillThere = sorted.find((x) => x.id === prev.id);
-        if (stillThere) return stillThere;
-      }
-      return firstStartable ?? sorted[0];
-    });
-  }, []);
+  const [limitPromptVisible, setLimitPromptVisible] = useState(false);
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const c = await chargerService.getChargerById(route.params.id);
-      const busyIds = c ? await chargerService.getBusyConnectorIds(c.id) : new Set<number>();
-      applyCharger(c, busyIds);
+      const primary = await chargerService.getChargerById(chargerId);
+      if (!primary || !isVisibleFleetCharger(primary)) {
+        setCharger(undefined);
+        setSelectedConnector(null);
+        setError("Selected charger not found. Please go back and select a charger.");
+        return;
+      }
+
+      // Site-scoped display number (same rules as list) — still only render THIS charger.
+      const all = await chargerService.fetchChargers();
+      const visible = all.filter(isVisibleFleetCharger);
+      const indexMap = buildChargerDisplayIndexMap(visible);
+      setDisplayIndex(indexMap.get(primary.id));
+
+      setCharger(primary);
+      const busyIds = await chargerService.getBusyConnectorIds(primary.id);
+      setBusyConnectors(busyIds);
+
+      try {
+        const tariff = await tariffService.getTariffForCharger(primary);
+        setRatePerKwh(tariff.ratePerKwh);
+      } catch {
+        setRatePerKwh(defaultDisplayRate(primary));
+      }
+
+      setSelectedConnector((prev) => {
+        if (!prev) return null;
+        const stillThere = primary.connectors.find((c) => c.id === prev.id);
+        return stillThere ?? null;
+      });
     } catch (e) {
+      setCharger(undefined);
       setError(e instanceof Error ? e.message : t("charger.loadFailed"));
     }
-  }, [route.params.id, t, applyCharger]);
+  }, [chargerId, t]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!charger) {
-      setTariff(null);
-      return;
-    }
-    tariffService
-      .getTariffForCharger(charger)
-      .then(setTariff)
-      .catch(() => setTariff(null));
-  }, [charger?.id, charger?.tariffId, charger?.type, charger?.maxPowerKw]);
 
   useSupabaseRealtime(load);
 
@@ -116,82 +108,68 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
     setRefreshing(false);
   };
 
-  const openPricePrompt = () => {
-    if (!charger || !user) return;
+  const title = useMemo(() => {
+    if (!charger) return t("charger.detailTitle");
+    return dfccilChargerDisplayName(charger, displayIndex);
+  }, [charger, displayIndex, t]);
+
+  const openSessionLimitPrompt = () => {
+    if (!charger || !selectedConnector) {
+      Alert.alert(t("common.error"), t("charger.selectConnector"));
+      return;
+    }
     if (!chargerService.canStartCharging(charger)) {
       Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(charger)));
       return;
     }
-    if (!selected) {
-      Alert.alert(t("common.error"), t("charger.selectConnector"));
-      return;
-    }
-    const gunBusy = busyConnectors.has(selected.connectorId);
-    if (
-      charger.connectors.length > 0 &&
-      !chargerService.canStartOnConnector(selected.status, gunBusy)
-    ) {
+    const gunBusy = busyConnectors.has(selectedConnector.connectorId);
+    if (!chargerService.canStartOnConnector(selectedConnector.status, gunBusy)) {
       Alert.alert(
         t("common.error"),
-        t(chargerService.getConnectorBlockMessageKey(selected.status, gunBusy))
+        t(chargerService.getConnectorBlockMessageKey(selectedConnector.status, gunBusy))
       );
       return;
     }
-    const gunStatus = String(selected.status || "")
+    const gunStatus = String(selectedConnector.status || "")
       .toLowerCase()
       .trim();
-    // Physical CPs often accept RemoteStart while Available, then never StartTransaction
-    // (or auth-fail in seconds) until the cable is plugged → Preparing.
     if (gunStatus === "available") {
       Alert.alert(
         t("charger.plugCableTitle", { defaultValue: "Plug in the cable" }),
         t("charger.plugCableBody", {
           defaultValue:
-            "Connect the cable to your vehicle and wait until this gun shows Preparing, then tap Start Charging again.",
+            "Connect the cable to your vehicle and wait until this gun shows Preparing, then continue.",
         })
       );
       return;
     }
-    setPricePromptVisible(true);
+    setLimitPromptVisible(true);
   };
 
   const startCharging = async (result: PrepaidPlanResult) => {
-    if (!charger || !user || !selected) return;
-    if (!chargerService.canStartCharging(charger)) {
-      setPricePromptVisible(false);
-      Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
-      return;
-    }
-    setPricePromptVisible(false);
+    if (!charger || !selectedConnector || !user) return;
+    setLimitPromptVisible(false);
     setBusy(true);
     try {
-      await paymentService.createRazorpaySessionPayment({
+      await chargingService.startChargingWithSessionLimit({
         chargerId: charger.id,
-        connectorId: selected.connectorId,
+        connectorId: selectedConnector.connectorId,
         userId: user.id,
+        mode: result.mode,
+        prepaidValue: result.selectedValue,
         calculation: result.calculation,
-        paymentPayload: result.paymentPayload,
         tariff: result.tariff,
+        planId: result.plan?.id ?? null,
       });
       navigation.navigate("LiveSession");
     } catch (e) {
       const message = e instanceof Error ? e.message : t("charger.startFailed");
-      if (/Payment cancelled/i.test(message)) {
-        Alert.alert(t("common.error"), t("prepaid.paymentCancelled"));
-      } else if (/not online/i.test(message)) {
+      if (/not online/i.test(message)) {
         Alert.alert(t("common.error"), t("charger.cannotStartNotOnline"));
       } else if (/already has an active session|already in use/i.test(message)) {
         Alert.alert(t("common.error"), t("charger.gunInUse"));
         void load();
-      } else if (/Bind an active RFID|RFID card/i.test(message)) {
-        showChargingErrorAlert(e, t, navigation);
-      } else if (/Payment failed|Unable to create payment order/i.test(message)) {
-        Alert.alert(t("common.error"), t("prepaid.paymentFailed"));
-      } else if (
-        /Session could not be started|session did not start|started then stopped|Preparing|RemoteStart/i.test(
-          message
-        )
-      ) {
+      } else if (/Amount limit is too low/i.test(message)) {
         Alert.alert(t("common.error"), message);
       } else {
         showChargingErrorAlert(e, t, navigation);
@@ -201,230 +179,189 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
     }
   };
 
-  const startQr = () => {
-    if (!charger) return;
-    if (!chargerService.canStartCharging(charger)) {
-      Alert.alert(t("common.error"), t(chargerService.getChargerUnavailableMessageKey(charger)));
-      return;
-    }
-    if (!selected) {
-      Alert.alert(t("common.error"), t("charger.selectConnector"));
-      return;
-    }
-    navigation.navigate("QRStart", { chargerId: charger.id, connectorId: selected.connectorId });
-  };
-
-  if (!charger && !error) return null;
-
-  const chargeable = charger ? chargerService.canStartCharging(charger) : false;
-  const selectedBusy = selected ? busyConnectors.has(selected.connectorId) : false;
-  const selectedStartable = selected
-    ? chargerService.canStartOnConnector(selected.status, selectedBusy)
-    : charger?.connectors.length === 0;
-  const canStart = chargeable && Boolean(selectedStartable);
-  const displayName = charger
-    ? translateChargerName(t, charger.chargePointId, charger.name)
-    : t("charger.detailTitle");
-  const displayLocation = charger
-    ? translateChargerLocation(t, charger.chargePointId, charger.location)
-    : "";
-  const manufacturerModel = charger
-    ? [charger.manufacturer, charger.model].filter(Boolean).join(" · ")
-    : "";
-  const sortedConnectors = charger
-    ? [...charger.connectors].sort((a, b) => a.connectorId - b.connectorId)
-    : [];
+  const ctaEnabled = Boolean(charger && selectedConnector) && canCharge && !busy;
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />
-      }
-    >
-      <Header title={displayName} onBack={() => navigation.goBack()} />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {charger ? (
-        <>
-          <AppCard>
-            <FieldRow label={t("charger.headers.name")}>
-              <Text style={styles.value}>{displayName}</Text>
-            </FieldRow>
-            <FieldRow label={t("charger.headers.chargePointId")}>
-              <Text style={styles.value}>{charger.chargePointId}</Text>
-            </FieldRow>
-            <FieldRow label={t("charger.headers.status")}>
-              <View style={{ alignItems: "flex-end" }}>
-                <StatusBadge status={charger.status || "unknown"} />
-                {!chargeable ? (
-                  <Text style={styles.unavailableNote}>{t("charger.chargingUnavailable")}</Text>
-                ) : null}
-              </View>
-            </FieldRow>
-            {charger.isSimulated ? (
-              <FieldRow label={t("charger.simulatedBadge")}>
-                <Text style={styles.sim}>{t("common.yes", { defaultValue: "Yes" })}</Text>
-              </FieldRow>
-            ) : null}
-            <FieldRow label={t("charger.headers.location")}>
-              <Text style={styles.value}>{displayLocation || "—"}</Text>
-            </FieldRow>
-            <FieldRow label={t("charger.headers.chargerType")}>
-              <Text style={styles.value}>{translateChargerType(t, charger.type)}</Text>
-            </FieldRow>
-            <FieldRow label={t("charger.headers.maxPowerKw")}>
-              <Text style={styles.value}>{t("charger.powerMax", { kw: charger.maxPowerKw || "—" })}</Text>
-            </FieldRow>
-            {manufacturerModel ? (
-              <FieldRow label={t("charger.headers.manufacturer")}>
-                <Text style={styles.value}>{manufacturerModel}</Text>
-              </FieldRow>
-            ) : null}
-            {tariff ? (
-              <>
-                <FieldRow label={t("chargePrice.todaysRate")}>
-                  <Text style={styles.rateHighlight}>
-                    {formatCurrency(tariff.ratePerKwh)}/kWh
-                  </Text>
-                </FieldRow>
-                <FieldRow label={t("prepaid.tariffName", { defaultValue: "Tariff" })}>
-                  <Text style={styles.value}>{tariff.name}</Text>
-                </FieldRow>
-                {tariff.sessionFee > 0 ? (
-                  <FieldRow label={t("prepaid.sessionFee", { defaultValue: "Session fee" })}>
-                    <Text style={styles.value}>{formatCurrency(tariff.sessionFee)}</Text>
-                  </FieldRow>
-                ) : null}
-              </>
-            ) : null}
-            <FieldRow label={t("charger.headers.lastHeartbeat")}>
-              <Text style={styles.value}>{formatHeartbeatAgo(charger.lastHeartbeat)}</Text>
-            </FieldRow>
-          </AppCard>
-          <Text style={styles.section}>{t("charger.selectConnector")}</Text>
-          {sortedConnectors.length === 0 ? (
-            <Text style={styles.meta}>{t("charger.noConnectors")}</Text>
-          ) : (
-            sortedConnectors.map((conn) => {
-              const isSelected = selected?.id === conn.id;
-              const gunBusy = busyConnectors.has(conn.connectorId);
-              const startable = chargerService.canStartOnConnector(conn.status, gunBusy);
-              return (
-                <Pressable key={conn.id} onPress={() => setSelected(conn)}>
-                  <AppCard
-                    style={[
-                      styles.connector,
-                      isSelected && styles.connectorSelected,
-                      !startable && styles.connectorDisabled,
-                    ]}
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />
+        }
+      >
+        <Header title={title} onBack={() => navigation.goBack()} />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        {charger ? (
+          <>
+            <View style={styles.hero}>
+              <Text style={styles.stationTitle}>{title}</Text>
+              <Text style={styles.address}>{charger.location || "—"}</Text>
+              <Text style={styles.metaLine}>{charger.chargePointId}</Text>
+              <View style={styles.chipRow}>
+                <View
+                  style={[
+                    styles.infoChip,
+                    chargerService.canStartCharging(charger)
+                      ? styles.infoChipGreen
+                      : styles.infoChipMuted,
+                  ]}
+                >
+                  <Text
+                    style={
+                      chargerService.canStartCharging(charger)
+                        ? styles.infoChipTextGreen
+                        : styles.infoChipText
+                    }
                   >
-                    <View>
-                      <Text style={styles.connTitle}>
-                        {t("charger.connector", { id: conn.connectorId, type: conn.type })}
-                      </Text>
-                      <Text style={styles.connMeta}>{t("charger.power", { kw: conn.maxPowerKw })}</Text>
-                      {!startable ? (
-                        <Text style={styles.connUnavailable}>
-                          {t(chargerService.getConnectorBlockMessageKey(conn.status, gunBusy))}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <StatusBadge
-                      status={gunBusy && !/charging/i.test(conn.status) ? "charging" : conn.status}
-                    />
-                  </AppCard>
+                    {String(charger.status || "unknown")}
+                  </Text>
+                </View>
+                <View style={styles.infoChip}>
+                  <Text style={styles.infoChipText}>
+                    {charger.connectors.length} connector
+                    {charger.connectors.length === 1 ? "" : "s"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.tabs}>
+              {(["connectors", "details"] as DetailTab[]).map((key) => (
+                <Pressable
+                  key={key}
+                  style={[styles.tab, tab === key && styles.tabActive]}
+                  onPress={() => setTab(key)}
+                >
+                  <Text style={[styles.tabText, tab === key && styles.tabTextActive]}>
+                    {key === "connectors" ? "Connectors" : "Details"}
+                  </Text>
                 </Pressable>
-              );
-            })
-          )}
-          {!canCharge ? <AdminNoticeBanner /> : null}
-          {canCharge ? (
-            <>
-              {!chargeable ? (
-                <Text style={styles.unavailableBanner}>
-                  {t(chargerService.getChargerUnavailableMessageKey(charger))}
-                </Text>
-              ) : null}
-              <AppButton
-                title={t("charger.startCharging")}
-                onPress={openPricePrompt}
-                loading={busy}
-                disabled={!canStart}
-                style={styles.button}
+              ))}
+            </View>
+
+            {tab === "connectors" ? (
+              <StationChargerBlock
+                charger={charger}
+                displayIndex={displayIndex}
+                ratePerKwh={ratePerKwh}
+                selectedConnectorId={selectedConnector?.id}
+                busyConnectorIds={busyConnectors}
+                onSelectConnector={(_c, connector) => setSelectedConnector(connector)}
               />
-              <AppButton
-                title={t("charger.startWithQr")}
-                onPress={startQr}
-                variant="outline"
-                disabled={!canStart}
-                style={styles.button}
-              />
-              {!chargeable ? (
-                <Text style={styles.unavailableNote}>{t("charger.chargingUnavailable")}</Text>
-              ) : !selectedStartable ? (
-                <Text style={styles.unavailableNote}>
-                  {t(
-                    chargerService.getConnectorBlockMessageKey(selected?.status, selectedBusy)
-                  )}
+            ) : (
+              <View style={styles.placeholderCard}>
+                <Text style={styles.placeholderTitle}>Charger details</Text>
+                <Text style={styles.placeholderBody}>
+                  Name: {title}
+                  {"\n"}
+                  Charge point: {charger.chargePointId}
+                  {"\n"}
+                  Type: {charger.type}
+                  {"\n"}
+                  Max power: {charger.maxPowerKw || "—"} kW
+                  {"\n"}
+                  Location: {charger.location || "—"}
                 </Text>
-              ) : null}
-            </>
-          ) : null}
-          <ChargePricePrompt
-            visible={pricePromptVisible && canStart}
-            charger={charger}
-            onCancel={() => setPricePromptVisible(false)}
-            onConfirm={startCharging}
+              </View>
+            )}
+
+            {!canCharge ? <AdminNoticeBanner /> : null}
+          </>
+        ) : !error ? (
+          <Text style={styles.muted}>{t("common.loading")}</Text>
+        ) : (
+          <AppButton title={t("common.back")} onPress={() => navigation.goBack()} />
+        )}
+
+        <View style={{ height: 88 }} />
+      </ScrollView>
+
+      {charger ? (
+        <View style={styles.stickyBar}>
+          <AppButton
+            title={selectedConnector ? t("charger.startCharging") : "Select a connector"}
+            onPress={openSessionLimitPrompt}
+            loading={busy}
+            disabled={!ctaEnabled}
           />
-        </>
+        </View>
       ) : null}
-    </ScrollView>
+
+      <ChargePricePrompt
+        visible={limitPromptVisible && Boolean(charger && selectedConnector)}
+        charger={charger ?? null}
+        onCancel={() => setLimitPromptVisible(false)}
+        onConfirm={startCharging}
+      />
+    </View>
   );
 }
 
+const DEFAULT_FALLBACK_RATE = 14.49;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md },
-  value: { color: colors.textMuted, fontSize: 14, textAlign: "right" },
-  sim: { color: "#92400e", fontWeight: "700", fontSize: 13 },
-  rateHighlight: { color: colors.emerald, fontSize: 16, fontWeight: "700", textAlign: "right" },
-  section: { fontWeight: "600", marginVertical: spacing.md, color: colors.text },
-  meta: { color: colors.textMuted, marginBottom: spacing.sm },
-  connector: {
-    marginBottom: spacing.sm,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  connectorSelected: { borderWidth: 2, borderColor: colors.emerald },
-  connectorDisabled: { opacity: 0.55 },
-  connTitle: { fontWeight: "500", color: colors.text },
-  connMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  connUnavailable: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: "600",
-    color: colors.danger,
-  },
-  button: { marginTop: spacing.sm },
-  error: { color: colors.danger, marginBottom: spacing.sm },
-  unavailableNote: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.danger,
-    textAlign: "right",
-  },
-  unavailableBanner: {
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
+  content: { padding: spacing.md, paddingBottom: spacing.xl },
+  error: { color: colors.danger, marginBottom: spacing.sm, lineHeight: 20 },
+  muted: { color: colors.textMuted, textAlign: "center", marginTop: spacing.lg },
+  hero: {
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.md,
-    borderRadius: 10,
-    backgroundColor: "#fef2f2",
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  stationTitle: { fontSize: 20, fontWeight: "800", color: colors.text },
+  address: { marginTop: 6, fontSize: 13, color: colors.textMuted, lineHeight: 18 },
+  metaLine: { marginTop: 4, fontSize: 12, color: colors.textMuted },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: spacing.md },
+  infoChip: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  infoChipGreen: { backgroundColor: colors.emeraldMuted },
+  infoChipMuted: { backgroundColor: "#f3f4f6" },
+  infoChipText: { fontSize: 11, fontWeight: "700", color: colors.textMuted, textTransform: "capitalize" },
+  infoChipTextGreen: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.emerald,
+    textTransform: "capitalize",
+  },
+  tabs: {
+    flexDirection: "row",
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 4,
+    marginBottom: spacing.md,
+  },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center" },
+  tabActive: { backgroundColor: colors.emeraldMuted },
+  tabText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
+  tabTextActive: { color: colors.emerald },
+  placeholderCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+  },
+  placeholderTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  placeholderBody: { marginTop: 8, fontSize: 13, color: colors.textMuted, lineHeight: 20 },
+  stickyBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: spacing.md,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });

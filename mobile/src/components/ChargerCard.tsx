@@ -5,47 +5,45 @@ import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
 import { canStartCharging } from "../services/chargerService";
 import {
-  translateChargerLocation,
-  translateChargerName,
-  translateChargerType,
-} from "../utils/translateRecord";
+  dfccilChargerDisplayName,
+  formatLastUsed,
+  formatPowerLine,
+  isDcCharger,
+  plugTypeForCharger,
+} from "../utils/dfccilDisplay";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
 interface Props {
   charger: Charger;
+  displayIndex?: number;
   onPress: () => void;
 }
 
-export default function ChargerCard({ charger, onPress }: Props) {
+export default function ChargerCard({ charger, displayIndex, onPress }: Props) {
   const { t } = useTranslation();
-  const displayName = translateChargerName(t, charger.chargePointId, charger.name);
-  const displayLocation = translateChargerLocation(t, charger.chargePointId, charger.location);
-  const manufacturerModel = [charger.manufacturer, charger.model].filter(Boolean).join(" · ");
+  const displayName = dfccilChargerDisplayName(charger, displayIndex);
   const chargeable = canStartCharging(charger);
+  const plug = plugTypeForCharger(charger);
+  const availableCount = charger.connectors.filter((c) => {
+    const s = String(c.status || "").toLowerCase();
+    return s === "available" || s === "preparing";
+  }).length;
 
   return (
     <Pressable onPress={onPress}>
       <AppCard style={[styles.card, !chargeable && styles.cardUnavailable]}>
         <View style={styles.row}>
-          <View style={[styles.icon, !chargeable && styles.iconMuted]}>
-            <Text style={styles.iconText}>⚡</Text>
+          <View style={[styles.icon, isDcCharger(charger) ? styles.iconDc : styles.iconAc]}>
+            <Text style={styles.iconText}>{isDcCharger(charger) ? "DC" : "AC"}</Text>
           </View>
           <View style={styles.flex}>
-            <View style={styles.titleRow}>
-              <Text style={styles.name}>{displayName}</Text>
-              {charger.isSimulated ? (
-                <View style={styles.simBadge}>
-                  <Text style={styles.simBadgeText}>{t("charger.simulatedBadge")}</Text>
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.meta}>{charger.chargePointId}</Text>
+            <Text style={styles.name}>{displayName}</Text>
+            <Text style={styles.meta}>{formatPowerLine(charger)}</Text>
             <Text style={styles.meta}>
-              {translateChargerType(t, charger.type)} · {charger.maxPowerKw || "—"} kW
+              {plug} · {availableCount}/{charger.connectors.length || 0} available
             </Text>
-            {displayLocation ? <Text style={styles.meta}>{displayLocation}</Text> : null}
-            {manufacturerModel ? <Text style={styles.meta}>{manufacturerModel}</Text> : null}
+            <Text style={styles.meta}>{formatLastUsed(charger.lastHeartbeat)}</Text>
             {!chargeable ? (
               <Text style={styles.unavailable}>{t("charger.chargingUnavailable")}</Text>
             ) : null}
@@ -58,22 +56,21 @@ export default function ChargerCard({ charger, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: { marginBottom: spacing.sm },
+  card: { marginBottom: spacing.sm, borderRadius: 16 },
   cardUnavailable: { opacity: 0.92 },
   row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   icon: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: colors.emeraldMuted,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconMuted: { backgroundColor: "#f3f4f6" },
-  iconText: { fontSize: 20 },
+  iconAc: { backgroundColor: colors.emeraldMuted },
+  iconDc: { backgroundColor: colors.orangeMuted },
+  iconText: { fontSize: 12, fontWeight: "800", color: colors.text },
   flex: { flex: 1 },
-  titleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  name: { fontSize: 16, fontWeight: "600", color: colors.text },
+  name: { fontSize: 16, fontWeight: "800", color: colors.text },
   meta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   unavailable: {
     marginTop: 6,
@@ -81,13 +78,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.danger,
   },
-  simBadge: {
-    backgroundColor: "#fffbeb",
-    borderColor: "#fde68a",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  simBadgeText: { fontSize: 10, fontWeight: "700", color: "#92400e" },
 });

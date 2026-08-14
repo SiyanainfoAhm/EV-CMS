@@ -3,7 +3,6 @@ import {
   DEFAULT_DC_FALLBACK_KW,
 } from "../config/tariffConfig";
 import type { ChargerTariff } from "../services/tariffService";
-import { energyBudgetForPrepaidAmount } from "../services/tariffService";
 import type { Charger, PrepaidMode, PrepaidPaymentCalculation } from "../types";
 
 export const MIN_PREPAID_AMOUNT = 50;
@@ -144,35 +143,57 @@ export function validatePrepaidMinutes(minutes: unknown): PrepaidValidationResul
 }
 
 /**
- * Pay by Amount — GST on base only; session fee deducted from energy budget at settlement.
- * Example: ₹50 base + 18% GST = ₹59 payable.
+ * Charge by Amount Limit — selected ₹ is the **final bill limit** (incl. GST).
+ *
+ * finalAmountLimit = selectedAmount
+ * subtotalLimit = finalAmountLimit / (1 + gst/100)
+ * energyBudget = subtotalLimit - sessionFee
+ * kwhLimit = energyBudget / ratePerKwh
+ *
+ * Example DC Fast ₹50, rate 15, fee 20, GST 18% → ~1.491 kWh.
  */
 export function calculateAmountPayment(amount: number, tariff: ChargerTariff): PrepaidPaymentCalculation {
-  const baseAmount = round2(amount);
-  const gstPercent = tariff.gstPercent;
-  const gstAmount = round2(baseAmount * (gstPercent / 100));
-  const totalAmount = round2(baseAmount + gstAmount);
-  const energyBudget = energyBudgetForPrepaidAmount(baseAmount, tariff.sessionFee);
+  const finalAmountLimit = round2(amount);
+  const gstPercent = Number(tariff.gstPercent) || 0;
+  const divisor = 1 + gstPercent / 100;
+  const subtotalLimit = divisor > 0 ? round2(finalAmountLimit / divisor) : finalAmountLimit;
+  const gstAmount = round2(finalAmountLimit - subtotalLimit);
+  const sessionFee = Math.max(0, Number(tariff.sessionFee) || 0);
+  const energyBudget = round2(subtotalLimit - sessionFee);
   const estimatedKwh =
-    tariff.ratePerKwh > 0 ? round3(energyBudget / tariff.ratePerKwh) : null;
+    energyBudget > 0 && tariff.ratePerKwh > 0
+      ? round3(energyBudget / tariff.ratePerKwh)
+      : null;
 
   return {
-    baseAmount,
+    baseAmount: subtotalLimit,
     gstAmount,
-    totalAmount,
+    totalAmount: finalAmountLimit,
     gstPercent,
     estimatedKwh,
     durationMinutes: null,
     ratePerKwh: tariff.ratePerKwh,
-    sessionFee: tariff.sessionFee,
-    energyAmount: energyBudget,
-    subtotal: baseAmount,
+    sessionFee,
+    energyAmount: Math.max(0, energyBudget),
+    subtotal: subtotalLimit,
     tariffId: tariff.id,
     tariffName: tariff.name,
     powerKw: null,
     powerEstimated: false,
   };
 }
+
+/** True when selected amount limit can buy any energy after fee + GST. */
+export function isAmountLimitFeasible(calculation: PrepaidPaymentCalculation): boolean {
+  return (
+    calculation.estimatedKwh != null &&
+    calculation.estimatedKwh > 0 &&
+    (calculation.energyAmount ?? 0) > 0
+  );
+}
+
+export const AMOUNT_LIMIT_TOO_LOW =
+  "Amount limit is too low for this charger tariff.";
 
 export function resolveChargerPowerKwForPayment(
   charger: Pick<Charger, "maxPowerKw" | "type" | "name" | "model" | "chargePointId">

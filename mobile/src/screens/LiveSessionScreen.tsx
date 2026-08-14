@@ -31,22 +31,36 @@ function formatPower(kw: number | undefined | null): string {
   return kw.toFixed(1);
 }
 
-/** Client backup if gateway has not yet auto-stopped on prepaid amount/time. */
-function shouldAutoStopPrepaid(session: ChargingSession, nowMs: number): boolean {
-  const paid =
-    String(session.paymentMode || "").toLowerCase() === "prepaid" &&
-    ["paid", "success"].includes(String(session.paymentStatus || "").toLowerCase());
-  if (!paid) return false;
+function estimateLiveBill(session: ChargingSession): number | null {
+  const rate = Number(session.ratePerKwhSnapshot ?? 0);
+  if (!(rate > 0)) {
+    if (session.amount != null && Number.isFinite(session.amount)) return Number(session.amount);
+    return null;
+  }
+  const fee = Math.max(0, Number(session.sessionFeeSnapshot ?? 0));
+  const gstPct = Math.max(0, Number(session.gstPercentSnapshot ?? 0));
+  const energyAmount = session.energyKwh * rate;
+  const subtotal = energyAmount + fee;
+  return Math.round((subtotal * (1 + gstPct / 100)) * 100) / 100;
+}
+
+/**
+ * Client backup auto-stop for time / amount session limits.
+ * Does NOT require payment_status === paid (offline flow).
+ */
+function shouldAutoStopSession(session: ChargingSession, nowMs: number): boolean {
+  const status = String(session.status || "").toLowerCase();
+  if (status !== "active" && status !== "charging") return false;
+  if (session.prepaidMode !== "amount" && session.prepaidMode !== "time") return false;
 
   const startMs = new Date(session.startTime).getTime();
   const ageMs = Number.isFinite(startMs) ? nowMs - startMs : 0;
-  // Never stop in the first 30s — avoids false stops from absolute meter registers.
-  if (ageMs < 30_000) return false;
+  // Never stop in the first 20s — avoids false stops from absolute meter registers.
+  if (ageMs < 20_000) return false;
 
   if (session.prepaidMode === "amount") {
     const cap = session.prepaidEnergyCapKwh;
     if (cap == null || !(cap > 0)) return false;
-    // Ignore absurd energy (lifetime register mistaken for session kWh).
     const maxPlausible = Math.max(1, (ageMs / 3_600_000) * 400 + 1);
     if (session.energyKwh > maxPlausible) return false;
     if (session.energyKwh >= cap) return true;
@@ -75,6 +89,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
   const lastSessionIdRef = useRef<string | null>(null);
   const navigatingRef = useRef(false);
   const autoStopRef = useRef(false);
+  const sessionRef = useRef<ChargingSession | null>(null);
 
   const finishToSummary = useCallback(
     (sessionId: string) => {
@@ -85,6 +100,26 @@ export default function LiveSessionScreen({ navigation }: Props) {
     [navigation]
   );
 
+  const runAutoStopIfNeeded = useCallback(
+    async (s: ChargingSession, nowMs: number) => {
+      if (!user || navigatingRef.current || autoStopRef.current || stopping) return;
+      if (!shouldAutoStopSession(s, nowMs)) return;
+      autoStopRef.current = true;
+      setStopping(true);
+      try {
+        // stopCharging → sessionService.stopSession → OCPP RemoteStop
+        const completed = await chargingService.stopCharging(s.id, user.id);
+        finishToSummary(completed?.id ?? s.id);
+      } catch (e) {
+        autoStopRef.current = false;
+        setError(e instanceof Error ? e.message : t("session.stopFailed"));
+      } finally {
+        setStopping(false);
+      }
+    },
+    [user, stopping, finishToSummary, t]
+  );
+
   const load = useCallback(async () => {
     if (!user || navigatingRef.current) return;
     try {
@@ -92,25 +127,14 @@ export default function LiveSessionScreen({ navigation }: Props) {
       setError("");
       if (s) {
         lastSessionIdRef.current = s.id;
+        sessionRef.current = s;
         setSession(s);
-
-        if (!autoStopRef.current && !stopping && shouldAutoStopPrepaid(s, Date.now())) {
-          autoStopRef.current = true;
-          setStopping(true);
-          try {
-            const completed = await chargingService.stopCharging(s.id, user.id);
-            finishToSummary(completed?.id ?? s.id);
-          } catch (e) {
-            autoStopRef.current = false;
-            setError(e instanceof Error ? e.message : t("session.stopFailed"));
-          } finally {
-            setStopping(false);
-          }
-        }
+        await runAutoStopIfNeeded(s, Date.now());
         return;
       }
 
       const endedId = lastSessionIdRef.current;
+      sessionRef.current = null;
       setSession(null);
       if (endedId) {
         finishToSummary(endedId);
@@ -118,7 +142,7 @@ export default function LiveSessionScreen({ navigation }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, [user, t, stopping, finishToSummary]);
+  }, [user, t, finishToSummary, runAutoStopIfNeeded]);
 
   useFocusEffect(
     useCallback(() => {
@@ -136,11 +160,17 @@ export default function LiveSessionScreen({ navigation }: Props) {
 
   useSupabaseRealtime(() => void load(), !!user);
 
+  // 1s clock + time-limit check (more accurate than 5s poll alone).
   useEffect(() => {
     if (!session) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => {
+      const nowMs = Date.now();
+      setNow(nowMs);
+      const s = sessionRef.current;
+      if (s) void runAutoStopIfNeeded(s, nowMs);
+    }, 1000);
     return () => clearInterval(id);
-  }, [session?.id]);
+  }, [session?.id, runAutoStopIfNeeded]);
 
   const stop = () => {
     if (!session) return;
@@ -174,19 +204,34 @@ export default function LiveSessionScreen({ navigation }: Props) {
   }
 
   const soc = session.soc != null && Number.isFinite(session.soc) ? Math.round(session.soc) : null;
-  // `now` forces a re-render so duration advances every second.
   const durationLive = formatSessionDuration(session.startTime, new Date(now).toISOString());
+  const liveBill = estimateLiveBill(session);
 
-  let prepaidLimitLabel: string | null = null;
-  if (session.prepaidMode === "amount" && session.prepaidEnergyCapKwh != null) {
-    prepaidLimitLabel = `${t("session.kwhConsumed")}: ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)} kWh`;
+  let limitLabel: string | null = null;
+  if (session.prepaidMode === "amount") {
+    const amountLimit = session.prepaidTotalInr ?? session.prepaidAmount;
+    const parts = [
+      amountLimit != null ? `Amount limit: ${formatCurrency(Number(amountLimit))}` : null,
+      session.prepaidEnergyCapKwh != null
+        ? `kWh ${formatEnergy(session.energyKwh)} / ${formatEnergy(session.prepaidEnergyCapKwh)}`
+        : null,
+    ].filter(Boolean);
+    limitLabel = parts.join(" · ") || null;
   } else if (session.prepaidMode === "time") {
     const mins = session.prepaidDurationMinutes;
     if (mins) {
-      prepaidLimitLabel = t("session.prepaidTimeLimit", {
-        defaultValue: "Prepaid time: {{minutes}} min",
-        minutes: mins,
-      });
+      const remainingMs = session.prepaidExpiresAt
+        ? new Date(session.prepaidExpiresAt).getTime() - now
+        : Number.isFinite(new Date(session.startTime).getTime())
+          ? new Date(session.startTime).getTime() + mins * 60_000 - now
+          : NaN;
+      const remainingMin = Number.isFinite(remainingMs)
+        ? Math.max(0, Math.ceil(remainingMs / 60_000))
+        : null;
+      limitLabel =
+        remainingMin != null
+          ? `Time limit: ${mins} min · ~${remainingMin} min left`
+          : `Time limit: ${mins} min`;
     }
   }
 
@@ -239,16 +284,11 @@ export default function LiveSessionScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {prepaidLimitLabel ? <Text style={styles.prepaidLimit}>{prepaidLimitLabel}</Text> : null}
+        {limitLabel ? <Text style={styles.prepaidLimit}>{limitLabel}</Text> : null}
 
-        {session.prepaidTotalInr != null || session.prepaidAmount != null ? (
+        {liveBill != null ? (
           <Text style={styles.amount}>
-            {t("session.prepaidPaid", { defaultValue: "Prepaid" })}:{" "}
-            {formatCurrency(session.prepaidTotalInr ?? session.prepaidAmount ?? 0)}
-          </Text>
-        ) : session.amount != null ? (
-          <Text style={styles.amount}>
-            {t("session.estimatedAmount")}: {formatCurrency(session.amount)}
+            {t("session.estimatedAmount")}: {formatCurrency(liveBill)}
           </Text>
         ) : null}
       </AppCard>
@@ -285,41 +325,39 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.emerald,
-  },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.emerald },
   liveText: { fontSize: 12, fontWeight: "700", color: colors.emerald },
-  charger: { fontSize: 18, fontWeight: "700", color: colors.text, marginTop: spacing.xs },
+  charger: { fontSize: 18, fontWeight: "800", color: colors.text },
   meta: { color: colors.textMuted, marginTop: 4 },
-  socBlock: { alignItems: "center", marginTop: spacing.lg, marginBottom: spacing.md },
-  socValue: { fontSize: 40, fontWeight: "800", color: colors.emerald },
-  socLabel: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  socBlock: { marginTop: spacing.lg, alignItems: "center" },
+  socValue: { fontSize: 36, fontWeight: "800", color: colors.emerald },
+  socLabel: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   socTrack: {
     marginTop: spacing.sm,
+    height: 8,
     width: "100%",
-    height: 10,
     borderRadius: 999,
     backgroundColor: "#e5e7eb",
     overflow: "hidden",
   },
-  socFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: colors.emerald,
-  },
-  stats: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.md },
-  stat: { alignItems: "center", flex: 1 },
-  statVal: { fontSize: 18, fontWeight: "700", color: colors.text },
+  socFill: { height: "100%", backgroundColor: colors.emerald },
+  stats: { flexDirection: "row", marginTop: spacing.lg, gap: spacing.sm },
+  stat: { flex: 1, alignItems: "center" },
+  statVal: { fontSize: 16, fontWeight: "800", color: colors.text },
   statLbl: { fontSize: 11, color: colors.textMuted, marginTop: 4, textAlign: "center" },
   prepaidLimit: {
-    marginTop: spacing.sm,
-    textAlign: "center",
-    color: colors.textMuted,
+    marginTop: spacing.md,
     fontSize: 13,
+    fontWeight: "600",
+    color: colors.orange,
+    textAlign: "center",
   },
-  amount: { marginTop: spacing.md, textAlign: "center", fontWeight: "600", color: colors.text },
-  button: { marginTop: spacing.md },
+  amount: {
+    marginTop: spacing.sm,
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.text,
+    textAlign: "center",
+  },
+  button: { marginTop: spacing.lg },
 });

@@ -11,10 +11,14 @@ interface Props {
 function badgeColors(status: string) {
   const s = status.toLowerCase().trim();
   // Check unavailable before available — "unavailable".includes("available") is true.
-  if (s === "unavailable" || s === "offline" || s === "unknown") {
+  if (s === "unavailable" || s === "offline" || s === "unknown" || s === "unpaid") {
     return { bg: "#f3f4f6", text: colors.textMuted };
   }
-  if (["online", "active", "available", "preparing", "success", "completed", "paid", "resolved", "closed"].some((x) => s === x)) {
+  if (
+    ["online", "active", "available", "preparing", "success", "completed", "paid", "resolved", "closed", "paid offline", "collected"].some(
+      (x) => s === x
+    )
+  ) {
     return { bg: colors.emeraldMuted, text: colors.emerald };
   }
   if (["faulted", "failed", "blocked", "error"].some((x) => s === x || s.includes(x))) {
