@@ -3,6 +3,7 @@ import { requireSupabase } from "@/utils/supabaseClient";
 import { utcRangeStart } from "@/utils/dateRanges";
 import { connectivityFromHeartbeat } from "@/utils/chargerConnectivity";
 import { mapSession } from "@/utils/supabaseMappers";
+import { loadUserDisplayNameMap } from "@/utils/sessionUserNames";
 
 export interface DailyChartPoint {
   day: string;
@@ -232,15 +233,22 @@ export async function getUserWiseReportForRange(range: ReportDateBounds): Promis
   if (paymentsRes.error) throw paymentsRes.error;
 
   const byUser = new Map<string, UserWiseReportRow>();
+  const names = await loadUserDisplayNameMap();
 
   for (const row of sessionsRes.data ?? []) {
     const r = row as Record<string, unknown>;
     const userId = r.user_id as string;
     const user = r.EV_Users as Record<string, unknown> | null;
-    const name = (user?.full_name as string) ?? "Unknown";
+    const name =
+      (user?.full_name as string) ||
+      names.get(userId) ||
+      "Unknown";
     const existing = byUser.get(userId) ?? { userId, userName: name, sessions: 0, energyKwh: 0, revenue: 0 };
     existing.sessions += 1;
     existing.energyKwh += Number(r.energy_kwh ?? 0);
+    if (existing.userName === "Unknown" && name !== "Unknown") {
+      existing.userName = name;
+    }
     byUser.set(userId, existing);
   }
 
@@ -250,11 +258,14 @@ export async function getUserWiseReportForRange(range: ReportDateBounds): Promis
     if (kind !== "prepaid" && kind !== "refund") continue;
     const userId = r.user_id as string;
     const user = r.EV_Users as Record<string, unknown> | null;
-    const name = (user?.full_name as string) ?? "Unknown";
+    const name =
+      (user?.full_name as string) ||
+      names.get(userId) ||
+      "Unknown";
     const existing = byUser.get(userId) ?? { userId, userName: name, sessions: 0, energyKwh: 0, revenue: 0 };
     existing.revenue += prepaidPaymentDelta(r);
-    if (existing.userName === "Unknown" && user?.full_name) {
-      existing.userName = user.full_name as string;
+    if (existing.userName === "Unknown" && name !== "Unknown") {
+      existing.userName = name;
     }
     byUser.set(userId, existing);
   }

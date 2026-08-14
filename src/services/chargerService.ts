@@ -3,6 +3,10 @@ import { resolveDashboardRange, utcRangeStart, type DashboardRange } from "@/uti
 import { requireSupabase } from "@/utils/supabaseClient";
 import { computeDashboardStats, mapCharger, mapSession } from "@/utils/supabaseMappers";
 import { isSimulationEnabled } from "@/utils/simulationMode";
+import {
+  applyUserNamesToSessions,
+  loadUserDisplayNameMap,
+} from "@/utils/sessionUserNames";
 
 export interface ChargersQuery {
   status?: string; // online | offline | faulted | all
@@ -352,14 +356,17 @@ export async function getActiveSessionsForChargers(): Promise<ChargingSession[]>
     .order("start_time", { ascending: false });
 
   if (error) throw error;
-  return (data ?? []).map((row) => {
+  const sessions = (data ?? []).map((row) => {
     const r = row as Record<string, unknown>;
     const charger = r.EV_Chargers as Record<string, unknown> | null;
     const user = r.EV_Users as Record<string, unknown> | null;
     const rfid = r.EV_RFIDCards as Record<string, unknown> | null;
-    const session = mapSession(r, charger, user, rfid);
-    return session;
+    return mapSession(r, charger, user, rfid);
   });
+  if (sessions.length === 0) return sessions;
+  if (!sessions.some((s) => !s.userName || s.userName === "Unknown User")) return sessions;
+  const names = await loadUserDisplayNameMap();
+  return applyUserNamesToSessions(sessions, names);
 }
 
 export interface ChargerEvent {
