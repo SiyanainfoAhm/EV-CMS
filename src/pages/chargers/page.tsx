@@ -36,6 +36,8 @@ import {
 
 } from "@/utils/chargerConnectivity";
 
+import { getChargerDisplayName } from "@/utils/chargerDisplayName";
+
 import {
   connectorStatusBadgeClass,
   connectorStatusLabel,
@@ -675,7 +677,7 @@ export default function ChargersPage() {
 
                       <div>
 
-                        <p className="text-sm font-medium text-gray-900">{charger.name}</p>
+                        <p className="text-sm font-medium text-gray-900">{getChargerDisplayName(charger)}</p>
 
                         <p className="text-xs text-gray-400">{charger.chargePointId} · {charger.manufacturer}</p>
 

@@ -17,6 +17,7 @@ import type { Charger, Tariff } from "@/types/ev";
 export const emptyChargerForm: ChargerFormFields = {
   chargePointId: "",
   name: "",
+  displayName: "",
   manufacturer: "MyPower Experts",
   model: "",
   serialNumber: "",
@@ -32,6 +33,7 @@ export function chargerToForm(charger: Charger): ChargerFormFields {
   return {
     chargePointId: charger.chargePointId,
     name: charger.name,
+    displayName: charger.displayName ?? "",
     manufacturer: charger.manufacturer,
     model: charger.model,
     serialNumber: charger.serialNumber,
@@ -124,6 +126,7 @@ export function ChargerFormModal({
     try {
       const payload = {
         name: formData.name,
+        displayName: formData.displayName.trim() || null,
         manufacturer: formData.manufacturer,
         model: formData.model || undefined,
         serialNumber: formData.serialNumber || undefined,
@@ -186,13 +189,22 @@ export function ChargerFormModal({
                 readOnly={isEdit}
               />
             </FormField>
-            <FormField label="Display Name" error={formErrors.name} required>
+            <FormField label="Name" error={formErrors.name} required>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className={inputClassName(!!formErrors.name)}
-                placeholder="e.g. MP Fast Charger Station 13"
+                placeholder="e.g. DL-DC-Charger-001"
+              />
+            </FormField>
+            <FormField label="Public display name (optional)">
+              <input
+                type="text"
+                value={formData.displayName}
+                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                className={inputClassName()}
+                placeholder="Leave blank to show Name"
               />
             </FormField>
             <FormField label="Manufacturer" error={formErrors.manufacturer} required>

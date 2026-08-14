@@ -28,6 +28,8 @@ export interface Charger {
   id: string;
   chargePointId: string;
   name: string;
+  /** Optional public label; if empty, UI falls back to name / chargePointId. */
+  displayName?: string | null;
   manufacturer: string;
   model: string;
   serialNumber: string;

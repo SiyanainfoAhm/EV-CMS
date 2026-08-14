@@ -29,7 +29,7 @@ export default function StationConnectorCard({
   const status = normalizeConnectorStatus(connector.status);
   const plug = plugTypeForConnector(charger, connector);
   const label = connectorStatusLabel(connector.status);
-  const powerLabel = formatUptoPowerKw(connector.maxPowerKw, charger.maxPowerKw || 7.4);
+  const powerLabel = formatUptoPowerKw(connector.maxPowerKw, charger.maxPowerKw);
 
   const statusBg =
     status === "available" || status === "preparing"

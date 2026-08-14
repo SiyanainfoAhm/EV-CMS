@@ -84,6 +84,7 @@ export function mapCharger(
     id: row.id as string,
     chargePointId: row.charge_point_id as string,
     name: row.name as string,
+    displayName: row.display_name != null ? String(row.display_name) : null,
     manufacturer: (row.manufacturer as string) ?? "",
     model: (row.model as string) ?? "",
     serialNumber: (row.serial_number as string) ?? "",
@@ -117,7 +118,10 @@ export function mapSession(
     id: row.id as string,
     transactionId: row.transaction_id as number,
     chargerId: row.charger_id as string,
-    chargerName: (charger?.name as string) ?? "",
+    chargerName:
+      (charger?.display_name as string)?.trim() ||
+      (charger?.name as string) ||
+      "",
     chargePointId: (charger?.charge_point_id as string) ?? "",
     connectorId: row.connector_id as number,
     connectorType: "",

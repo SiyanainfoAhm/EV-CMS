@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ChargingSession } from "../types";
 import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
-import { translateChargerName } from "../utils/translateRecord";
+import { getChargerDisplayName } from "../utils/dfccilDisplay";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
@@ -14,7 +14,10 @@ interface Props {
 
 export default function SessionCard({ session, onPress }: Props) {
   const { t } = useTranslation();
-  const displayName = translateChargerName(t, session.chargePointId, session.chargerName);
+  const displayName = getChargerDisplayName({
+    name: session.chargerName,
+    chargePointId: session.chargePointId,
+  });
 
   const content = (
     <AppCard style={styles.card}>

@@ -18,6 +18,7 @@ import type { RecentActivityItem } from "@/services/dashboardService";
 import type { DashboardPreset, DashboardRange } from "@/utils/dateRanges";
 import { dashboardRangeKey, dashboardRangeLabel, utcDaysAgoKey, utcTodayKey } from "@/utils/dateRanges";
 import { connectivityFromHeartbeat } from "@/utils/chargerConnectivity";
+import { getChargerDisplayName } from "@/utils/chargerDisplayName";
 import { connectorStatusBadgeClass, connectorStatusLabel } from "@/utils/connectorStatus";
 
 const emptyStats = {
@@ -337,7 +338,7 @@ export default function DashboardPage() {
                     }`}
                   ></div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{charger.name}</p>
+                    <p className="text-sm font-medium text-gray-900">{getChargerDisplayName(charger)}</p>
                     <p className="text-xs text-gray-400">
                       {charger.chargePointId} · {charger.location}
                       {charger.status === "faulted" ? " · faulted" : ""}

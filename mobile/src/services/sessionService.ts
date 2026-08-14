@@ -10,7 +10,7 @@ import type { ChargingSession } from "../types";
 
 const select = `
   *,
-  EV_Chargers ( name, charge_point_id, is_simulated ),
+  EV_Chargers ( * ),
   EV_Users ( full_name )
 `;
 
@@ -204,7 +204,10 @@ function mapRow(row: Record<string, unknown>): ChargingSession {
   return {
     id: row.id as string,
     chargerId: (row.charger_id as string) ?? undefined,
-    chargerName: (charger?.name as string) ?? "",
+    chargerName:
+      (charger?.display_name as string)?.trim() ||
+      (charger?.name as string) ||
+      "",
     chargePointId: (charger?.charge_point_id as string) ?? "",
     connectorId: row.connector_id as number,
     transactionId: row.transaction_id != null ? Number(row.transaction_id) : null,

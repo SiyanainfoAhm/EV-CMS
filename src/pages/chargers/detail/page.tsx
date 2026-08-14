@@ -21,6 +21,7 @@ import {
   formatChargerStatusLabel,
   formatHeartbeatAgo,
 } from "@/utils/chargerConnectivity";
+import { getChargerDisplayName } from "@/utils/chargerDisplayName";
 import {
   canRemoteStartConnector,
   connectorStatusBadgeClass,
@@ -349,7 +350,7 @@ export default function ChargerDetailPage() {
         </button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-            {charger.name}
+            {getChargerDisplayName(charger)}
           </h1>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-xs text-gray-500">{charger.chargePointId}</span>
