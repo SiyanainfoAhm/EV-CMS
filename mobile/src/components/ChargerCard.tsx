@@ -5,9 +5,9 @@ import AppCard from "./AppCard";
 import StatusBadge from "./StatusBadge";
 import { canStartCharging } from "../services/chargerService";
 import {
-  dfccilChargerDisplayName,
   formatLastUsed,
   formatPowerLine,
+  getChargerDisplayName,
   isDcCharger,
   plugTypeForCharger,
 } from "../utils/dfccilDisplay";
@@ -16,13 +16,12 @@ import { spacing } from "../theme/spacing";
 
 interface Props {
   charger: Charger;
-  displayIndex?: number;
   onPress: () => void;
 }
 
-export default function ChargerCard({ charger, displayIndex, onPress }: Props) {
+export default function ChargerCard({ charger, onPress }: Props) {
   const { t } = useTranslation();
-  const displayName = dfccilChargerDisplayName(charger, displayIndex);
+  const displayName = getChargerDisplayName(charger);
   const chargeable = canStartCharging(charger);
   const plug = plugTypeForCharger(charger);
   const availableCount = charger.connectors.filter((c) => {

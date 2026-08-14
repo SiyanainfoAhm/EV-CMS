@@ -14,9 +14,8 @@ import {
   offsetSiteCoordinate,
 } from "../services/siteLocationService";
 import {
-  buildChargerDisplayIndexMap,
   chargerKindLabel,
-  dfccilChargerDisplayName,
+  getChargerDisplayName,
   isVisibleFleetCharger,
 } from "../utils/dfccilDisplay";
 import type { Charger } from "../types";
@@ -29,8 +28,19 @@ type MapPoint = {
   charger: Charger;
   latitude: number;
   longitude: number;
-  fromFallback: boolean;
+  fromSiteFallback: boolean;
 };
+
+function isValidCoord(lat: unknown, lng: unknown): boolean {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180
+  );
+}
 
 export default function NearestChargerMapScreen({ navigation }: Props) {
   const { t } = useTranslation();
@@ -81,26 +91,25 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
     void load();
   }, [load]);
 
-  const indexMap = useMemo(() => buildChargerDisplayIndexMap(chargers), [chargers]);
-
+  /** Markers only from DB charger coords, or admin-configured site location (never invented). */
   const mapPoints: MapPoint[] = useMemo(() => {
-    const withOwnCoords = chargers.filter((c) => c.latitude != null && c.longitude != null);
+    const withOwnCoords = chargers.filter((c) => isValidCoord(c.latitude, c.longitude));
     if (withOwnCoords.length > 0) {
       return withOwnCoords.map((c) => ({
         charger: c,
-        latitude: c.latitude!,
-        longitude: c.longitude!,
-        fromFallback: false,
+        latitude: Number(c.latitude),
+        longitude: Number(c.longitude),
+        fromSiteFallback: false,
       }));
     }
-    if (siteFallback) {
+    if (siteFallback && isValidCoord(siteFallback.latitude, siteFallback.longitude)) {
       return chargers.map((c, i) => {
         const offset = offsetSiteCoordinate(siteFallback, i);
         return {
           charger: c,
           latitude: offset.latitude,
           longitude: offset.longitude,
-          fromFallback: true,
+          fromSiteFallback: true,
         };
       });
     }
@@ -109,10 +118,10 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
 
   const hasAnyCoords = mapPoints.length > 0;
   const usingSiteFallbackOnly =
-    hasAnyCoords && mapPoints.every((p) => p.fromFallback) && Boolean(siteFallback);
+    hasAnyCoords && mapPoints.every((p) => p.fromSiteFallback) && Boolean(siteFallback);
 
   const region = useMemo(() => {
-    if (coords) {
+    if (coords && isValidCoord(coords.latitude, coords.longitude)) {
       return {
         latitude: coords.latitude,
         longitude: coords.longitude,
@@ -128,7 +137,7 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
         longitudeDelta: 0.05,
       };
     }
-    if (siteFallback) {
+    if (siteFallback && isValidCoord(siteFallback.latitude, siteFallback.longitude)) {
       return {
         latitude: siteFallback.latitude,
         longitude: siteFallback.longitude,
@@ -136,16 +145,11 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
         longitudeDelta: 0.05,
       };
     }
-    return {
-      latitude: 28.6139,
-      longitude: 77.209,
-      latitudeDelta: 0.5,
-      longitudeDelta: 0.5,
-    };
+    return null;
   }, [coords, mapPoints, siteFallback]);
 
   const markers = mapPoints.map((p) => {
-    const name = dfccilChargerDisplayName(p.charger, indexMap.get(p.charger.id));
+    const name = getChargerDisplayName(p.charger);
     const available = p.charger.connectors.filter((c) => {
       const s = String(c.status || "").toLowerCase();
       return s === "available" || s === "preparing";
@@ -177,7 +181,8 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
           <Text style={styles.emptyTitle}>Map location is not configured for chargers yet.</Text>
           <Text style={styles.emptyBody}>
             Add latitude/longitude on each charger in web admin, or set EV_SystemConfig key
-            default_site_location with site coordinates. Charger locations are listed below.
+            default_site_location with site coordinates. Charger names and locations are listed
+            below.
           </Text>
         </View>
       ) : null}
@@ -190,7 +195,7 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
         </Text>
       ) : null}
 
-      {hasAnyCoords && (showNativeMap || Platform.OS === "web") ? (
+      {hasAnyCoords && region && (showNativeMap || Platform.OS === "web") ? (
         <ChargerMapView region={region} userLocation={coords} markers={markers} />
       ) : null}
 
@@ -205,7 +210,6 @@ export default function NearestChargerMapScreen({ navigation }: Props) {
         <ChargerCard
           key={c.id}
           charger={c}
-          displayIndex={indexMap.get(c.id)}
           onPress={() => navigation.navigate("ChargerDetail", { id: c.id })}
         />
       ))}

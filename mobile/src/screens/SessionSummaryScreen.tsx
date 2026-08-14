@@ -15,8 +15,7 @@ import {
   offlineCollectionStatusLabel,
 } from "../utils/sessionCompletion";
 import { formatCurrency } from "../utils/format";
-import { translateChargerName } from "../utils/translateRecord";
-import { dfccilChargerDisplayName } from "../utils/dfccilDisplay";
+import { getChargerDisplayName } from "../utils/dfccilDisplay";
 import type { ChargingSession, Receipt } from "../types";
 import type { SessionPaymentSummary } from "../services/paymentService";
 import { colors } from "../theme/colors";
@@ -123,9 +122,8 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
     );
   }
 
-  const displayName = dfccilChargerDisplayName({
-    name: translateChargerName(t, session.chargePointId, session.chargerName),
-    type: session.chargePointId,
+  const displayName = getChargerDisplayName({
+    name: session.chargerName,
     chargePointId: session.chargePointId,
   });
   const billAmount =

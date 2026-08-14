@@ -14,8 +14,11 @@ export interface ChargersQuery {
   availableOnly?: boolean;
 }
 
-const CHARGER_COLUMNS =
-  "id, charge_point_id, name, manufacturer, model, charger_type, max_power_kw, status, location, latitude, longitude, is_simulated, tariff_id, allow_admin_bypass, last_heartbeat_at, created_at, updated_at";
+const CHARGER_SELECT =
+  "id, charge_point_id, name, display_name, manufacturer, model, charger_type, max_power_kw, status, location, latitude, longitude, is_simulated, tariff_id, allow_admin_bypass, last_heartbeat_at, created_at, updated_at, EV_ChargerConnectors(*)";
+
+const CHARGER_SELECT_NO_DISPLAY =
+  "id, charge_point_id, name, manufacturer, model, charger_type, max_power_kw, status, location, latitude, longitude, is_simulated, tariff_id, allow_admin_bypass, last_heartbeat_at, created_at, updated_at, EV_ChargerConnectors(*)";
 
 const CHARGEABLE_STATUSES = new Set(["online", "available"]);
 const FAULTED_STATUSES = new Set(["faulted", "error", "unavailable"]);
@@ -36,6 +39,7 @@ function mapCharger(row: Record<string, unknown>): Charger {
     id: row.id as string,
     chargePointId: row.charge_point_id as string,
     name: row.name as string,
+    displayName: row.display_name != null ? String(row.display_name) : null,
     manufacturer: row.manufacturer != null ? String(row.manufacturer) : null,
     model: row.model != null ? String(row.model) : null,
     type: row.charger_type as string,
@@ -107,7 +111,7 @@ export async function assertChargerOnlineForMobile(chargerId: string): Promise<C
 
   const { data, error } = await requireSupabase()
     .from("EV_Chargers")
-    .select(`${CHARGER_COLUMNS}, EV_ChargerConnectors(*)`)
+    .select(CHARGER_SELECT)
     .eq("id", chargerId)
     .maybeSingle();
 
@@ -144,15 +148,32 @@ export async function fetchChargers(search = ""): Promise<Charger[]> {
 
   let q = requireSupabase()
     .from("EV_Chargers")
-    .select(`${CHARGER_COLUMNS}, EV_ChargerConnectors(*)`)
+    .select(CHARGER_SELECT)
     .order("name");
 
   const s = search.trim();
   if (s) {
-    q = q.or(`name.ilike.%${s}%,charge_point_id.ilike.%${s}%,location.ilike.%${s}%`);
+    q = q.or(
+      `name.ilike.%${s}%,display_name.ilike.%${s}%,charge_point_id.ilike.%${s}%,location.ilike.%${s}%`
+    );
   }
 
-  const { data, error } = await q;
+  let { data, error } = await q;
+
+  // Safer deploy path if display_name migration not applied yet.
+  if (error && /display_name/i.test(error.message)) {
+    console.warn("[chargers] display_name column missing — retrying without it");
+    let q2 = requireSupabase()
+      .from("EV_Chargers")
+      .select(CHARGER_SELECT_NO_DISPLAY)
+      .order("name");
+    if (s) {
+      q2 = q2.or(`name.ilike.%${s}%,charge_point_id.ilike.%${s}%,location.ilike.%${s}%`);
+    }
+    const retry = await q2;
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
 
   if (error) {
     console.error("[chargers] query error:", error.message, error);
@@ -275,22 +296,42 @@ export async function validateQr(raw: string): Promise<QrValidationResult> {
 }
 
 export async function getChargerById(id: string): Promise<Charger | undefined> {
-  const { data, error } = await requireSupabase()
+  let { data, error } = await requireSupabase()
     .from("EV_Chargers")
-    .select(`${CHARGER_COLUMNS}, EV_ChargerConnectors(*)`)
+    .select(CHARGER_SELECT)
     .eq("id", id)
     .maybeSingle();
+
+  if (error && /display_name/i.test(error.message)) {
+    const retry = await requireSupabase()
+      .from("EV_Chargers")
+      .select(CHARGER_SELECT_NO_DISPLAY)
+      .eq("id", id)
+      .maybeSingle();
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
 
   if (error) throw error;
   return data ? mapCharger(data as Record<string, unknown>) : undefined;
 }
 
 export async function getChargerByChargePointId(chargePointId: string): Promise<Charger | undefined> {
-  const { data, error } = await requireSupabase()
+  let { data, error } = await requireSupabase()
     .from("EV_Chargers")
-    .select(`${CHARGER_COLUMNS}, EV_ChargerConnectors(*)`)
+    .select(CHARGER_SELECT)
     .eq("charge_point_id", chargePointId)
     .maybeSingle();
+
+  if (error && /display_name/i.test(error.message)) {
+    const retry = await requireSupabase()
+      .from("EV_Chargers")
+      .select(CHARGER_SELECT_NO_DISPLAY)
+      .eq("charge_point_id", chargePointId)
+      .maybeSingle();
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
 
   if (error) throw error;
   return data ? mapCharger(data as Record<string, unknown>) : undefined;

@@ -19,11 +19,11 @@ import SimulationModeBadge from "../components/SimulationModeBadge";
 import { isSimulationEnabled } from "../utils/simulationMode";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import {
-  buildChargerDisplayIndexMap,
+  getChargerDisplayName,
   isConnectorSelectable,
   isDcCharger,
   isVisibleFleetCharger,
-  logChargerNumbering,
+  logChargerFilter,
   summarizeVisibleChargers,
 } from "../utils/dfccilDisplay";
 import type { Charger, ChargerStatusFilter } from "../types";
@@ -59,8 +59,7 @@ export default function ChargerListScreen({ navigation }: Props) {
       const data = await chargerService.fetchChargers("");
       const visible = data.filter(isVisibleFleetCharger);
       setAllChargers(visible);
-      const indexMap = buildChargerDisplayIndexMap(visible);
-      logChargerNumbering(visible, indexMap);
+      logChargerFilter(data, visible);
       console.log("[charger-inventory]", summarizeVisibleChargers(visible));
       if (visible.length === 0) setError(t("charger.noneAvailable"));
     } catch (e) {
@@ -92,14 +91,14 @@ export default function ChargerListScreen({ navigation }: Props) {
     });
   };
 
-  const indexMap = useMemo(() => buildChargerDisplayIndexMap(allChargers), [allChargers]);
-
   const chargers = useMemo(() => {
     let list = chargerService.filterChargers(allChargers, status);
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((c) =>
-        `${c.name} ${c.chargePointId} ${c.location}`.toLowerCase().includes(q)
+        `${getChargerDisplayName(c)} ${c.name} ${c.displayName ?? ""} ${c.chargePointId} ${c.location}`
+          .toLowerCase()
+          .includes(q)
       );
     }
     if (extra.has("ac")) list = list.filter((c) => !isDcCharger(c));
@@ -169,7 +168,6 @@ export default function ChargerListScreen({ navigation }: Props) {
         <ChargerCard
           key={c.id}
           charger={c}
-          displayIndex={indexMap.get(c.id)}
           onPress={() => navigation.navigate("ChargerDetail", { id: c.id })}
         />
       ))}

@@ -13,7 +13,7 @@ import * as chargingService from "../services/chargingService";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import { formatCurrency, formatSessionDuration } from "../utils/format";
 import { confirmAction } from "../utils/confirm";
-import { translateChargerName } from "../utils/translateRecord";
+import { getChargerDisplayName } from "../utils/dfccilDisplay";
 import type { ChargingSession } from "../types";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
@@ -250,7 +250,10 @@ export default function LiveSessionScreen({ navigation }: Props) {
         </View>
 
         <Text style={styles.charger}>
-          {translateChargerName(t, session.chargePointId, session.chargerName)}
+          {getChargerDisplayName({
+            name: session.chargerName,
+            chargePointId: session.chargePointId,
+          })}
         </Text>
         <Text style={styles.meta}>
           {session.chargePointId} · {t("session.connector")} {session.connectorId}

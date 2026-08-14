@@ -1,19 +1,53 @@
 import type { Charger, ChargerConnector } from "../types";
 import { isSimulationEnabled } from "./simulationMode";
 
-/** Stable AC/DC classification from charger_type / name. */
-export function isDcCharger(charger: Pick<Charger, "type" | "name" | "chargePointId">): boolean {
-  const blob = `${charger.type} ${charger.name} ${charger.chargePointId}`.toLowerCase();
-  // Match DC as a token (handles "DC Fast", "DL-DC-CHARGER-001", etc.)
+export type ChargerNameFields = {
+  displayName?: string | null;
+  name?: string | null;
+  chargePointId?: string | null;
+};
+
+/**
+ * Single source of truth for charger labels (mobile + web parity).
+ * display_name → name → charge_point_id → Unknown Charger
+ * Never invents "DFCCIL AC Charger - N" from array index.
+ */
+export function getChargerDisplayName(charger: ChargerNameFields | null | undefined): string {
+  const display = String(charger?.displayName ?? "").trim();
+  if (display) return display;
+  const name = String(charger?.name ?? "").trim();
+  if (name) return name;
+  const cpId = String(charger?.chargePointId ?? "").trim();
+  if (cpId) return cpId;
+  return "Unknown Charger";
+}
+
+/** @deprecated Use getChargerDisplayName — kept so old imports fail loudly if misused. */
+export function dfccilChargerDisplayName(
+  charger: ChargerNameFields,
+  _indexAmongKind?: number
+): string {
+  return getChargerDisplayName(charger);
+}
+
+/** Stable AC/DC classification from charger_type / name / charge_point_id. */
+export function isDcCharger(
+  charger: Pick<Charger, "type" | "name" | "chargePointId"> & { displayName?: string | null }
+): boolean {
+  const blob = `${charger.type} ${charger.name} ${charger.displayName ?? ""} ${charger.chargePointId}`.toLowerCase();
   return /(^|[^a-z])dc([^a-z]|$)/.test(blob) || blob.includes("fast");
 }
 
-export function chargerKindLabel(charger: Pick<Charger, "type" | "name" | "chargePointId">): "AC" | "DC" {
+export function chargerKindLabel(
+  charger: Pick<Charger, "type" | "name" | "chargePointId"> & { displayName?: string | null }
+): "AC" | "DC" {
   return isDcCharger(charger) ? "DC" : "AC";
 }
 
 /** Plug type rule: AC → Type-2, DC → CCS-2 */
-export function plugTypeForCharger(charger: Pick<Charger, "type" | "name" | "chargePointId">): string {
+export function plugTypeForCharger(
+  charger: Pick<Charger, "type" | "name" | "chargePointId">
+): string {
   return isDcCharger(charger) ? "CCS-2" : "Type-2";
 }
 
@@ -44,7 +78,7 @@ export function isVisibleFleetCharger(charger: Charger): boolean {
   return true;
 }
 
-/** Sort within a site: AC then DC, then charge_point_id numeric-aware. */
+/** Sort for stable lists: AC then DC, then charge_point_id. */
 export function sortChargersForDisplay(chargers: Charger[]): Charger[] {
   return [...chargers].sort((a, b) => {
     const kindA = chargerKindLabel(a);
@@ -57,85 +91,29 @@ export function sortChargersForDisplay(chargers: Charger[]): Charger[] {
   });
 }
 
-/**
- * Site-scoped AC/DC numbering.
- * Numbers restart per location and per kind (AC vs DC).
- * Only counts chargers passed in (already filtered to visible fleet).
- */
-export function buildChargerDisplayIndexMap(chargers: Charger[]): Map<string, number> {
-  const map = new Map<string, number>();
-  const bySite = new Map<string, Charger[]>();
-
-  for (const c of chargers) {
-    const site = normalizeLocationKey(c.location) || "__default__";
-    const list = bySite.get(site) ?? [];
-    list.push(c);
-    bySite.set(site, list);
-  }
-
-  for (const list of bySite.values()) {
-    const sorted = sortChargersForDisplay(list);
-    let ac = 0;
-    let dc = 0;
-    for (const c of sorted) {
-      if (isDcCharger(c)) {
-        dc += 1;
-        map.set(c.id, dc);
-      } else {
-        ac += 1;
-        map.set(c.id, ac);
-      }
-    }
-  }
-
-  return map;
-}
-
-/**
- * Display name like "DFCCIL AC Charger - 1".
- * Prefer site-scoped index from buildChargerDisplayIndexMap — never invent numbers
- * from global array length of unfiltered data.
- */
-export function dfccilChargerDisplayName(
-  charger: Pick<Charger, "name" | "type" | "chargePointId">,
-  indexAmongKind?: number
-): string {
-  const kind = chargerKindLabel(charger);
-  if (indexAmongKind != null && indexAmongKind > 0) {
-    return `DFCCIL ${kind} Charger - ${indexAmongKind}`;
-  }
-
-  const name = String(charger.name || "").trim();
-  if (/^dfccil\s+(ac|dc)\s+charger\s*-\s*\d+/i.test(name)) {
-    return name.replace(/\s+/g, " ");
-  }
-
-  const n = extractTrailingNumber(charger.chargePointId) ?? extractTrailingNumber(name) ?? 1;
-  return `DFCCIL ${kind} Charger - ${n}`;
-}
-
-function extractTrailingNumber(value: string): number | null {
-  const m = String(value || "").match(/(\d+)\s*$/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 export function formatPowerLine(
   charger: Pick<Charger, "type" | "name" | "chargePointId" | "maxPowerKw">
 ): string {
   const kind = chargerKindLabel(charger);
   const kw = Number(charger.maxPowerKw);
-  const power = Number.isFinite(kw) && kw > 0 ? kw : kind === "DC" ? 60 : 7.4;
-  const display = Number.isInteger(power) ? String(power) : power.toFixed(1);
-  return `${kind} | ${display} kW`;
+  if (Number.isFinite(kw) && kw > 0) {
+    const display = Number.isInteger(kw) ? String(kw) : kw.toFixed(1);
+    return `${kind} | ${display} kW`;
+  }
+  return kind;
 }
 
-export function formatUptoPowerKw(kw: number | null | undefined, fallback: number): string {
+export function formatUptoPowerKw(kw: number | null | undefined, fallback?: number): string {
   const n = Number(kw);
-  const value = Number.isFinite(n) && n > 0 ? n : fallback;
-  const display = Number.isInteger(value) ? String(value) : value.toFixed(1);
-  return `Upto ${display} kW`;
+  if (Number.isFinite(n) && n > 0) {
+    const display = Number.isInteger(n) ? String(n) : n.toFixed(1);
+    return `Upto ${display} kW`;
+  }
+  if (fallback != null && Number.isFinite(fallback) && fallback > 0) {
+    const display = Number.isInteger(fallback) ? String(fallback) : fallback.toFixed(1);
+    return `Upto ${display} kW`;
+  }
+  return "Upto — kW";
 }
 
 export function formatLastUsed(lastHeartbeat?: string | null): string {
@@ -178,43 +156,33 @@ export function connectorStatusLabel(
   return status!.charAt(0).toUpperCase() + status!.slice(1);
 }
 
-/** Default display tariffs when live tariff not loaded yet (UI only). */
-export const DEFAULT_DISPLAY_RATE_AC = 14.49;
-export const DEFAULT_DISPLAY_RATE_DC = 21.99;
-
-export function defaultDisplayRate(charger: Pick<Charger, "type" | "name" | "chargePointId">): number {
-  return isDcCharger(charger) ? DEFAULT_DISPLAY_RATE_DC : DEFAULT_DISPLAY_RATE_AC;
-}
-
 export function stationTitleFromChargers(chargers: Charger[]): string {
-  if (chargers.length === 0) return "DFCCIL Charging Station";
+  if (chargers.length === 0) return "Charging Station";
   const loc = String(chargers[0].location || "").trim();
   if (loc) return loc;
-  return "DFCCIL Charging Station";
+  return "Charging Station";
 }
 
-export function logChargerNumbering(chargers: Charger[], indexMap: Map<string, number>): void {
-  console.log(
-    "[charger-numbering]",
-    chargers.map((c) => ({
-      id: c.id,
-      chargePointId: c.chargePointId,
-      chargerType: c.type,
-      isSimulated: c.isSimulated,
-      status: c.status,
-      location: c.location,
-      displayIndex: indexMap.get(c.id) ?? null,
-      displayName: dfccilChargerDisplayName(c, indexMap.get(c.id)),
-    }))
-  );
+export function logChargerFilter(chargers: Charger[], visible: Charger[]): void {
+  if (typeof __DEV__ !== "undefined" && !__DEV__) return;
+  const simulatedHidden = chargers.filter((c) => c.isSimulated && !isSimulationEnabled()).length;
+  const decommissionedHidden = chargers.filter(
+    (c) => String(c.status || "").toLowerCase() === "decommissioned"
+  ).length;
+  console.log("[charger-filter]", {
+    total: chargers.length,
+    visible: visible.length,
+    acVisible: visible.filter((c) => !isDcCharger(c)).length,
+    dcVisible: visible.filter((c) => isDcCharger(c)).length,
+    simulatedHidden,
+    decommissionedHidden,
+  });
 }
 
 export function summarizeVisibleChargers(chargers: Charger[]): {
   totalActive: number;
   activeAc: number;
   activeDc: number;
-  simulatedHiddenHint: number;
-  decommissionedHint: number;
   missingCoordinates: number;
 } {
   const visible = chargers.filter(isVisibleFleetCharger);
@@ -222,10 +190,6 @@ export function summarizeVisibleChargers(chargers: Charger[]): {
     totalActive: visible.length,
     activeAc: visible.filter((c) => !isDcCharger(c)).length,
     activeDc: visible.filter((c) => isDcCharger(c)).length,
-    simulatedHiddenHint: chargers.filter((c) => c.isSimulated).length,
-    decommissionedHint: chargers.filter(
-      (c) => String(c.status || "").toLowerCase() === "decommissioned"
-    ).length,
     missingCoordinates: visible.filter((c) => c.latitude == null || c.longitude == null).length,
   };
 }

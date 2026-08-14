@@ -2,9 +2,9 @@ import { Text, View, StyleSheet } from "react-native";
 import type { Charger, ChargerConnector } from "../types";
 import StationConnectorCard from "./StationConnectorCard";
 import {
-  dfccilChargerDisplayName,
   formatLastUsed,
   formatPowerLine,
+  getChargerDisplayName,
 } from "../utils/dfccilDisplay";
 import { formatCurrency } from "../utils/format";
 import { colors } from "../theme/colors";
@@ -12,7 +12,6 @@ import { spacing } from "../theme/spacing";
 
 type Props = {
   charger: Charger;
-  displayIndex?: number;
   ratePerKwh: number;
   selectedConnectorId?: string | null;
   busyConnectorIds?: Set<number>;
@@ -21,13 +20,12 @@ type Props = {
 
 export default function StationChargerBlock({
   charger,
-  displayIndex,
   ratePerKwh,
   selectedConnectorId,
   busyConnectorIds,
   onSelectConnector,
 }: Props) {
-  const name = dfccilChargerDisplayName(charger, displayIndex);
+  const name = getChargerDisplayName(charger);
   const connectors = [...charger.connectors].sort((a, b) => a.connectorId - b.connectorId);
 
   return (

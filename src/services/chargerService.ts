@@ -38,7 +38,9 @@ async function fetchChargersRaw(query: ChargersQuery = {}): Promise<Charger[]> {
 
   const s = search.trim();
   if (s) {
-    q = q.or(`name.ilike.%${s}%,charge_point_id.ilike.%${s}%,location.ilike.%${s}%`);
+    q = q.or(
+      `name.ilike.%${s}%,display_name.ilike.%${s}%,charge_point_id.ilike.%${s}%,location.ilike.%${s}%`
+    );
   }
 
   const { data, error } = await q;
@@ -71,6 +73,7 @@ export async function getChargers(query: ChargersQuery = {}): Promise<Charger[]>
 export interface ChargerInput {
   chargePointId: string;
   name: string;
+  displayName?: string | null;
   manufacturer: string;
   model?: string;
   serialNumber?: string;
@@ -84,6 +87,7 @@ export interface ChargerInput {
 
 export interface ChargerUpdateInput {
   name: string;
+  displayName?: string | null;
   manufacturer: string;
   model?: string;
   serialNumber?: string;
@@ -119,25 +123,38 @@ export async function createCharger(input: ChargerInput): Promise<Charger> {
   const serialNumber = input.serialNumber?.trim() || "";
   const firmwareVersion = input.firmwareVersion?.trim() || "v1.0.0";
 
-  const { data: chargerRow, error: chargerError } = await requireSupabase()
+  const baseRow = {
+    charge_point_id: chargePointId,
+    name: input.name.trim(),
+    manufacturer: input.manufacturer,
+    model,
+    serial_number: serialNumber || null,
+    firmware_version: firmwareVersion,
+    charger_type: input.chargerType,
+    max_power_kw: input.maxPowerKw,
+    status: "offline",
+    location: input.location.trim(),
+    tariff_id: input.tariffId || null,
+    is_simulated: false,
+    allow_admin_bypass: input.allowAdminBypass !== false,
+  };
+
+  let { data: chargerRow, error: chargerError } = await requireSupabase()
     .from("EV_Chargers")
     .insert({
-      charge_point_id: chargePointId,
-      name: input.name.trim(),
-      manufacturer: input.manufacturer,
-      model,
-      serial_number: serialNumber || null,
-      firmware_version: firmwareVersion,
-      charger_type: input.chargerType,
-      max_power_kw: input.maxPowerKw,
-      status: "offline",
-      location: input.location.trim(),
-      tariff_id: input.tariffId || null,
-      is_simulated: false,
-      allow_admin_bypass: input.allowAdminBypass !== false,
+      ...baseRow,
+      display_name: input.displayName?.trim() || null,
     })
     .select("*")
     .single();
+
+  if (chargerError && /display_name/i.test(chargerError.message)) {
+    ({ data: chargerRow, error: chargerError } = await requireSupabase()
+      .from("EV_Chargers")
+      .insert(baseRow)
+      .select("*")
+      .single());
+  }
 
   if (chargerError) {
     if (chargerError.code === "23505") {
@@ -191,24 +208,37 @@ export async function updateCharger(id: string, input: ChargerUpdateInput): Prom
     throw new Error("Cannot change charger type while a connector is charging");
   }
 
-  const { data: chargerRow, error: chargerError } = await requireSupabase()
+  const updatePayload: Record<string, unknown> = {
+    name: input.name.trim(),
+    display_name: input.displayName?.trim() || null,
+    manufacturer: input.manufacturer,
+    model,
+    serial_number: serialNumber || null,
+    firmware_version: firmwareVersion,
+    charger_type: input.chargerType,
+    max_power_kw: input.maxPowerKw,
+    location: input.location.trim(),
+    tariff_id: input.tariffId || null,
+    allow_admin_bypass: input.allowAdminBypass !== false,
+    updated_at: new Date().toISOString(),
+  };
+
+  let { data: chargerRow, error: chargerError } = await requireSupabase()
     .from("EV_Chargers")
-    .update({
-      name: input.name.trim(),
-      manufacturer: input.manufacturer,
-      model,
-      serial_number: serialNumber || null,
-      firmware_version: firmwareVersion,
-      charger_type: input.chargerType,
-      max_power_kw: input.maxPowerKw,
-      location: input.location.trim(),
-      tariff_id: input.tariffId || null,
-      allow_admin_bypass: input.allowAdminBypass !== false,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", id)
     .select("*")
     .single();
+
+  if (chargerError && /display_name/i.test(chargerError.message)) {
+    const { display_name: _omit, ...withoutDisplay } = updatePayload;
+    ({ data: chargerRow, error: chargerError } = await requireSupabase()
+      .from("EV_Chargers")
+      .update(withoutDisplay)
+      .eq("id", id)
+      .select("*")
+      .single());
+  }
 
   if (chargerError) throw chargerError;
 

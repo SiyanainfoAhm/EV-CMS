@@ -172,6 +172,8 @@ export function validateProfileForm(data: ProfileFormFields): Partial<Record<key
 export interface ChargerFormFields {
   chargePointId: string;
   name: string;
+  /** Optional public label stored in display_name; leave blank to use name. */
+  displayName: string;
   manufacturer: string;
   model: string;
   serialNumber: string;

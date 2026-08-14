@@ -24,9 +24,7 @@ import { isMobileEndUser } from "../utils/rfpRoles";
 import { showChargingErrorAlert } from "../utils/chargingErrors";
 import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime";
 import {
-  buildChargerDisplayIndexMap,
-  defaultDisplayRate,
-  dfccilChargerDisplayName,
+  getChargerDisplayName,
   isVisibleFleetCharger,
 } from "../utils/dfccilDisplay";
 import type { Charger, ChargerConnector } from "../types";
@@ -35,6 +33,8 @@ import { spacing } from "../theme/spacing";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ChargerDetail">;
 type DetailTab = "connectors" | "details";
+
+const DEFAULT_FALLBACK_RATE = 14.49;
 
 /**
  * Connector selection for ONE selected charger.
@@ -47,7 +47,6 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
   const chargerId = route.params.id;
 
   const [charger, setCharger] = useState<Charger | undefined>();
-  const [displayIndex, setDisplayIndex] = useState<number | undefined>();
   const [ratePerKwh, setRatePerKwh] = useState(DEFAULT_FALLBACK_RATE);
   const [busyConnectors, setBusyConnectors] = useState<Set<number>>(new Set());
   const [selectedConnector, setSelectedConnector] = useState<ChargerConnector | null>(null);
@@ -68,12 +67,6 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
         return;
       }
 
-      // Site-scoped display number (same rules as list) — still only render THIS charger.
-      const all = await chargerService.fetchChargers();
-      const visible = all.filter(isVisibleFleetCharger);
-      const indexMap = buildChargerDisplayIndexMap(visible);
-      setDisplayIndex(indexMap.get(primary.id));
-
       setCharger(primary);
       const busyIds = await chargerService.getBusyConnectorIds(primary.id);
       setBusyConnectors(busyIds);
@@ -82,7 +75,7 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
         const tariff = await tariffService.getTariffForCharger(primary);
         setRatePerKwh(tariff.ratePerKwh);
       } catch {
-        setRatePerKwh(defaultDisplayRate(primary));
+        setRatePerKwh(DEFAULT_FALLBACK_RATE);
       }
 
       setSelectedConnector((prev) => {
@@ -110,8 +103,8 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
 
   const title = useMemo(() => {
     if (!charger) return t("charger.detailTitle");
-    return dfccilChargerDisplayName(charger, displayIndex);
-  }, [charger, displayIndex, t]);
+    return getChargerDisplayName(charger);
+  }, [charger, t]);
 
   const openSessionLimitPrompt = () => {
     if (!charger || !selectedConnector) {
@@ -243,7 +236,6 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
             {tab === "connectors" ? (
               <StationChargerBlock
                 charger={charger}
-                displayIndex={displayIndex}
                 ratePerKwh={ratePerKwh}
                 selectedConnectorId={selectedConnector?.id}
                 busyConnectorIds={busyConnectors}
@@ -297,8 +289,6 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
     </View>
   );
 }
-
-const DEFAULT_FALLBACK_RATE = 14.49;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
