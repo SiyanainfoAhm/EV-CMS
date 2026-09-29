@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { AuthSession, AuthUser, LoginCredentials, UserRole } from "@/types/auth";
+import type { AuthSession, AuthUser, UserRole } from "@/types/auth";
 import * as authService from "@/services/authService";
 import * as profileService from "@/services/profileService";
 
@@ -8,7 +8,7 @@ interface AuthContextValue {
   session: AuthSession | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>;
+  adoptSession: (session: AuthSession) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateSessionUser: (user: AuthUser) => void;
@@ -46,13 +46,8 @@ export function useAuthState(): AuthContextValue {
     }
   }, []);
 
-  const login = useCallback(async (credentials: LoginCredentials) => {
-    const result = await authService.login(credentials);
-    if (result.success && result.session) {
-      setSession(result.session);
-      return { success: true };
-    }
-    return { success: false, error: result.error };
+  const adoptSession = useCallback((next: AuthSession) => {
+    setSession(next);
   }, []);
 
   const logout = useCallback(async () => {
@@ -96,12 +91,12 @@ export function useAuthState(): AuthContextValue {
       session,
       isAuthenticated: !!session && authService.validateToken(session.token),
       isLoading,
-      login,
+      adoptSession,
       logout,
       refreshUser,
       updateSessionUser,
       hasRole,
     }),
-    [session, isLoading, login, logout, refreshUser, updateSessionUser, hasRole]
+    [session, isLoading, adoptSession, logout, refreshUser, updateSessionUser, hasRole]
   );
 }

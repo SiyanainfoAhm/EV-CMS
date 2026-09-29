@@ -19,6 +19,8 @@ export interface AuthSession {
   token: string;
   user: AuthUser;
   expiresAt: string;
+  /** DFCCIL SSO ID token. A session is valid only while this token is present and unexpired. */
+  idToken: string;
 }
 
 export interface LoginCredentials {
