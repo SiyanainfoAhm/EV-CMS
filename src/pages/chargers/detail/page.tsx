@@ -75,7 +75,7 @@ async function pollOcppSessionStarted(
 export default function ChargerDetailPage() {
   const { formatEnergy } = useUserPreferences();
   const { user, hasRole } = useAuth();
-  const isWebAdmin = hasRole(["SuperAdmin", "SiteAdmin"]);
+  const isWebAdmin = hasRole(["SuperAdmin"]);
   const webAdminStartDisabledMessage =
     "Web admin start is disabled for this charger. Enable Allow Web Admin Start / Stop from Edit Charger.";
   const { id } = useParams<{ id: string }>();

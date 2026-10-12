@@ -37,6 +37,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   }
 
   if (user && !canAccessWebAdmin(user.role)) {
+    authService.clearSession();
     return <Navigate to="/login" state={{ webAccessDenied: true }} replace />;
   }
 

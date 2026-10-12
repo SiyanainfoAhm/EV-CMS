@@ -99,5 +99,22 @@ export default defineConfig({
   server: {
     port: 3000,
     host: "0.0.0.0",
+    proxy: {
+      "/api/oidc-token": {
+        target: process.env.VITE_OIDC_ISSUER || "https://app2.dfccil.com",
+        changeOrigin: true,
+        rewrite: () => "/connect/token",
+      },
+      "/api/oidc-userinfo": {
+        target: process.env.VITE_OIDC_ISSUER || "https://app2.dfccil.com",
+        changeOrigin: true,
+        rewrite: () => "/connect/userinfo",
+      },
+      "/api/oidc-jwks": {
+        target: process.env.VITE_OIDC_ISSUER || "https://app2.dfccil.com",
+        changeOrigin: true,
+        rewrite: () => "/.well-known/openid-configuration/jwks",
+      },
+    },
   },
 });

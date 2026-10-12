@@ -35,7 +35,7 @@ export function useAdminOperationalAlertEmail(): void {
 
   useEffect(() => {
     if (!user?.id || !user.email) return;
-    if (user.role !== "SuperAdmin" && user.role !== "SiteAdmin") return;
+    if (user.role !== "SuperAdmin") return;
     if (!supabase) return;
 
     const channel = supabase

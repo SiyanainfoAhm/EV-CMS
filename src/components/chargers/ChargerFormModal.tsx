@@ -311,7 +311,7 @@ export function ChargerFormModal({
                     Allow Web Admin Start / Stop
                   </span>
                   <span className="block text-xs text-gray-600 mt-0.5">
-                    Allows SuperAdmin/SiteAdmin to start or stop this charger from the web panel
+                    Allows SuperAdmin to start or stop this charger from the web panel
                     using ADMIN-BYPASS. Mobile users and RFID charging are unaffected.
                   </span>
                 </span>

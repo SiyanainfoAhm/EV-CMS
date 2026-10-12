@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS "EV_UserRoles" (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE "EV_UserRoles" IS 'Admin web: role definitions (SuperAdmin, SiteAdmin, Operator, Viewer)';
+COMMENT ON TABLE "EV_UserRoles" IS 'Application roles: SuperAdmin and User';
 
 CREATE TABLE IF NOT EXISTS "EV_Users" (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -37,13 +37,13 @@ CREATE TABLE IF NOT EXISTS "EV_Users" (
   salt TEXT NOT NULL,
   full_name TEXT NOT NULL,
   phone TEXT,
-  role TEXT NOT NULL DEFAULT 'Operator',
+  role TEXT NOT NULL DEFAULT 'User',
   status TEXT NOT NULL DEFAULT 'active',
   department TEXT,
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT ev_users_role_check CHECK (role IN ('SuperAdmin', 'SiteAdmin', 'Operator', 'Viewer')),
+  CONSTRAINT ev_users_role_check CHECK (role IN ('SuperAdmin', 'User')),
   CONSTRAINT ev_users_status_check CHECK (status IN ('active', 'inactive', 'suspended'))
 );
 

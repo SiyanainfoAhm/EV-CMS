@@ -4,7 +4,7 @@ import { normalizeRfpRole } from "@/utils/rfpRoles";
 import { mapUser, mapUiRoleToDb } from "@/utils/supabaseMappers";
 
 export interface UsersQuery {
-  role?: string; // Admin | Operator | Viewer | all
+  role?: string; // SuperAdmin | User | all
   status?: string; // active | inactive | all
   search?: string; // name/email/department
   limit?: number;

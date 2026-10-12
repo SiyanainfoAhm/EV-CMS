@@ -22,12 +22,7 @@ export default function AdminLayout() {
   const currentPath = location.pathname;
   const displayName = user?.name ?? "User";
   const displayEmail = user?.email ?? "";
-  const displayRole =
-    user?.role === "SuperAdmin"
-      ? "Super Admin"
-      : user?.role === "SiteAdmin"
-        ? "Site Admin"
-        : normalizeRfpRole(user?.role ?? "User");
+  const displayRole = user?.role === "SuperAdmin" ? "Super Admin" : normalizeRfpRole(user?.role ?? "User");
   const navItems = user ? getWebNavItemsForRole(user.role) : [];
   const avatarUrl = user?.avatarUrl;
   const initials = displayName
@@ -53,7 +48,7 @@ export default function AdminLayout() {
       stopSimulatorRuntime();
       return;
     }
-    if (user?.role === "SuperAdmin" || user?.role === "SiteAdmin") {
+    if (user?.role === "SuperAdmin") {
       startSimulatorRuntime();
     }
   }, [user?.role]);

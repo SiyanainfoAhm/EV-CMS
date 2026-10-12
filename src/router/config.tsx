@@ -1,6 +1,7 @@
 import type { RouteObject } from "react-router-dom";
 import NotFound from "../pages/NotFound";
 import LoginPage from "../pages/login/page";
+import SignInOidcPage from "../pages/login/SignInOidcPage";
 import RootRedirect from "../pages/login/RootRedirect";
 import AdminLayout from "../components/feature/AdminLayout";
 import ProtectedRoute from "@/app/ProtectedRoute";
@@ -29,6 +30,10 @@ const routes: RouteObject[] = [
   {
     path: "/login",
     element: <LoginPage />,
+  },
+  {
+    path: "/signin-oidc",
+    element: <SignInOidcPage />,
   },
   {
     path: "/",

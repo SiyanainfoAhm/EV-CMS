@@ -53,7 +53,6 @@ export function validateName(name: string): ValidationResult {
   if (!trimmed) return "Full name is required";
   if (trimmed.length < NAME_MIN) return `Name must be at least ${NAME_MIN} characters`;
   if (trimmed.length > NAME_MAX) return `Name must be under ${NAME_MAX} characters`;
-  if (!/^[a-zA-Z\u00C0-\u024F\s.'-]+$/.test(trimmed)) return "Name contains invalid characters";
   return null;
 }
 

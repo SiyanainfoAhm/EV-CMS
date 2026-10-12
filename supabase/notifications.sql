@@ -44,7 +44,7 @@ DECLARE r RECORD;
 BEGIN
   FOR r IN
     SELECT id FROM "EV_Users"
-    WHERE status = 'active' AND role IN ('SuperAdmin', 'SiteAdmin')
+    WHERE status = 'active' AND role = 'SuperAdmin'
   LOOP
     PERFORM ev_notify_user(r.id, p_title, p_message, p_type);
     n := n + 1;

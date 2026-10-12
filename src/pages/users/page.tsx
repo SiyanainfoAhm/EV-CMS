@@ -144,7 +144,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             User Management
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage DFCCIL accounts — RFP roles: User (mobile), Site Admin, Super Admin</p>
+          <p className="text-sm text-gray-500 mt-1">Manage DFCCIL accounts — roles: User (mobile) and Super Admin (web)</p>
         </div>
         <button
           onClick={openAddModal}
@@ -178,7 +178,6 @@ export default function UsersPage() {
               >
                 <option value="all">All Roles</option>
                 <option value="User">User</option>
-                <option value="SiteAdmin">Site Admin</option>
                 <option value="SuperAdmin">Super Admin</option>
               </select>
               <select
@@ -225,7 +224,7 @@ export default function UsersPage() {
                   </td>
                   <td className="px-5 py-3.5">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      user.role === "SuperAdmin" ? "bg-rose-100 text-rose-700" : user.role === "SiteAdmin" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                      user.role === "SuperAdmin" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
                     }`}>
                       {user.role}
                     </span>

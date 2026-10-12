@@ -12,6 +12,9 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MEASUREMENT_ID?: string;
   /** Web push (FCM) — Firebase Console → Project settings → Cloud Messaging → Web Push certificates */
   readonly VITE_FIREBASE_VAPID_KEY?: string;
+  readonly VITE_OIDC_ISSUER?: string;
+  readonly VITE_OIDC_CLIENT_ID?: string;
+  readonly VITE_OIDC_SCOPE?: string;
 }
 
 interface ImportMeta {

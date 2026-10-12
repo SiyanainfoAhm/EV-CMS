@@ -1,19 +1,17 @@
 -- RFP role alignment (run after schema.sql, before or with seed.sql)
--- RFP roles: SuperAdmin, SiteAdmin, User
--- DB stores User as Operator (legacy) or User when constraint allows.
+-- Application roles: SuperAdmin and User
+-- Database stores only SuperAdmin and User.
 
 ALTER TABLE "EV_Users" DROP CONSTRAINT IF EXISTS ev_users_role_check;
 
 ALTER TABLE "EV_Users"
   ADD CONSTRAINT ev_users_role_check
-  CHECK (role IN ('SuperAdmin', 'SiteAdmin', 'User', 'Operator', 'Viewer'));
+  CHECK (role IN ('SuperAdmin', 'User'));
 
-COMMENT ON TABLE "EV_UserRoles" IS 'RFP: SuperAdmin, SiteAdmin, User (+ legacy Operator/Viewer)';
+COMMENT ON TABLE "EV_UserRoles" IS 'Application roles: SuperAdmin and User';
 
 INSERT INTO "EV_UserRoles" (code, name, description) VALUES
   ('User', 'User', 'Mobile app — charge, sessions, RFID, payments'),
-  ('Operator', 'User (legacy)', 'Legacy DB value; maps to RFP User in apps'),
-  ('Viewer', 'User (legacy read-only)', 'Legacy DB value; maps to RFP User in apps')
 ON CONFLICT (code) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description;
@@ -36,9 +34,7 @@ DECLARE
 BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
-    WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
-    ELSE 'Operator'
+    ELSE 'User'
   END;
 
   INSERT INTO "EV_Users" (email, password_hash, salt, full_name, role, department, status)
@@ -74,9 +70,7 @@ DECLARE
 BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
-    WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
-    ELSE 'Operator'
+    ELSE 'User'
   END;
 
   UPDATE "EV_Users"
