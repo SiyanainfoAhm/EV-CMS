@@ -1,5 +1,5 @@
-/** RFP roles; legacy DB values Operator/Viewer map to User in app layer. */
-export type UserRole = "SuperAdmin" | "SiteAdmin" | "User";
+/** Application roles persisted by EV-CMS. */
+export type UserRole = "SuperAdmin" | "User";
 
 export type UserStatus = "active" | "inactive" | "suspended";
 

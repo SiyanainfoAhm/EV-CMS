@@ -83,12 +83,21 @@ export function establishSsoSession(user: AuthUser, idToken: string, expiresAt: 
   return { success: true, session };
 }
 
-export async function logout(): Promise<void> {
+export async function logout(): Promise<boolean> {
   const idToken = canUseStorage() ? localStorage.getItem(ID_TOKEN_KEY) : null;
   const expiresAt = canUseStorage() ? localStorage.getItem(EXPIRES_STORAGE_KEY) : null;
   const canEndSession = !!idToken && !isSessionExpired(expiresAt);
   clearSession();
-  if (canEndSession) redirectToSsoLogout(idToken);
+  try {
+    sessionStorage.clear();
+  } catch {
+    /* ignore */
+  }
+  if (canEndSession) {
+    redirectToSsoLogout(idToken);
+    return true;
+  }
+  return false;
 }
 
 export function getCurrentUser(): AuthUser | null {

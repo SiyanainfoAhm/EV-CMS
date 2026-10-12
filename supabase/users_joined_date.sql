@@ -19,9 +19,7 @@ DECLARE
 BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
-    WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
-    ELSE 'Operator'
+    ELSE 'User'
   END;
 
   INSERT INTO "EV_Users" (email, password_hash, salt, full_name, role, department, status, created_at)
@@ -59,9 +57,7 @@ DECLARE
 BEGIN
   v_db_role := CASE
     WHEN p_role IN ('Admin', 'SuperAdmin') THEN 'SuperAdmin'
-    WHEN p_role = 'SiteAdmin' THEN 'SiteAdmin'
-    WHEN p_role IN ('User', 'Operator', 'Viewer') THEN 'Operator'
-    ELSE 'Operator'
+    ELSE 'User'
   END;
 
   UPDATE "EV_Users"

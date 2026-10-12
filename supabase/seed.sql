@@ -6,8 +6,7 @@
 -- RFP demo logins:
 --   Mobile User (+ RFID): rajesh.kumar@dfccil.gov.in | suresh.nair@dfccil.gov.in
 --   Web Super Admin:      anita.desai@dfccil.gov.in
---   Web Site Admin:       deepak.mehta@dfccil.gov.in
---   (DB role Operator/Viewer → app displays as User)
+--   (Regular users use the User role)
 
 -- Optional reset (dev only):
 -- TRUNCATE "EV_Payments", "EV_Receipts", "EV_MeterValues", "EV_ChargingSessions",
@@ -16,25 +15,22 @@
 
 INSERT INTO "EV_UserRoles" (code, name, description) VALUES
   ('SuperAdmin', 'Super Admin', 'RFP: full web admin access'),
-  ('SiteAdmin', 'Site Admin', 'RFP: site-level web admin'),
   ('User', 'User', 'RFP: mobile charging app'),
-  ('Operator', 'User (legacy)', 'Legacy DB value; maps to RFP User'),
-  ('Viewer', 'User (legacy)', 'Legacy DB value; maps to RFP User')
+  ('User', 'User', 'Regular mobile application user')
 ON CONFLICT (code) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description;
 
 INSERT INTO "EV_Users" (id, email, password_hash, salt, full_name, role, status, department, last_login_at, created_at) VALUES
-  ('a0000001-0000-4000-8000-000000000001', 'rajesh.kumar@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Rajesh Kumar', 'Operator', 'active', 'Operations', '2026-06-01 07:30:00+00', '2026-01-15'),
-  ('a0000001-0000-4000-8000-000000000002', 'amit.sharma@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Amit Sharma', 'Operator', 'active', 'Operations', '2026-06-01 08:05:00+00', '2026-02-01'),
-  ('a0000001-0000-4000-8000-000000000003', 'priya.singh@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Priya Singh', 'Operator', 'active', 'Logistics', '2026-06-01 07:45:00+00', '2026-01-20'),
-  ('a0000001-0000-4000-8000-000000000004', 'sunil.verma@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Sunil Verma', 'Operator', 'active', 'Logistics', '2026-06-01 08:10:00+00', '2026-03-10'),
-  ('a0000001-0000-4000-8000-000000000005', 'vikram.patel@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Vikram Patel', 'Operator', 'active', 'Operations', '2026-06-01 08:30:00+00', '2026-02-15'),
+  ('a0000001-0000-4000-8000-000000000001', 'rajesh.kumar@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Rajesh Kumar', 'User', 'active', 'Operations', '2026-06-01 07:30:00+00', '2026-01-15'),
+  ('a0000001-0000-4000-8000-000000000002', 'amit.sharma@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Amit Sharma', 'User', 'active', 'Operations', '2026-06-01 08:05:00+00', '2026-02-01'),
+  ('a0000001-0000-4000-8000-000000000003', 'priya.singh@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Priya Singh', 'User', 'active', 'Logistics', '2026-06-01 07:45:00+00', '2026-01-20'),
+  ('a0000001-0000-4000-8000-000000000004', 'sunil.verma@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Sunil Verma', 'User', 'active', 'Logistics', '2026-06-01 08:10:00+00', '2026-03-10'),
+  ('a0000001-0000-4000-8000-000000000005', 'vikram.patel@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Vikram Patel', 'User', 'active', 'Operations', '2026-06-01 08:30:00+00', '2026-02-15'),
   ('a0000001-0000-4000-8000-000000000006', 'anita.desai@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Anita Desai', 'SuperAdmin', 'active', 'IT', '2026-06-01 08:00:00+00', '2025-12-01'),
-  ('a0000001-0000-4000-8000-000000000007', 'manoj.tiwari@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Manoj Tiwari', 'Viewer', 'active', 'Management', '2026-05-31 16:20:00+00', '2026-04-05'),
-  ('a0000001-0000-4000-8000-000000000008', 'kavita.reddy@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Kavita Reddy', 'Operator', 'inactive', 'Operations', '2026-05-16 14:00:00+00', '2026-03-20'),
-  ('a0000001-0000-4000-8000-000000000009', 'deepak.mehta@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Deepak Mehta', 'SiteAdmin', 'active', 'Operations', '2026-06-01 09:00:00+00', '2026-02-01'),
-  ('a0000001-0000-4000-8000-00000000000a', 'suresh.nair@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Suresh Nair', 'Operator', 'active', 'Logistics', '2026-06-01 08:45:00+00', '2026-03-01')
+  ('a0000001-0000-4000-8000-000000000007', 'manoj.tiwari@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Manoj Tiwari', 'User', 'active', 'Management', '2026-05-31 16:20:00+00', '2026-04-05'),
+  ('a0000001-0000-4000-8000-000000000008', 'kavita.reddy@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Kavita Reddy', 'User', 'inactive', 'Operations', '2026-05-16 14:00:00+00', '2026-03-20'),
+  ('a0000001-0000-4000-8000-00000000000a', 'suresh.nair@dfccil.gov.in', '58d127a9573f925e3066ae3b9381d88c2be6656ee5f371c61be99d405d1a98c4', 'ev_salt_2026', 'Suresh Nair', 'User', 'active', 'Logistics', '2026-06-01 08:45:00+00', '2026-03-01')
 ON CONFLICT (email) DO UPDATE SET
   password_hash = EXCLUDED.password_hash,
   salt = EXCLUDED.salt,

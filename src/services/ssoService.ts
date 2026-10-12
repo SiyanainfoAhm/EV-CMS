@@ -12,10 +12,19 @@ const NONCE_KEY = "ev_cms_sso_nonce";
 const REDIRECT_KEY = "ev_cms_sso_redirect";
 
 const AUTHORIZE_URL = `${ISSUER}/connect/authorize`;
-const TOKEN_URL = `${ISSUER}/connect/token`;
-const USERINFO_URL = `${ISSUER}/connect/userinfo`;
-const JWKS_URL = `${ISSUER}/.well-known/openid-configuration/jwks`;
+const TOKEN_URL = "/api/oidc-token";
+const USERINFO_URL = "/api/oidc-userinfo";
+const JWKS_URL = "/api/oidc-jwks";
 const END_SESSION_URL = `${ISSUER}/connect/endsession`;
+
+type SsoJsonWebKey = {
+  kty: string;
+  n: string;
+  e: string;
+  kid?: string;
+  alg?: string;
+  use?: string;
+};
 
 const inflightByCode = new Map<string, Promise<SsoLoginResult>>();
 
@@ -32,7 +41,7 @@ export function ssoRedirectUri(): string {
 }
 
 export function ssoPostLogoutUri(): string {
-  return window.location.origin;
+  return `${window.location.origin}/login`;
 }
 
 export async function startSsoLogin(): Promise<void> {
@@ -134,16 +143,14 @@ async function finishSsoLogin(params: URLSearchParams, code: string): Promise<Ss
   if (!employeeCode && tokenJson.access_token) {
     const info = await fetchUserInfo(tokenJson.access_token);
     employeeCode = employeeCodeFromClaims(info);
-    if (!claims.sub && typeof info.sub === "string") claims.sub = info.sub;
   }
 
-  if (!employeeCode) {
-    return { success: false, error: "SSO token did not include a UserId claim." };
-  }
+  const subject = typeof claims.sub === "string" ? claims.sub : "";
+  if (!subject) return { success: false, error: "SSO token did not include a stable subject." };
 
   const { data, error } = await requireSupabase().rpc("resolve_ev_user_for_sso", {
-    p_employee_code: employeeCode,
-    p_sso_sub: typeof claims.sub === "string" ? claims.sub : null,
+    p_sso_sub: subject,
+    p_employee_code: employeeCode || null,
   });
 
   if (error) {
@@ -151,17 +158,16 @@ async function finishSsoLogin(params: URLSearchParams, code: string): Promise<Ss
     return {
       success: false,
       error: missing
-        ? "SSO user lookup is not installed. Run supabase/sso_user_lookup.sql in the Supabase SQL Editor, then sign in again."
+        ? "SSO user lookup is not installed. Apply the SSO database migration, then sign in again."
         : error.message,
     };
   }
 
   const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
-  if (!row?.id) {
-    return { success: false, error: "User not registered in EV-CMS" };
-  }
+  if (!row?.id) return { success: false, error: "User not registered in EV-CMS" };
 
   const exp = Number(claims.exp);
+
   return {
     success: true,
     idToken: tokenJson.id_token,
@@ -202,13 +208,15 @@ async function verifyIdToken(idToken: string, nonce: string): Promise<Record<str
 
   const jwksRes = await fetch(JWKS_URL);
   if (!jwksRes.ok) throw new Error("Could not load the SSO signing keys.");
-  const jwks = (await jwksRes.json()) as { keys?: Array<JsonWebKey & { kid?: string }> };
+  const jwks = (await jwksRes.json()) as {
+    keys?: Array<{ kid?: string } & Record<string, unknown>>;
+  };
   const jwk = jwks.keys?.find((key) => key.kid === header.kid);
   if (!jwk) throw new Error("SSO signing key was not found.");
 
   const key = await crypto.subtle.importKey(
     "jwk",
-    jwk,
+    jwk as unknown as SsoJsonWebKey,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["verify"]

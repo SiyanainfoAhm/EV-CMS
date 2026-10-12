@@ -18,7 +18,6 @@ export const USER_DEPARTMENTS = ["Operations", "Logistics", "IT", "Management"] 
 
 export const USER_ROLE_OPTIONS = [
   { value: "User", label: "User (mobile app)" },
-  { value: "SiteAdmin", label: "Site Admin" },
   { value: "SuperAdmin", label: "Super Admin" },
 ] as const;
 
@@ -44,7 +43,7 @@ export function userToForm(user: User): UserFormFields {
   return {
     name: user.name,
     email: user.email,
-    role: user.role === "SuperAdmin" || user.role === "SiteAdmin" ? user.role : "User",
+    role: user.role === "SuperAdmin" ? user.role : "User",
     department: user.department ?? "Operations",
     joinedDate: user.joinedDate ?? todayIsoDate(),
     status: user.status === "inactive" ? "inactive" : "active",

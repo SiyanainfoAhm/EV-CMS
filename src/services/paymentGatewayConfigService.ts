@@ -35,7 +35,7 @@ export async function getActivePaymentGateway(): Promise<PaymentGatewayName> {
   return resolveActiveGateway(cfg);
 }
 
-/** SuperAdmin only — SiteAdmin must not call this. */
+/** SuperAdmin only. */
 export async function setPaymentGatewayTestingMode(
   adminUserId: string,
   testingMode: boolean

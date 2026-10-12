@@ -58,7 +58,7 @@ BEGIN
     FROM "EV_Users" u
     LEFT JOIN "EV_UserPreferences" up ON up.user_id = u.id
     WHERE u.status = 'active'
-      AND u.role IN ('SuperAdmin', 'SiteAdmin')
+      AND u.role = 'SuperAdmin'
   LOOP
     IF ev_notification_pref_enabled(r.notifications, p_category) THEN
       PERFORM ev_notify_user(r.id, p_title, p_message, COALESCE(NULLIF(trim(p_type), ''), 'info'));
@@ -81,7 +81,7 @@ BEGIN
   FROM "EV_Users" u
   LEFT JOIN "EV_UserPreferences" up ON up.user_id = u.id
   WHERE u.status = 'active'
-    AND u.role IN ('SuperAdmin', 'SiteAdmin')
+    AND u.role = 'SuperAdmin'
     AND ev_notification_pref_enabled(COALESCE(up.notifications, ev_default_notifications()), p_category);
 END;
 $$;

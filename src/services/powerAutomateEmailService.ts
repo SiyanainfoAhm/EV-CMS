@@ -102,7 +102,6 @@ async function sendBuiltEmail(
 
 function roleLabel(role: string): string {
   if (role === "SuperAdmin") return "Super Admin";
-  if (role === "SiteAdmin") return "Site Admin";
   return "Mobile user";
 }
 
