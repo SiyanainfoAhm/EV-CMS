@@ -74,7 +74,14 @@ export async function getTicketById(ticketId: string, userId?: string): Promise<
   if (!data) return null;
 
   const ticket = mapTicket(data as Record<string, unknown>);
-  if (ticket.attachments.length > 0) return ticket;
+  if (ticket.attachments.length > 0) {
+    const signed = await Promise.all(ticket.attachments.map(async attachment => {
+      const { data, error } = await requireSupabase().storage.from("ev-media").createSignedUrl(attachment.path, 300);
+      if (error || !data) throw error || new Error("Could not access attachment");
+      return { ...attachment, url: data.signedUrl };
+    }));
+    return { ...ticket, attachments: signed };
+  }
 
   try {
     const fromStorage = await mediaService.listSupportTicketAttachments(uid, ticketId);

@@ -1,6 +1,9 @@
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
+import DfccilPaymentScreen from "../screens/DfccilPaymentScreen";
+import PaymentReturnBridge from "../components/PaymentReturnBridge";
+import SsoUsersScreen from "../screens/SsoUsersScreen";
 import LoginScreen from "../screens/LoginScreen";
 import HomeScreen from "../screens/HomeScreen";
 import ChargerListScreen from "../screens/ChargerListScreen";
@@ -32,6 +35,7 @@ export type RootStackParamList = {
   SessionSummary: { sessionId: string; focusPayment?: boolean };
   SessionHistory: undefined;
   PaymentHistory: undefined;
+  DfccilPayment: { attemptId: string };
   SessionPaymentStatus: {
     sessionId: string;
     paymentId: string;
@@ -46,6 +50,7 @@ export type RootStackParamList = {
   };
   RFIDBinding: undefined;
   Profile: undefined;
+  SsoUsers: undefined;
   Support: undefined;
   SupportTickets: undefined;
   SupportTicketDetail: { id: string };
@@ -79,9 +84,11 @@ function MainStack() {
       <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
       <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
       <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+      <Stack.Screen name="DfccilPayment" component={DfccilPaymentScreen} />
       <Stack.Screen name="SessionPaymentStatus" component={SessionPaymentStatusScreen} />
       <Stack.Screen name="RFIDBinding" component={RFIDBindingScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="SsoUsers" component={SsoUsersScreen} />
       <Stack.Screen name="Support" component={SupportScreen} />
       <Stack.Screen name="SupportTickets" component={SupportTicketListScreen} />
       <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
@@ -106,6 +113,7 @@ export default function AppNavigator() {
       {isAuthenticated ? (
         <>
           <NotificationListenerBridge />
+          <PaymentReturnBridge />
           <MainStack key="main" />
         </>
       ) : (

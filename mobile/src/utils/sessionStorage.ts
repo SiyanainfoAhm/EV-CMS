@@ -39,6 +39,8 @@ export interface StoredSession {
   token: string;
   user: User;
   expiresAt: string;
+  providerLogoutUrl?: string;
+  providerLogoutRedirectUri?: string;
 }
 
 export async function loadStoredSession(): Promise<StoredSession | null> {

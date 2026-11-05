@@ -1,3 +1,4 @@
+import { dfccilPaymentsEnabled } from "../config/dfccilPaymentConfig";
 /**
  * Mobile-safe payment gateway config (no secrets).
  * Active gateway comes from EV_SystemConfig via RPC — not from .env alone.
@@ -5,7 +6,7 @@
 
 import { requireSupabase } from "../utils/supabaseClient";
 
-export type PaymentGatewayName = "razorpay" | "hdfc";
+export type PaymentGatewayName = "razorpay" | "hdfc" | "dfccil";
 
 export type PaymentGatewayPublicConfig = {
   testing_mode: boolean;
@@ -43,10 +44,13 @@ function parseConfig(raw: unknown): PaymentGatewayPublicConfig {
         : {};
 
   const testing_mode = obj.testing_mode !== false;
-  const test_gateway: PaymentGatewayName =
-    String(obj.test_gateway ?? "razorpay").toLowerCase() === "hdfc" ? "hdfc" : "razorpay";
-  const production_gateway: PaymentGatewayName =
-    String(obj.production_gateway ?? "hdfc").toLowerCase() === "razorpay" ? "razorpay" : "hdfc";
+  const provider = (value: unknown, fallback: PaymentGatewayName): PaymentGatewayName => {
+    const name = String(value ?? fallback).toLowerCase();
+    if (!["razorpay","hdfc","dfccil"].includes(name)) throw new Error("Unsupported payment provider");
+    return name as PaymentGatewayName;
+  };
+  const test_gateway = provider(obj.test_gateway,"razorpay");
+  const production_gateway = provider(obj.production_gateway,"hdfc");
   const active_gateway =
     (obj.active_gateway as PaymentGatewayName | undefined) ??
     (testing_mode ? test_gateway : production_gateway);
@@ -55,7 +59,7 @@ function parseConfig(raw: unknown): PaymentGatewayPublicConfig {
     testing_mode,
     test_gateway,
     production_gateway,
-    active_gateway: active_gateway === "hdfc" ? "hdfc" : "razorpay",
+    active_gateway: provider(active_gateway,"dfccil"),
     active_currency: String(obj.active_currency ?? "INR"),
     gst_enabled: obj.gst_enabled !== false,
   };
@@ -64,6 +68,7 @@ function parseConfig(raw: unknown): PaymentGatewayPublicConfig {
 export async function getPaymentGatewayConfig(
   forceRefresh = false
 ): Promise<PaymentGatewayPublicConfig> {
+  if (dfccilPaymentsEnabled) return { testing_mode: false, test_gateway: "dfccil", production_gateway: "dfccil", active_gateway: "dfccil", active_currency: "INR", gst_enabled: true };
   if (!forceRefresh && cached && Date.now() - cached.at < CACHE_MS) {
     return cached.config;
   }

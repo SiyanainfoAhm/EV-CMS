@@ -1,4 +1,25 @@
 export default {
+  dfccil: {
+  "billReady": "Charging is complete. Pay the final bill online when available, or contact the station operator.",
+  "title": "DFCCIL online payment",
+  "payNow": "Pay bill online",
+  "viewStatus": "View payment status",
+  "continue": "Continue to payment",
+  "refresh": "Refresh payment status",
+  "receipt": "Official payment receipt",
+  "backToBill": "Back to charging bill",
+  "order": "Gateway order",
+  "unavailable": "Online payments are not available yet. Please contact the station operator.",
+  "pendingHint": "Payment confirmation is pending. Check the status before making another payment.",
+  "status": {
+    "paid": "Payment verified",
+    "failed": "Payment request failed",
+    "cancelled": "Payment cancelled",
+    "pending_verification": "Awaiting payment verification",
+    "creation_pending": "Payment request awaiting confirmation",
+    "pending": "Payment not completed"
+  }
+},
   common: {
     login: "Login",
     logout: "Logout",
@@ -344,6 +365,10 @@ export default {
     ticketUpdate: "Support ticket updated",
   },
   status: {
+    paid_online: "Paid Online",
+    pending_verification: "Awaiting payment verification",
+    creation_pending: "Payment request awaiting confirmation",
+
     online: "Online",
     offline: "Offline",
     available: "Available",

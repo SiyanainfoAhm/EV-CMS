@@ -42,7 +42,7 @@ export function useDashboardData(range: DashboardRange | TimeRange = "today") {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [rangeKey]);
+  }, []);
 
   const refresh = useCallback(() => {
     void fetchData(false);
@@ -50,7 +50,7 @@ export function useDashboardData(range: DashboardRange | TimeRange = "today") {
 
   useEffect(() => {
     void fetchData(true);
-  }, [fetchData]);
+  }, [fetchData, rangeKey]);
 
   useSupabaseRealtime(refresh);
 

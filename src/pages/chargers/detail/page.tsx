@@ -105,7 +105,7 @@ export default function ChargerDetailPage() {
       return;
     }
     void tariffService.resolveTariffForCharger(charger).then(setEffectiveTariff);
-  }, [charger?.id, charger?.tariffId, charger?.type]);
+  }, [charger]);
 
   useEffect(() => {
     if (!charger?.chargePointId) return;

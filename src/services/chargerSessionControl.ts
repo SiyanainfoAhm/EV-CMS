@@ -37,7 +37,7 @@ export async function resolveUserIdForIdTag(idTag: string): Promise<string | nul
   return row?.user_id ?? null;
 }
 
-function useSimulatedSessions(params: {
+function shouldSimulateSessions(params: {
   useSimulation?: boolean;
   ocppConnected?: boolean;
   isSimulated?: boolean;
@@ -78,7 +78,7 @@ export async function startChargingSession(params: {
   const useBypass = Boolean(params.bypassRfid) && idTag.toUpperCase() === ADMIN_BYPASS_ID_TAG;
 
   if (
-    useSimulatedSessions({
+    shouldSimulateSessions({
       useSimulation: params.useSimulation,
       ocppConnected: params.ocppConnected,
       isSimulated: params.isSimulated,
@@ -152,7 +152,7 @@ export async function startAdminChargingSession(params: {
   }
 
   if (
-    !useSimulatedSessions({
+    !shouldSimulateSessions({
       ocppConnected: params.ocppConnected,
       isSimulated: params.isSimulated,
     })
@@ -182,7 +182,7 @@ export async function stopChargingSession(params: {
   isSimulated?: boolean;
 }): Promise<{ success: boolean; message: string; mode: SessionControlMode }> {
   if (
-    useSimulatedSessions({
+    shouldSimulateSessions({
       useSimulation: params.useSimulation,
       ocppConnected: params.ocppConnected,
       isSimulated: params.isSimulated,

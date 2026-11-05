@@ -1,0 +1,100 @@
+const fs = require("fs");
+const path = require("path");
+
+const googleServicesPath = path.join(__dirname, "google-services.json");
+const hasGoogleServices = fs.existsSync(googleServicesPath);
+
+/** @type {import('expo/config').ExpoConfig} */
+const expoConfig = {
+  name: "DFCCIL EV CMS",
+  slug: "ev-cms-mobile",
+  scheme: "in.dfccil.evcms",
+  owner: "siyanainfos-team",
+  version: "1.0.2",
+  orientation: "portrait",
+  icon: "./assets/icon.png",
+  userInterfaceStyle: "light",
+  splash: {
+    image: "./assets/splash-icon.png",
+    resizeMode: "contain",
+    backgroundColor: "#1a1a2e",
+  },
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: "in.dfccil.evcms",
+    infoPlist: {
+      NSCameraUsageDescription: "Camera is used to scan charger QR codes.",
+      NSPhotoLibraryUsageDescription:
+        "Photo library access is used to upload your profile picture.",
+      NSLocationWhenInUseUsageDescription:
+        "Location is used to find nearest chargers on the map.",
+      ITSAppUsesNonExemptEncryption: false,
+    },
+  },
+  android: {
+    package: "in.dfccil.evcms",
+    ...(hasGoogleServices
+      ? { googleServicesFile: "./google-services.json" }
+      : {}),
+    versionCode: 3,
+    adaptiveIcon: {
+      foregroundImage: "./assets/icon.png",
+      backgroundColor: "#1a1a2e",
+    },
+    permissions: [
+      "android.permission.CAMERA",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.RECORD_AUDIO",
+    ],
+    config: {
+      googleMaps: {
+        apiKey: "",
+      },
+    },
+  },
+  plugins: [
+    "expo-dev-client",
+    "expo-secure-store",
+    "expo-web-browser",
+    "expo-asset",
+    "expo-font",
+    [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Allow DFCCIL EV CMS to access your photos for profile pictures.",
+      },
+    ],
+    [
+      "expo-camera",
+      {
+        cameraPermission: "Allow DFCCIL EV CMS to scan charger QR codes.",
+      },
+    ],
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "Allow DFCCIL EV CMS to use your location to find nearest chargers.",
+      },
+    ],
+    [
+      "expo-notifications",
+      {
+        color: "#10b981",
+      },
+    ],
+    "expo-localization",
+    "expo-sharing",
+  ],
+  extra: {
+    eas: {
+      projectId: "0dee4cea-d793-45c3-89b7-37c62445324b",
+    },
+    enableChargingDebug: process.env.EXPO_PUBLIC_ENABLE_CHARGING_DEBUG === "true",
+  },
+};
+
+module.exports = { expo: expoConfig };

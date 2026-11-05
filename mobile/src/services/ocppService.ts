@@ -1,3 +1,5 @@
+import { ssoConfig } from "../config/ssoConfig";
+import { protectedRequest } from "../utils/ssoTransport";
 /** OCPP gateway REST client — same RemoteStart/Stop path as web admin. */
 
 const PRODUCTION_GATEWAY_URL = "https://ev-cms-ocpp-dfccil.fly.dev";
@@ -47,6 +49,14 @@ export class OcppGatewayError extends Error {
 }
 
 async function gatewayFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  if (ssoConfig.enabled) {
+    const response = await protectedRequest({ action: "gateway", operation: path === "/ocpp/remote-start" ? "start" : "stop", payload: JSON.parse(String(init?.body || "{}")) });
+    const result = await response.json();
+    if (!response.ok) throw new OcppGatewayError(result.error || "Charging request failed", response.status);
+    const payload = JSON.parse(result.body || "{}");
+    if (result.status < 200 || result.status >= 300) throw new OcppGatewayError(payload.error || "Gateway request failed", result.status);
+    return payload as T;
+  }
   const base = gatewayBaseUrl();
   if (!base) {
     throw new OcppGatewayError("OCPP gateway URL is not configured");

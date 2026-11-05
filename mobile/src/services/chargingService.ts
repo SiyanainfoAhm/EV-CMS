@@ -1,3 +1,5 @@
+import { ssoConfig } from "../config/ssoConfig";
+import { protectedRequest } from "../utils/ssoTransport";
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
 import * as rfidService from "./rfidService";
@@ -164,6 +166,12 @@ export async function applyPrepaidLimitsToLiveSession(
   options: StartChargingPrepaidOptions,
   paymentId?: string
 ): Promise<void> {
+  if (ssoConfig.enabled) {
+    const response = await protectedRequest({ action: "limits", sessionId, mode: options.prepaidMode, value: options.prepaidValue });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Could not save charging limits");
+    return;
+  }
   const o = options;
   const expiresAt =
     o.prepaidMode === "time" && o.prepaidDurationMinutes
@@ -479,6 +487,11 @@ export function buildPrepaidSessionOptions(
 
 /** After stop: set amount_due to actual final bill from energy + tariff snapshots. */
 export async function settleOfflineSessionBill(sessionId: string): Promise<void> {
+  if (ssoConfig.enabled) {
+    const { error } = await requireSupabase().rpc("ev_sync_session_payment_bill", { p_user_id: requireUserId(), p_session_id: sessionId });
+    if (error) throw error;
+    return;
+  }
   const { data, error } = await requireSupabase()
     .from("EV_ChargingSessions")
     .select(
@@ -534,6 +547,10 @@ export async function getActiveSession(userId?: string): Promise<ChargingSession
 }
 
 export function subscribeActiveSession(onUpdate: () => void): () => void {
+  if (ssoConfig.enabled) {
+    const interval = setInterval(onUpdate, 5000);
+    return () => clearInterval(interval);
+  }
   const channel = requireSupabase()
     .channel("mobile-active-session")
     .on(

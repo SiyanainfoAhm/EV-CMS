@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as tariffService from "@/services/tariffService";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import type { Tariff } from "@/types/ev";
@@ -24,17 +24,17 @@ export default function TariffsPage() {
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof TariffFormData, string>>>({});
   const [toast, setToast] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
 
-  const loadTariffs = () =>
-    tariffService.getTariffs().then(setTariffs).catch((e) => showToast(e instanceof Error ? e.message : "Failed to load tariffs"));
+  const loadTariffs = useCallback(() =>
+    tariffService.getTariffs().then(setTariffs).catch((e) => showToast(e instanceof Error ? e.message : "Failed to load tariffs")), [showToast]);
 
   useEffect(() => {
     loadTariffs();
-  }, []);
+  }, [loadTariffs]);
 
   const handleAdd = async () => {
     const errors = validateTariffForm(formData);

@@ -9,10 +9,11 @@ import i18n from "../i18n";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
+import { ssoConfig } from "../config/ssoConfig";
 
 export default function LoginScreen() {
   const { t } = useTranslation();
-  const { signIn, ready } = useAuth();
+  const { signIn, signInSso, ready } = useAuth();
   const [language, setLanguage] = useState<AppLanguage>((i18n.language as AppLanguage) || "en");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +27,17 @@ export default function LoginScreen() {
     setLoading(false);
     if (!result.success) {
       setError(result.error || t("auth.invalidUser"));
+    }
+  };
+
+  const handleSso = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await signInSso();
+      if (!result.success && !result.cancelled) setError(result.error || "DFCCIL sign-in failed.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -51,6 +63,16 @@ export default function LoginScreen() {
         <LanguageSwitcher value={language} onChange={setLanguage} />
         <Text style={styles.title}>{t("common.login")}</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {ssoConfig.enabled && Platform.OS !== "web" ? (
+          <AppButton
+            title={language === "hi" ? "DFCCIL से साइन इन करें" : "Sign in with DFCCIL"}
+            onPress={handleSso}
+            disabled={loading}
+            variant="outline"
+            style={{ marginBottom: spacing.md }}
+          />
+        ) : null}
+        {!ssoConfig.enabled ? <>
         <TextInput
           style={styles.input}
           placeholder={t("common.email")}
@@ -69,6 +91,7 @@ export default function LoginScreen() {
           onChangeText={setPassword}
         />
         <AppButton title={loading ? t("common.loading") : t("common.submit")} onPress={handleLogin} loading={loading} />
+        </> : null}
       </View>
     </KeyboardAvoidingView>
   );

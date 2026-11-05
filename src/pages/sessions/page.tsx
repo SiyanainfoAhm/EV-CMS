@@ -26,7 +26,7 @@ export default function SessionsPage() {
   const { data: activeData, reload: reloadActive } = useAsyncData(() => sessionService.getActiveSessions(), []);
   const { data: chargersData } = useAsyncData(() => chargerService.getChargers(), []);
   const chargers = chargersData ?? [];
-  const mockActiveSessions = activeData ?? [];
+  const mockActiveSessions = useMemo(() => activeData ?? [], [activeData]);
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -49,7 +49,7 @@ export default function SessionsPage() {
     reloadActive();
     reloadHistory();
   });
-  const mockSessionHistory = historyData ?? [];
+  const mockSessionHistory = useMemo(() => historyData ?? [], [historyData]);
   const [stopModal, setStopModal] = useState<ChargingSession | null>(null);
   const [stopResult, setStopResult] = useState<string | null>(null);
   const [stopLoading, setStopLoading] = useState(false);

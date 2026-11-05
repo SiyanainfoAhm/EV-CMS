@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AppState } from "react-native";
+import { onSessionInvalidated } from "../utils/ssoTransport";
 import * as authService from "../services/authService";
 import { registerPushToken, deactivatePushTokens } from "../services/notificationService";
 import { isMobileAdmin as checkMobileAdmin, isMobileEndUser } from "../utils/rfpRoles";
@@ -17,7 +19,9 @@ interface AuthContextValue {
   session: AuthSession | null;
   isAuthenticated: boolean;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signInSso: () => Promise<{ success: boolean; error?: string; cancelled?: boolean }>;
   signOut: () => Promise<void>;
+  signOutAll: () => Promise<void>;
   refreshUser: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   isMobileUser: boolean;
@@ -30,6 +34,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
+
+
+  useEffect(() => onSessionInvalidated(() => {
+    setUser(null); setSession(null);
+    authService.logout(false, false).catch(() => undefined);
+  }), []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", state => {
+      if (state !== "active" || !session || session.token.startsWith("ev_mobile_")) return;
+      authService.restoreSession().then(restored => {
+        setUser(restored); setSession(authService.getSessionMeta());
+      }).catch(() => { setUser(null); setSession(null); });
+    });
+    return () => subscription.remove();
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || session.token.startsWith("ev_mobile_")) return;
+    const timeout = setTimeout(() => {
+      setUser(null);
+      setSession(null);
+      authService.logout(false, false).catch(() => undefined);
+    }, Math.max(0, Date.parse(session.expiresAt) - Date.now()));
+    return () => clearTimeout(timeout);
+  }, [session]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,13 +102,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: false, error: result.error };
   }, []);
 
+  const signInSso = useCallback(async () => {
+    const result = await authService.loginSso();
+    if (result.success && result.user) {
+      setUser(result.user);
+      setSession(authService.getSessionMeta());
+      registerPushToken(result.user.id).catch(() => undefined);
+    }
+    return result;
+  }, []);
+
   const signOut = useCallback(async () => {
     const uid = user?.id;
     if (uid) await deactivatePushTokens(uid).catch(() => undefined);
-    await authService.logout();
-    setUser(null);
-    setSession(null);
+    try { await authService.logout(); } finally { setUser(null); setSession(null); }
   }, [user?.id]);
+
+  const signOutAll = useCallback(async () => {
+    try { await authService.logout(true); } finally { setUser(null); setSession(null); }
+  }, []);
 
   const refreshUser = useCallback(async () => {
     const current = authService.getSessionUser();
@@ -103,13 +145,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isAuthenticated: ready && !!user,
       signIn,
+      signInSso,
       signOut,
+      signOutAll,
       refreshUser,
       refreshProfile: refreshUser,
       isMobileUser: ready && !!user && isMobileEndUser(user.role),
       isMobileAdmin: ready && !!user && checkMobileAdmin(user.role),
     }),
-    [ready, user, session, signIn, signOut, refreshUser]
+    [ready, user, session, signIn, signInSso, signOut, signOutAll, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

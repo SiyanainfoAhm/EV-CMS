@@ -1,3 +1,4 @@
+import { ssoConfig } from "../config/ssoConfig";
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
 import type { AppNotification } from "../types";
@@ -71,6 +72,22 @@ export function subscribeToMyNotifications(
   userId: string,
   onNewNotification: (notification: AppNotification) => void
 ): () => void {
+  if (ssoConfig.enabled) {
+    let stopped = false;
+    const known = new Set<string>();
+    let initialized = false;
+    const poll = async () => {
+      try {
+        const rows = await getMyNotifications(userId);
+        if (stopped) return;
+        for (const row of rows) { if (initialized && !known.has(row.id)) onNewNotification(row); known.add(row.id); }
+        initialized = true;
+      } catch { /* Retry on next poll; authorization errors clear the session centrally. */ }
+    };
+    void poll();
+    const interval = setInterval(() => { void poll(); }, 15000);
+    return () => { stopped = true; clearInterval(interval); };
+  }
   const channel = requireSupabase()
     .channel(`ev-notifications:${userId}`)
     .on(

@@ -59,6 +59,7 @@ export default [
         NodeJS: 'readonly',
         JSX: 'readonly',
         IdleRequestCallback: 'readonly',
+        RequestInit: 'readonly',
         __BASE_PATH__: 'readonly',
         __IS_PREVIEW__: 'readonly',
         __READDY_PROJECT_ID__: 'readonly',
@@ -74,7 +75,7 @@ export default [
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': [
         'warn',
-        { allowConstantExport: true },
+        { allowConstantExport: true, allowExportNames: ['emptyChargerForm', 'chargerToForm', 'inputClassName', 'todayIsoDate', 'emptyUserForm', 'userToForm', 'useUserPreferences'] },
       ],
       '@typescript-eslint/no-namespace': 'off',
       '@typescript-eslint/no-explicit-any': 'off',

@@ -1,3 +1,4 @@
+import { isTrustedBackend } from "../_shared/backendAuth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   isHdfcEnvConfigured,
@@ -25,6 +26,8 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  if (!await isTrustedBackend(req)) return json({ error: "EV-CMS backend authentication required" }, 401);
+
   try {
     const userId = req.headers.get("x-user-id") ?? "";
     if (!userId) {
@@ -41,6 +44,14 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // Once the DFCCIL ledger is deployed, stop creating legacy provider orders.
+    // Existing Razorpay verification remains available to reconcile earlier orders.
+    const { error: dfccilSchemaError } = await supabase.from("EV_DfccilPaymentAttempts").select("id").limit(0);
+    if (!dfccilSchemaError) return json({ error: "Use DFCCIL online payment from the final bill." }, 409);
+    if (!["42P01", "PGRST205"].includes(dfccilSchemaError.code || "")) {
+      return json({ error: "Payment provider state could not be checked." }, 503);
+    }
 
     const gatewayConfig = await loadPaymentGatewayConfig(supabase);
     const activeGateway = gatewayConfig.active_gateway;

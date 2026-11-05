@@ -530,7 +530,7 @@ export default function ChargePricePrompt({ visible, charger, onCancel, onConfir
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
   card: {
     backgroundColor: colors.card,
     borderTopLeftRadius: 20,

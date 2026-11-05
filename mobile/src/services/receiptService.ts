@@ -1,4 +1,5 @@
-import * as FileSystem from "expo-file-system";
+import { officialReceiptFile } from "./dfccilPaymentService";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { requireSupabase } from "../utils/supabaseClient";
 import { getSessionUser, requireUserId } from "./authService";
@@ -11,6 +12,7 @@ export type ReceiptActionInput = {
   paymentId: string;
   receiptNumber: string;
   pdfUrl?: string | null;
+  gatewayAttemptId?: string;
 };
 
 type ReceiptFile = {
@@ -104,6 +106,7 @@ async function downloadRemoteReceiptPdf(pdfUrl: string, receiptNumber: string): 
 
 export async function ensureReceiptFile(input: ReceiptActionInput): Promise<ReceiptFile> {
   const { paymentId, receiptNumber, pdfUrl } = input;
+  if (input.gatewayAttemptId) return {uri: await officialReceiptFile(input.gatewayAttemptId),mimeType:"application/pdf"};
 
   if (pdfUrl && !shouldGenerateLocalReceipt(pdfUrl)) {
     try {
