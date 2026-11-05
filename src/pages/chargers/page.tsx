@@ -270,7 +270,7 @@ export default function ChargersPage() {
 
 
 
-  const mockChargers = chargersData ?? [];
+  const mockChargers = useMemo(() => chargersData ?? [], [chargersData]);
 
   const mockActiveSessions = sessionsData ?? [];
 

@@ -56,3 +56,11 @@ mobile/web-build/
 # Supabase local
 .branches/
 .temp/
+
+# Generated/local deployment configuration
+.vercel/
+public/fcm-web-config.json
+mobile/android/local.properties
+.env.*
+!.env.example
+!**/*.env.example

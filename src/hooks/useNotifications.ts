@@ -89,7 +89,7 @@ export function useNotifications(userId: string | undefined, previewLimit = 8) {
 
     const applyUpdate = (row: Record<string, unknown>, oldRow?: Record<string, unknown>) => {
       const notification = mapRealtimeRow(row);
-      const wasUnread = oldRow ? !Boolean(oldRow.read) : false;
+      const wasUnread = oldRow ? !oldRow.read : false;
       const enabled = isNotificationEnabled(notification, prefsRef.current);
 
       setItems((prev) => {
@@ -109,7 +109,7 @@ export function useNotifications(userId: string | undefined, previewLimit = 8) {
 
     const applyDelete = (row: Record<string, unknown>) => {
       const id = row.id as string;
-      const wasUnread = !Boolean(row.read);
+      const wasUnread = !row.read;
       setItems((prev) => prev.filter((n) => n.id !== id));
       if (wasUnread) {
         setUnreadCount((c) => Math.max(0, c - 1));

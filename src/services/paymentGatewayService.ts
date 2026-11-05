@@ -48,7 +48,7 @@ export async function createPaymentOrder(
   );
 }
 
-export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPaymentResult> {
+async function verifyGatewayPayment(input: VerifyPaymentInput): Promise<VerifyPaymentResult> {
   const gateway = input.gateway || (await getActivePaymentGateway());
   console.log("[payment] normalized status verify", gateway);
   if (gateway === "hdfc") {
@@ -103,7 +103,7 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<{ 
   return res.json() as Promise<{ paymentId: string; redirectUrl?: string }>;
 }
 
-export async function verifyPayment(paymentId: string): Promise<PaymentVerificationResult> {
+async function verifyPaymentById(paymentId: string): Promise<PaymentVerificationResult> {
   if (isPaymentMockEnabled()) {
     const txnId = `MOCK-${Date.now()}`;
     await paymentService.markPaymentVerified(paymentId, txnId, PAYMENT_MOCK_GATEWAY_NAME);
@@ -159,4 +159,11 @@ export async function generateReceipt(paymentId: string): Promise<{ receiptNumbe
   if (!res.ok) throw new Error(`Receipt generation failed (${res.status})`);
   const result = (await res.json()) as { receiptNumber: string; pdfUrl?: string };
   return paymentService.upsertReceiptFromGateway(paymentId, result.receiptNumber, result.pdfUrl ?? null);
+}
+
+// Preserve both legacy callers and the typed gateway API.
+export function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPaymentResult>;
+export function verifyPayment(input: string): Promise<PaymentVerificationResult>;
+export function verifyPayment(input: VerifyPaymentInput | string) {
+  return typeof input === "string" ? verifyPaymentById(input) : verifyGatewayPayment(input);
 }

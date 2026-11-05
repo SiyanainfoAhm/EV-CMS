@@ -47,13 +47,14 @@ export default function PaymentHistoryScreen({ navigation }: Props) {
   };
 
   const download = async (payment: Payment) => {
-    if (!payment.receiptNumber) return;
+    if (!payment.receiptNumber && !(payment.gatewayAttemptId && payment.gatewayVerified)) return;
     setDownloadingId(payment.id);
     try {
       await receiptService.downloadReceipt({
         paymentId: payment.id,
-        receiptNumber: payment.receiptNumber,
+        receiptNumber: payment.receiptNumber || payment.gatewayOrderId || payment.id,
         pdfUrl: payment.receiptPdfUrl,
+        gatewayAttemptId: payment.gatewayAttemptId,
       });
       Alert.alert(t("common.success"), t("receipt.downloadSuccess"));
     } catch (e) {
@@ -64,13 +65,14 @@ export default function PaymentHistoryScreen({ navigation }: Props) {
   };
 
   const share = async (payment: Payment) => {
-    if (!payment.receiptNumber) return;
+    if (!payment.receiptNumber && !(payment.gatewayAttemptId && payment.gatewayVerified)) return;
     setDownloadingId(payment.id);
     try {
       await receiptService.shareReceipt({
         paymentId: payment.id,
-        receiptNumber: payment.receiptNumber,
+        receiptNumber: payment.receiptNumber || payment.gatewayOrderId || payment.id,
         pdfUrl: payment.receiptPdfUrl,
+        gatewayAttemptId: payment.gatewayAttemptId,
       });
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : t("receipt.downloadFailed"));
@@ -96,9 +98,10 @@ export default function PaymentHistoryScreen({ navigation }: Props) {
             {t("payment.date")}: {new Date(p.createdAt).toLocaleDateString()}
           </Text>
           <StatusBadge status={p.status} />
-          {p.receiptNumber ? (
+          {p.gatewayAttemptId ? <AppButton title={t("dfccil.viewStatus")} onPress={()=>navigation.navigate("DfccilPayment",{attemptId:p.gatewayAttemptId!})} variant="outline" style={styles.downloadBtn}/> : null}
+          {p.receiptNumber || (p.gatewayAttemptId && p.gatewayVerified) ? (
             <>
-              <Text style={styles.receipt}>{t("receipt.number", { number: p.receiptNumber })}</Text>
+              <Text style={styles.receipt}>{p.gatewayAttemptId ? `${t("dfccil.order")}: ${p.gatewayOrderId}` : t("receipt.number", { number: p.receiptNumber })}</Text>
               <AppButton
                 title={t("receipt.download")}
                 onPress={() => download(p)}

@@ -119,6 +119,9 @@ export interface Payment {
   method?: string;
   receiptNumber?: string;
   receiptPdfUrl?: string;
+  gatewayAttemptId?: string;
+  gatewayVerified?: boolean;
+  gatewayOrderId?: string;
 }
 
 export interface Receipt {

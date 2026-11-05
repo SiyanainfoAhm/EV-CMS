@@ -8,3 +8,11 @@ SUPABASE_MOBILE_POLICIES.sql
 # Local env (vars are in eas.json profiles)
 .env
 .env.*
+
+# Local dependencies and generated artifacts
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store

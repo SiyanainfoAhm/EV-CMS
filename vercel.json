@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
       "main": true,
@@ -8,6 +9,15 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "installCommand": "npm install",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "installCommand": "npm ci",
+  "rewrites": [
+    {
+      "source": "/api/power-automate-test-email",
+      "destination": "/api/power-automate-email"
+    },
+    {
+      "source": "/((?!api(?:/|$)|assets(?:/|$)).*)",
+      "destination": "/index.html"
+    }
+  ]
 }

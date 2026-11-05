@@ -29,7 +29,7 @@ function readEnvFile(filePath) {
   return env;
 }
 
-const env = { ...process.env, ...readEnvFile(envPath) };
+const env = { ...readEnvFile(envPath), ...process.env };
 
 const config = {
   apiKey: env.VITE_FIREBASE_API_KEY ?? "",

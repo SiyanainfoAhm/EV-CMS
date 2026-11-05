@@ -15,7 +15,7 @@ function badgeColors(status: string) {
     return { bg: "#f3f4f6", text: colors.textMuted };
   }
   if (
-    ["online", "active", "available", "preparing", "success", "completed", "paid", "resolved", "closed", "paid offline", "collected"].some(
+    ["online", "active", "available", "preparing", "success", "completed", "paid", "resolved", "closed", "paid offline", "paid online", "collected"].some(
       (x) => s === x
     )
   ) {

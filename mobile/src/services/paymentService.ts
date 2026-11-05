@@ -1,3 +1,5 @@
+import { dfccilPaymentsEnabled } from "../config/dfccilPaymentConfig";
+import { paymentAttempts } from "./dfccilPaymentService";
 import {
   canUseRazorpayBackend,
   isRazorpayClientConfigured,
@@ -106,6 +108,7 @@ async function completeRazorpaySessionCheckout(
   checkoutOptions?: RazorpayCheckoutOptions
 ): Promise<RazorpaySessionPaymentResult> {
   const gateway = order.gateway ?? "razorpay";
+  if (String(gateway) === "dfccil") throw new Error("Use DFCCIL hosted checkout from the final bill.");
   console.log("[payment-order] gateway", gateway);
 
   if (gateway === "hdfc") {
@@ -201,17 +204,22 @@ export async function getPaymentHistory(userId?: string): Promise<Payment[]> {
 
   if (error) throw error;
 
+  const attempts = dfccilPaymentsEnabled ? await paymentAttempts().catch(() => []) : [];
   return (data ?? []).map((row) => {
     const r = row as Record<string, unknown>;
     const receipts = (r.EV_Receipts as Record<string, unknown>[]) ?? [];
     const receipt = receipts[0];
+    const attempt = attempts.find(item => item.paymentId === r.id);
     return {
       id: r.id as string,
       sessionId: r.session_id as string,
       totalAmount: Number(r.total_amount ?? r.amount),
-      status: r.status as string,
+      status: attempt?.status ?? r.status as string,
+      gatewayAttemptId: attempt?.attemptId,
+      gatewayVerified: attempt?.verified,
+      gatewayOrderId: attempt?.orderId ?? undefined,
       createdAt: r.created_at as string,
-      receiptNumber: receipt ? (receipt.receipt_number as string) : undefined,
+      receiptNumber: r.gateway === "dfccil" ? undefined : receipt ? (receipt.receipt_number as string) : undefined,
       receiptPdfUrl: receipt?.pdf_url ? (receipt.pdf_url as string) : undefined,
     };
   });
@@ -220,12 +228,15 @@ export async function getPaymentHistory(userId?: string): Promise<Payment[]> {
 export async function getSessionPayment(sessionId: string, userId?: string): Promise<SessionPaymentSummary | null> {
   const uid = userId ?? requireUserId();
   try {
-    await sessionPaymentService.syncSessionPaymentBill(sessionId);
+    if (!dfccilPaymentsEnabled) await sessionPaymentService.syncSessionPaymentBill(sessionId);
   } catch {
     // RPC may not exist until SESSION_RAZORPAY_PAYMENT.sql is applied.
   }
 
-  // Client-side prepaid gate — even if a stale pending payment row exists.
+  // Amount/time limits are not evidence that a bill has been paid.
+  if (dfccilPaymentsEnabled) return getSessionPaymentFallback(sessionId, uid);
+
+  // Legacy prepaid behavior when DFCCIL mode is disabled.
   try {
     const session = await sessionService.getSessionById(sessionId, uid);
     if (session && isPrepaidSession(session)) {
@@ -299,6 +310,7 @@ export async function processRazorpaySessionPayment(sessionId: string): Promise<
   console.log("[payment-config] testing_mode", cfg.testing_mode);
   console.log("[payment-config] active_gateway", cfg.active_gateway);
 
+  if (cfg.active_gateway === "dfccil") throw new Error("Use DFCCIL hosted checkout from the final bill.");
   const order = await sessionPaymentService.createRazorpaySessionOrder(sessionId);
   const gateway = order.gateway ?? cfg.active_gateway;
 

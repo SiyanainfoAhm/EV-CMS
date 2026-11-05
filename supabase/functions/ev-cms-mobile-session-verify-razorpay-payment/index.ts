@@ -1,3 +1,4 @@
+import { isTrustedBackend } from "../_shared/backendAuth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadPaymentGatewayConfig } from "../_shared/paymentGateway.ts";
 
@@ -38,6 +39,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  if (!await isTrustedBackend(req)) return json({ error: "EV-CMS backend authentication required" }, 401);
 
   try {
     const userId = req.headers.get("x-user-id") ?? "";

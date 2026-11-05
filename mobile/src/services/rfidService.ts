@@ -1,3 +1,5 @@
+import { ssoConfig } from "../config/ssoConfig";
+import { protectedRequest } from "../utils/ssoTransport";
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
 import type { RFIDCard } from "../types";
@@ -107,6 +109,14 @@ export async function assignOrUpdateRfidCard(
   cardUid: string
 ): Promise<RFIDCard> {
   const normalized = validateRfidUid(cardUid);
+  if (ssoConfig.enabled) {
+    if (userId !== requireUserId()) throw new Error("Cannot bind RFID for another user.");
+    const response = await protectedRequest({ action: "rfid-bind", uid: normalized });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "RFID binding failed");
+    if (result.status < 200 || result.status >= 300) throw new Error("RFID binding failed");
+    return mapRow(JSON.parse(result.body));
+  }
 
   const [userCard, uidCard] = await Promise.all([
     getUserRfidCard(userId),

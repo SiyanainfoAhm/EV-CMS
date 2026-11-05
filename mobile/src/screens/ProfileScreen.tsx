@@ -8,6 +8,7 @@ import AppCard from "../components/AppCard";
 import AppButton from "../components/AppButton";
 import UserAvatar from "../components/UserAvatar";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import { ssoConfig } from "../config/ssoConfig";
 import { useAuth } from "../context/AuthContext";
 import * as profileService from "../services/profileService";
 import * as mediaService from "../services/mediaService";
@@ -23,7 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
 export default function ProfileScreen({ navigation }: Props) {
   const { t } = useTranslation();
-  const { user, signOut, refreshUser } = useAuth();
+  const { user, signOut, signOutAll, refreshUser } = useAuth();
   const [language, setLanguage] = useState<AppLanguage>((i18n.language as AppLanguage) || "en");
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
@@ -177,7 +178,11 @@ export default function ProfileScreen({ navigation }: Props) {
       ) : (
         <AppButton title={t("profile.edit")} onPress={() => setEditing(true)} style={styles.button} />
       )}
+      {ssoConfig.enabled && user?.role === "SuperAdmin" ? <AppButton title="Manage SSO user access" onPress={() => navigation.navigate("SsoUsers")} style={styles.button} /> : null}
       <AppButton title={t("profile.signOut")} onPress={logout} variant="outline" style={styles.button} />
+      {ssoConfig.enabled ? <AppButton title={language === "hi" ? "सभी डिवाइस से साइन आउट करें" : "Sign out of all devices"}
+        onPress={() => confirmAction(t("profile.signOut"), language === "hi" ? "सभी EV-CMS सत्र समाप्त करें?" : "End all your EV-CMS sessions?", t("profile.signOut"), () => signOutAll(), { destructive: true })}
+        variant="outline" style={styles.button} /> : null}
     </ScrollView>
   );
 }

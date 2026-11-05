@@ -1,3 +1,4 @@
+import { dfccilPaymentsEnabled } from "../config/dfccilPaymentConfig";
 import type { ChargingSession } from "../types";
 import type { SessionPaymentSummary } from "../services/paymentService";
 
@@ -29,13 +30,15 @@ export function isOfflinePaymentSession(session: ChargingSession | null | undefi
 }
 
 /**
- * In-app Pay Now is disabled — billing is physical/offline after charging.
+ * Online collection is allowed for completed unpaid bills when DFCCIL mode is enabled.
  */
 export function shouldShowPostSessionPayment(
-  _session?: ChargingSession | null,
-  _payment?: SessionPaymentSummary | null
+  session?: ChargingSession | null,
+  payment?: SessionPaymentSummary | null
 ): boolean {
-  return false;
+  const status = lower(session?.paymentStatus ?? payment?.status);
+  return dfccilPaymentsEnabled && Boolean(session && ["completed","stopped","faulted"].includes(lower(session.status))) &&
+    !["paid","success","collected","paid_offline"].includes(status);
 }
 
 export function getCompletionBannerState(
@@ -45,6 +48,10 @@ export function getCompletionBannerState(
   const status = lower(session?.paymentStatus ?? payment?.status);
   const collected = status === "paid" || status === "success" || status === "collected" || status === "paid_offline";
 
+  if (dfccilPaymentsEnabled) {
+    return { titleKey: "session.chargingCompletedTitle", messageKey: collected ? "session.paymentCompleted" : "dfccil.billReady",
+      showPayButton: shouldShowPostSessionPayment(session,payment), isPrepaidPaid: false, isOfflineBill: isOfflinePaymentSession(session) };
+  }
   if (isOfflinePaymentSession(session)) {
     return {
       titleKey: "session.chargingCompletedTitle",

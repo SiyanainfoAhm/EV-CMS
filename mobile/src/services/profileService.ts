@@ -1,3 +1,5 @@
+import { ssoConfig } from "../config/ssoConfig";
+import { refreshProfile, requireUserId } from "./authService";
 import { requireSupabase } from "../utils/supabaseClient";
 import { mapDbRoleToAuthRole } from "../utils/rfpRoles";
 import type { User } from "../types";
@@ -15,6 +17,12 @@ function mapProfileRow(row: Record<string, unknown>): User {
 }
 
 export async function getProfile(userId: string): Promise<User> {
+  if (ssoConfig.enabled) {
+    if (requireUserId() !== userId) throw new Error("Cannot access another user's profile.");
+    const profile = await refreshProfile(userId);
+    if (!profile) throw new Error("Profile not found");
+    return profile;
+  }
   const { data, error } = await requireSupabase().rpc("get_ev_user_profile", { p_user_id: userId });
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;

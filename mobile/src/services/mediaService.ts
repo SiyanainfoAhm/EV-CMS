@@ -58,15 +58,17 @@ async function uploadAvatarToSupabase(userId: string, uri: string, mimeType?: st
   const fileName = `avatar.${ext}`;
   const path = userMediaPath(userId, fileName);
   const blob = await uriToBlob(uri);
+  if (blob.size > 2 * 1024 * 1024) throw new Error("Files must be smaller than 2 MB.");
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, await new Response(blob).arrayBuffer(), {
     upsert: true,
     contentType: mimeType ?? contentTypeForExt(ext),
   });
   if (error) throw error;
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  const { data, error: signedError } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+  if (signedError || !data) throw signedError || new Error("Could not access uploaded file");
+  return data.signedUrl;
 }
 
 async function deleteSupabaseAvatars(userId: string): Promise<void> {
@@ -117,18 +119,20 @@ export async function uploadSupportTicketAttachment(
   const fileName = safeFileName(baseName);
   const path = supportTicketMediaPath(userId, ticketId, fileName);
   const blob = await uriToBlob(uri);
+  if (blob.size > 2 * 1024 * 1024) throw new Error("Files must be smaller than 2 MB.");
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, await new Response(blob).arrayBuffer(), {
     upsert: false,
     contentType: mimeType,
   });
   if (error) throw error;
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data, error: signedError } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+  if (signedError || !data) throw signedError || new Error("Could not access uploaded file");
   return {
     name: fileName,
     path,
-    url: data.publicUrl,
+    url: data.signedUrl,
     mimeType,
     size: blob.size,
     uploadedAt: new Date().toISOString(),
@@ -144,17 +148,18 @@ export async function listSupportTicketAttachments(
   const { data, error } = await supabase.storage.from(BUCKET).list(prefix, { limit: 100 });
   if (error) throw error;
 
-  return (data ?? []).map((file) => {
+  return Promise.all((data ?? []).map(async (file) => {
     const path = `${prefix}/${file.name}`;
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    const { data: urlData, error: signedError } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+    if (signedError || !urlData) throw signedError || new Error("Could not access attachment");
     return {
       name: file.name,
       path,
-      url: urlData.publicUrl,
+      url: urlData.signedUrl,
       mimeType: contentTypeForExt(file.name.split(".").pop() ?? "jpg"),
       size: file.metadata?.size ? Number(file.metadata.size) : 0,
       uploadedAt: file.created_at ?? new Date().toISOString(),
     };
-  });
+  }));
 }
 

@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
   },
   initials: { fontWeight: "700", color: colors.emerald },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(17, 24, 39, 0.4)",
     alignItems: "center",
     justifyContent: "center",

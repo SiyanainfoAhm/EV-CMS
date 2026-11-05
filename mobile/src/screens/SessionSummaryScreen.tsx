@@ -1,3 +1,5 @@
+import { dfccilPaymentsEnabled } from "../config/dfccilPaymentConfig";
+import * as dfccil from "../services/dfccilPaymentService";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, Alert, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -39,6 +41,8 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [onlineAvailable,setOnlineAvailable] = useState(false);
+  const [onlineAttempt,setOnlineAttempt] = useState<dfccil.DfccilPaymentAttempt|null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,6 +57,11 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
         ]);
         setReceipt(r);
         setPayment(p);
+        if (dfccilPaymentsEnabled) {
+          const available = await dfccil.paymentAvailability().catch(() => false);
+          setOnlineAvailable(available);
+          setOnlineAttempt(await dfccil.paymentStatus({sessionId}).catch(() => null));
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
@@ -67,9 +76,19 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
 
   const banner = useMemo(() => getCompletionBannerState(session, payment), [session, payment]);
   const collectionStatus = useMemo(
-    () => offlineCollectionStatusLabel(session, payment),
-    [session, payment]
+    () => onlineAttempt?.verified ? "Paid Online" : offlineCollectionStatusLabel(session, payment),
+    [session, payment, onlineAttempt]
   );
+
+  const payOnline = async () => {
+    setBusy(true);setError("");
+    try {
+      const attempt = onlineAttempt && !["failed","cancelled"].includes(onlineAttempt.status) ? onlineAttempt : await dfccil.createPayment(sessionId);
+      setOnlineAttempt(attempt);
+      navigation.navigate("DfccilPayment",{attemptId:attempt.attemptId});
+    } catch(e) {setError(e instanceof Error?e.message:t("common.error"));}
+    finally {setBusy(false);}
+  };
 
   const download = async () => {
     if (!receipt?.receiptNumber) return;
@@ -127,6 +146,7 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
     chargePointId: session.chargePointId,
   });
   const billAmount =
+    onlineAttempt?.amount ??
     payment?.totalAmount ??
     session.amount ??
     session.prepaidTotalInr ??
@@ -136,8 +156,7 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
   const energyAmount = payment?.amount ?? null;
   const gstAmount = payment?.gstAmount ?? null;
   const receiptNumber =
-    receipt?.receiptNumber ??
-    `RCP-${session.id.replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+    receipt?.receiptNumber ?? "—";
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -151,7 +170,7 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
         <Text style={styles.bannerTitle}>{t(banner.titleKey)}</Text>
         <Text style={styles.bannerMessage}>{t(banner.messageKey)}</Text>
         <View style={styles.badgeWrap}>
-          <Text style={styles.badge}>{t("session.paymentModeOffline")}</Text>
+          <Text style={styles.badge}>{t(onlineAttempt?.verified ? "dfccil.title" : "session.paymentModeOffline")}</Text>
         </View>
       </AppCard>
 
@@ -212,7 +231,7 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
         </View>
         <View style={styles.paymentRow}>
           <Text style={styles.label}>{t("session.paymentMode")}</Text>
-          <Text style={styles.paymentValue}>{t("session.paymentModeOffline")}</Text>
+          <Text style={styles.paymentValue}>{t(onlineAttempt?.verified ? "dfccil.title" : "session.paymentModeOffline")}</Text>
         </View>
         <View style={styles.paymentRow}>
           <Text style={styles.label}>{t("session.collectionStatus")}</Text>
@@ -222,10 +241,21 @@ export default function SessionSummaryScreen({ navigation, route }: Props) {
           <Text style={styles.label}>{t("session.receiptNumber")}</Text>
           <Text style={styles.txn}>{receiptNumber}</Text>
         </View>
-        <Text style={styles.hint}>{t("session.paymentDueHint")}</Text>
+        <Text style={styles.hint}>{t(dfccilPaymentsEnabled ? "dfccil.billReady" : "session.paymentDueHint")}</Text>
       </AppCard>
 
-      {receipt?.receiptNumber ? (
+      {dfccilPaymentsEnabled && banner.showPayButton ? (
+        <AppCard>
+          <Text style={styles.sectionTitle}>{t("dfccil.title")}</Text>
+          {onlineAttempt ? <Text>{t(`dfccil.status.${onlineAttempt.status}`)}</Text> : null}
+          {!onlineAvailable ? <Text style={styles.hint}>{t("dfccil.unavailable")}</Text> : null}
+          <AppButton title={onlineAttempt && !["failed","cancelled"].includes(onlineAttempt.status) ? t("dfccil.viewStatus") : t("dfccil.payNow")}
+            onPress={payOnline} loading={busy} disabled={!onlineAvailable && !onlineAttempt} style={styles.btn} />
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </AppCard>
+      ) : null}
+      {onlineAttempt?.verified ? <AppButton title={t("dfccil.receipt")} onPress={()=>{void dfccil.shareOfficialReceipt(onlineAttempt.attemptId).catch(e=>Alert.alert(t("common.error"),e.message));}} style={styles.btn}/> : null}
+      {receipt?.receiptNumber && !onlineAttempt ? (
         <>
           <AppButton title={t("session.viewReceipt")} onPress={download} loading={busy} style={styles.btn} />
           <AppButton

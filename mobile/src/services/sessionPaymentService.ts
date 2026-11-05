@@ -1,3 +1,4 @@
+import { authorizedSupabaseFetch } from "../utils/ssoTransport";
 import { paymentConfig } from "../config/paymentConfig";
 import { requireSupabase } from "../utils/supabaseClient";
 import { requireUserId } from "./authService";
@@ -99,7 +100,7 @@ async function invokeSessionEdgeFunction<T>(functionName: string, body: unknown)
     throw new Error("SESSION_PAYMENT_BACKEND_NOT_CONFIGURED");
   }
 
-  const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+  const response = await authorizedSupabaseFetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

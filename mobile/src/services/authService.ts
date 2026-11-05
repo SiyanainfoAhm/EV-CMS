@@ -3,7 +3,12 @@ import { mapDbRoleToAuthRole } from "../utils/rfpRoles";
 import { requireSupabase } from "../utils/supabaseClient";
 import { clearStoredSession, loadStoredSession, saveStoredSession, type StoredSession } from "../utils/sessionStorage";
 import type { User } from "../types";
+import { loginWithSso, restoreSsoSession, clearSsoSession, logoutSso } from "./ssoService";
 
+import { ssoConfig } from "../config/ssoConfig";
+import { setDataSession } from "../utils/ssoTransport";
+
+let authVersion = 0;
 let sessionToken: string | null = null;
 let sessionUser: User | null = null;
 let sessionExpiresAtIso: string | null = null;
@@ -18,14 +23,29 @@ function buildSession(user: User): StoredSession {
 
 function applySession(session: StoredSession): void {
   sessionToken = session.token;
+  setDataSession(session.token.startsWith("ev_mobile_") ? null : session.token);
   sessionUser = session.user;
   sessionExpiresAtIso = session.expiresAt;
 }
 
 export async function restoreSession(): Promise<User | null> {
+  const version = authVersion;
   try {
+    const sso = await restoreSsoSession();
+    if (version !== authVersion) return sessionUser;
+    if (sso) {
+      applySession(sso);
+      return sessionUser;
+    }
+    if (ssoConfig.enabled) {
+      await clearStoredSession();
+      setDataSession(null); sessionToken = null; sessionUser = null; sessionExpiresAtIso = null;
+      return null;
+    }
     const stored = await loadStoredSession();
+    if (version !== authVersion) return sessionUser;
     if (!stored) {
+      setDataSession(null);
       sessionToken = null;
       sessionUser = null;
       sessionExpiresAtIso = null;
@@ -33,6 +53,7 @@ export async function restoreSession(): Promise<User | null> {
     }
     if (isSessionExpired(stored.expiresAt)) {
       await clearStoredSession();
+      setDataSession(null);
       sessionToken = null;
       sessionUser = null;
       sessionExpiresAtIso = null;
@@ -44,8 +65,11 @@ export async function restoreSession(): Promise<User | null> {
     });
     return sessionUser;
   } catch (e) {
+    if (version !== authVersion) return sessionUser;
     console.error("[authService] restoreSession failed:", e);
     await clearStoredSession();
+    await clearSsoSession();
+    setDataSession(null);
     sessionToken = null;
     sessionUser = null;
     sessionExpiresAtIso = null;
@@ -100,9 +124,24 @@ export async function login(email: string, password: string): Promise<{ success:
   }
 
   const session = buildSession(user);
+  await clearSsoSession();
   applySession(session);
   await saveStoredSession(session);
   return { success: true, user };
+}
+
+export async function loginSso(): Promise<{ success: boolean; user?: User; error?: string; cancelled?: boolean }> {
+  try {
+    const version = ++authVersion;
+    const session = await loginWithSso();
+    if (version !== authVersion) return { success: false, cancelled: true };
+    if (!session) return { success: false, cancelled: true };
+    await clearStoredSession();
+    applySession(session);
+    return { success: true, user: session.user };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "DFCCIL sign-in failed." };
+  }
 }
 
 export async function persistSessionUser(user: User): Promise<void> {
@@ -113,6 +152,12 @@ export async function persistSessionUser(user: User): Promise<void> {
 }
 
 export async function refreshProfile(userId: string): Promise<User | null> {
+  if (sessionToken && !sessionToken.startsWith("ev_mobile_")) {
+    const session = await restoreSsoSession();
+    if (!session) throw new Error("Your SSO session has expired. Please sign in again.");
+    applySession(session);
+    return session.user;
+  }
   const { data, error } = await requireSupabase().rpc("get_ev_user_profile", { p_user_id: userId });
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
@@ -140,19 +185,27 @@ export function getSessionMeta(): { token: string; expiresAt: string } | null {
 
 export function requireUserId(): string {
   const id = sessionUser?.id;
-  if (!id) throw new Error("Not signed in");
+  if (!id || !isAuthenticated()) throw new Error("Not signed in or session expired");
   return id;
 }
 
 export function isAuthenticated(): boolean {
   if (!sessionToken || !sessionUser) return false;
   if (sessionExpiresAtIso && isSessionExpired(sessionExpiresAtIso)) return false;
-  return sessionToken.startsWith("ev_mobile_");
+  return true;
 }
 
-export async function logout(): Promise<void> {
+export async function logout(allDevices = false, providerLogout = true): Promise<void> {
+  authVersion++;
+  const wasSso = sessionToken && !sessionToken.startsWith("ev_mobile_");
+  setDataSession(null);
   sessionToken = null;
   sessionUser = null;
   sessionExpiresAtIso = null;
-  await clearStoredSession();
+  try {
+    if (wasSso) await logoutSso(allDevices, providerLogout);
+  } finally {
+    await clearStoredSession();
+    await clearSsoSession();
+  }
 }
