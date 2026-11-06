@@ -32,6 +32,7 @@ export default async function handler(req, res) {
     console.error(JSON.stringify({
       event: "sso_configuration_missing",
       missingVariables,
+      environment: process.env.VERCEL_ENV || "local",
       deployment: process.env.VERCEL_URL || "local",
       commit: process.env.VERCEL_GIT_COMMIT_SHA || "unknown",
     }));
