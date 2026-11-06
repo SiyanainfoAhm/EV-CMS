@@ -5,7 +5,7 @@ This repository contains the restored web dashboard and the mobile SSO/payment A
 ## Before deploying
 
 1. In Vercel, keep the existing project/domain `ev-cms-rho.vercel.app`, set Root Directory to the repository root, framework Vite, Node.js 22.x, build command `npm run build`, output `dist`, install `npm ci`.
-2. Preserve existing environment settings. Use `.env.example` as the required configuration reference. Set both Supabase URL variables and their respective public/service keys. Generate a stable random `SSO_SESSION_SECRET` of at least 32 bytes, for example `openssl rand -hex 32`. Keep service keys and session secrets backend-only. Add existing Firebase and email configuration if those features are used.
+2. Preserve existing environment settings. Use `.env.example` as the required configuration reference. Reuse VITE_SUPABASE_URL for both web and backend, with their respective public/service keys. Generate a stable random `SSO_SESSION_SECRET` of at least 32 bytes, for example `openssl rand -hex 32`. Keep service keys and session secrets backend-only. Add existing Firebase and email configuration if those features are used.
 3. Set `DFCCIL_PAYMENTS_ENABLED=false`, `VITE_PAYMENT_GATEWAY_MOCK=false`, and `VITE_ENABLE_SIMULATION=false`. The documented Status API and atomic finalization are implemented. Keep collection disabled during deployment verification; enable it only for the approved controlled real-payment test after the steps below.
 4. Run `npm ci`, then `npm run check:deployment` locally. Mobile dependencies must also be installed (`cd mobile && npm ci`). This checks web lint/types/build, mobile types, backend tests, API imports and routing configuration.
 5. Back up the database and apply `supabase/migrations/20261104_dfccil_payment_attempts.sql`, then `supabase/migrations/20261104_dfccil_payment_verification.sql` to the existing database. These add a private ledger, a cross-instance 30-second status-check lease, and atomic service-only finalization functions. Do not replay old seed migrations or run the database setup script against the working database.
@@ -55,7 +55,7 @@ Use root `vercel.json` for this deployment.
 Preserve existing settings. Use [.env.example](.env.example) as the checklist and add missing variables for Production and Preview:
 
 ```dotenv
-SUPABASE_URL=<existing Supabase project URL>
+VITE_SUPABASE_URL=<existing Supabase project URL>
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
 SSO_SESSION_SECRET=<stable random secret>
 SSO_ALLOWED_REDIRECT_URIS=in.dfccil.evcms://auth/callback

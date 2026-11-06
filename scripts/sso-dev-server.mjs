@@ -7,7 +7,6 @@ import handler from "../api/sso.js";
 
 // Reuse server-only credentials locally without copying them into the mobile app.
 process.loadEnvFile(new URL("../.env", import.meta.url));
-process.env.SUPABASE_URL ||= process.env.VITE_SUPABASE_URL;
 if (!process.env.SSO_SESSION_SECRET) {
   process.env.SSO_SESSION_SECRET = randomBytes(48).toString("base64url");
   appendFileSync(new URL("../.env", import.meta.url), `\nSSO_SESSION_SECRET=${process.env.SSO_SESSION_SECRET}\n`);
@@ -16,8 +15,8 @@ process.env.SSO_ALLOWED_REDIRECT_URIS ||= "in.dfccil.evcms://auth/callback";
 // DFCCIL confirmed public mobile client authentication with PKCE S256 and no secret.
 process.env.SSO_TOKEN_AUTH_METHOD ||= "none";
 
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Local .env needs SUPABASE_SERVICE_ROLE_KEY and SUPABASE_URL (or VITE_SUPABASE_URL).");
+if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("Local .env needs SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.");
 }
 
 const server = http.createServer(async (req, response) => {

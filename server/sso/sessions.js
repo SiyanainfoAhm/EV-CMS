@@ -6,7 +6,7 @@ export const ISSUER = 'https://app2.dfccil.com';
 export const SESSION_ISSUER = 'ev-cms-sso';
 export const SESSION_AUDIENCE = 'ev-cms-mobile';
 export function database() {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+  return createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
