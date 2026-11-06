@@ -162,6 +162,12 @@ npx vercel@latest deploy --prod
 
 Pay an owned, completed charging bill with the agreed amount through the mobile UI. Confirm it becomes Paid and the official receipt downloads. Allow at least 30 seconds between gateway status checks. Also verify cancellation/failure and app restart recovery before general rollout.
 
+### Troubleshoot missing SSO configuration
+
+If POST `/api/sso` returns 503 with "DFCCIL SSO is not configured", find the `sso_configuration_missing` event in Vercel Runtime Logs. It lists missing or blank variable names, deployment environment, URL and commit without logging credential values. A variable appearing in Settings does not establish that the running deployment has a nonempty value; saved Secret values are write-only and cannot be inspected through the edit form.
+
+For a missing `SUPABASE_SERVICE_ROLE_KEY`, save the service-role key from the same project as `VITE_SUPABASE_URL` for Production. Keep it backend-only. After saving, deploy the current main commit again, either by redeploying or through the normal merged-PR deployment flow. Wait for Production Current / Ready before testing. An unauthenticated POST with `{"action":"session"}` should return 401 once configuration checks pass; this alone does not verify the key's validity or a complete SSO login. Keep payments disabled during this check.
+
 ### Rollback
 
 If the code deployment causes problems, restore the previous production deployment through Vercel. Keep the additive database migrations in place. If payment testing fails, disable new orders with `DFCCIL_PAYMENTS_ENABLED=false` and redeploy; existing orders can still be checked and reconciled.
