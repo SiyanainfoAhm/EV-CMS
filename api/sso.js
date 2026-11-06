@@ -24,8 +24,17 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      !process.env.SSO_SESSION_SECRET || !process.env.SSO_ALLOWED_REDIRECT_URIS) {
+  const missingVariables = [
+    "VITE_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY",
+    "SSO_SESSION_SECRET", "SSO_ALLOWED_REDIRECT_URIS",
+  ].filter(name => !process.env[name]?.trim());
+  if (missingVariables.length) {
+    console.error(JSON.stringify({
+      event: "sso_configuration_missing",
+      missingVariables,
+      deployment: process.env.VERCEL_URL || "local",
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || "unknown",
+    }));
     return res.status(503).json({ error: "DFCCIL SSO is not configured. Contact your administrator." });
   }
   const body = req.body;
