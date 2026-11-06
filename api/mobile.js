@@ -177,7 +177,7 @@ export async function dataRequest(body, auth, db = database()) {
       requestBody = Buffer.from(payload, 'base64');
     } else { headers['Content-Type'] = 'application/json'; requestBody = JSON.stringify(payload); }
   }
-  return fetch(`${process.env.SUPABASE_URL.replace(/\/$/, '')}${path}`, {
+  return fetch(`${process.env.VITE_SUPABASE_URL.replace(/\/$/, '')}${path}`, {
     method, headers, body: requestBody, redirect: 'error', signal: AbortSignal.timeout(15000),
   });
 }
