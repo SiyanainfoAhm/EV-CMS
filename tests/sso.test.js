@@ -73,6 +73,7 @@ test("configuration diagnostics identify missing names without exposing values",
     assert.equal(logs.length, 1);
     const diagnostic = JSON.parse(logs[0]);
     assert.equal(diagnostic.event, "sso_configuration_missing");
+    assert.equal(diagnostic.environment, process.env.VERCEL_ENV || "local");
     assert.deepEqual(diagnostic.missingVariables, ["SSO_SESSION_SECRET"]);
     assert(!logs[0].includes("private-test-value"));
     assert(!JSON.stringify(res.body).includes("SSO_SESSION_SECRET"));
