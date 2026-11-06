@@ -57,3 +57,30 @@ test("endpoint rejects unsupported methods without contacting provider", async (
   assert.equal(res.code, 405);
   assert.equal(res.headers["Cache-Control"], "no-store");
 });
+
+test("configuration diagnostics identify missing names without exposing values", async () => {
+  const names = ["VITE_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SSO_SESSION_SECRET", "SSO_ALLOWED_REDIRECT_URIS"];
+  const previous = names.map(name => process.env[name]);
+  const originalError = console.error;
+  const logs = [];
+  try {
+    for (const name of names) process.env[name] = "private-test-value";
+    delete process.env.SSO_SESSION_SECRET;
+    console.error = message => logs.push(message);
+    const res = { setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({ method: "POST", body: { action: "session" } }, res);
+    assert.equal(res.code, 503);
+    assert.equal(logs.length, 1);
+    const diagnostic = JSON.parse(logs[0]);
+    assert.equal(diagnostic.event, "sso_configuration_missing");
+    assert.deepEqual(diagnostic.missingVariables, ["SSO_SESSION_SECRET"]);
+    assert(!logs[0].includes("private-test-value"));
+    assert(!JSON.stringify(res.body).includes("SSO_SESSION_SECRET"));
+  } finally {
+    console.error = originalError;
+    names.forEach((name, index) => {
+      if (previous[index] === undefined) delete process.env[name];
+      else process.env[name] = previous[index];
+    });
+  }
+});
