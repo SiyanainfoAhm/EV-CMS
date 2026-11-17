@@ -1,6 +1,7 @@
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
+import MockPaymentScreen from "../screens/MockPaymentScreen";
 import DfccilPaymentScreen from "../screens/DfccilPaymentScreen";
 import PaymentReturnBridge from "../components/PaymentReturnBridge";
 import SsoUsersScreen from "../screens/SsoUsersScreen";
@@ -36,6 +37,7 @@ export type RootStackParamList = {
   SessionHistory: undefined;
   PaymentHistory: undefined;
   DfccilPayment: { attemptId: string };
+  MockPayment: undefined;
   SessionPaymentStatus: {
     sessionId: string;
     paymentId: string;
@@ -84,6 +86,7 @@ function MainStack() {
       <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
       <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
       <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+      {__DEV__ ? <Stack.Screen name="MockPayment" component={MockPaymentScreen} /> : null}
       <Stack.Screen name="DfccilPayment" component={DfccilPaymentScreen} />
       <Stack.Screen name="SessionPaymentStatus" component={SessionPaymentStatusScreen} />
       <Stack.Screen name="RFIDBinding" component={RFIDBindingScreen} />
