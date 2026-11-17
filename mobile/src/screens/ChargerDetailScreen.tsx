@@ -259,7 +259,13 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
             )}
 
             {__DEV__ ? (
-              <View style={{ marginTop: spacing.md }}>
+              <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+                <AppButton
+                  title="Test real DFCCIL payment · ₹1"
+                  onPress={() => navigation.navigate("ProductionPaymentTest")}
+                  disabled={busy}
+                  variant="outline"
+                />
                 <AppButton
                   title="Test mock payment (temporary)"
                   onPress={() => navigation.navigate("MockPayment")}

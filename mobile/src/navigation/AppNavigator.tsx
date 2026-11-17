@@ -1,3 +1,4 @@
+import ProductionPaymentTestScreen from "../screens/ProductionPaymentTestScreen";
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
@@ -38,6 +39,7 @@ export type RootStackParamList = {
   PaymentHistory: undefined;
   DfccilPayment: { attemptId: string };
   MockPayment: undefined;
+  ProductionPaymentTest: undefined;
   SessionPaymentStatus: {
     sessionId: string;
     paymentId: string;
@@ -86,6 +88,7 @@ function MainStack() {
       <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
       <Stack.Screen name="SessionHistory" component={SessionHistoryScreen} />
       <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+      {__DEV__ ? <Stack.Screen name="ProductionPaymentTest" component={ProductionPaymentTestScreen} /> : null}
       {__DEV__ ? <Stack.Screen name="MockPayment" component={MockPaymentScreen} /> : null}
       <Stack.Screen name="DfccilPayment" component={DfccilPaymentScreen} />
       <Stack.Screen name="SessionPaymentStatus" component={SessionPaymentStatusScreen} />
