@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert, ScrollView, Text } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as WebBrowser from "expo-web-browser";
 import Header from "../components/Header";
 import AppButton from "../components/AppButton";
 import { backendEndpoint } from "../utils/ssoTransport";
-import { getSessionMeta } from "../services/authService";
+import { getSessionMeta, requireUserId } from "../services/authService";
 import type { DfccilPaymentAttempt } from "../services/dfccilPaymentService";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
@@ -16,28 +17,50 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [statusReady, setStatusReady] = useState(false);
+  const inFlight = useRef(false);
+  const storageKey = `dfccil-real-test:${requireUserId()}`;
   const call = useCallback(async (action: "create" | "status") => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true); setError("");
     if (action === "status") setStatusReady(false);
     try {
-      const response = await fetch(backendEndpoint("sso").replace(/\/sso$/, "/payments/production-test"), {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getSessionMeta()?.token || ""}` },
-        body: JSON.stringify({ action, ...(action === "create" ? { confirmRealPayment: true } : {}) }), signal: AbortSignal.timeout(25000),
-      });
-      if (response.status === 404) {
-        throw new Error("The real-payment test API is not deployed yet. Merge the backend branch, apply the test-payment database migration, enable DFCCIL_PRODUCTION_TEST_ENABLED in Vercel, and redeploy. Then tap Refresh payment status.");
+      const raw = await AsyncStorage.getItem(storageKey);
+      const saved = raw ? JSON.parse(raw) as { reference: string; phase: string } : null;
+      const send = async (operation: string, reference?: string) => {
+        const response = await fetch(backendEndpoint("sso").replace(/\/sso$/, "/payments/production-test"), {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getSessionMeta()?.token || ""}` },
+          body: JSON.stringify({ action: operation, reference, ...(operation !== "status" ? { confirmRealPayment: true } : {}) }), signal: AbortSignal.timeout(25000),
+        });
+        if (response.status === 404) throw new Error("The payment test API is not deployed. Merge the backend changes, enable DFCCIL_PRODUCTION_TEST_ENABLED on Vercel and redeploy, then refresh.");
+        let result;
+        try { result = JSON.parse(await response.text()); }
+        catch { throw new Error(`Unexpected payment response (HTTP ${response.status}). Do not retry creation; refresh status.`); }
+        if (result.productionTest !== true) throw new Error(result.error || "Unexpected production payment response");
+        if (result.reference) {
+          await AsyncStorage.setItem(storageKey, JSON.stringify({ reference: result.reference,
+            phase: result.attempt?.creation_state === "reserved" ? "creating" : "created" }));
+          setAttempt(result.attempt);
+        }
+        if (!response.ok) throw new Error(result.error || "Payment request failed");
+        return result;
+      };
+      if (action === "create") {
+        if (saved) throw new Error("A test request already exists on this device. Refresh its status; do not create another order.");
+        const prepared = await send("prepare");
+        // send() persists the signed reference and creating marker BEFORE the gateway request.
+        await send("create", prepared.reference);
+      } else {
+        const result = await send("status", saved?.reference);
+        setAttempt(result.attempt);
+        if (saved?.phase === "creating" && result.attempt?.creation_state === "reserved") {
+          throw new Error("Order creation may have been interrupted. Do not retry or clear app data. Reconcile with support before another payment.");
+        }
       }
-      const text = await response.text();
-      let result;
-      try { result = JSON.parse(text); }
-      catch { throw new Error(`The payment server returned an unexpected response (HTTP ${response.status}). Tap Refresh payment status before trying again.`); }
-      if (!response.ok) throw new Error(result.error || "Payment request failed");
-      if (result.productionTest !== true) throw new Error("Unexpected production payment response");
-      setAttempt(result.attempt);
       setStatusReady(true);
     } catch (e) { setError(e instanceof Error ? e.message : "Payment request failed"); }
-    finally { setBusy(false); }
-  }, []);
+    finally { inFlight.current = false; setBusy(false); }
+  }, [storageKey]);
   useFocusEffect(useCallback(() => { void call("status"); }, [call]));
   const checkout = async () => {
     if (!attempt?.canOpenCheckout || !attempt.orderId) return;
@@ -59,12 +82,12 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       <Text>₹{attempt.amount.toFixed(2)} · {attempt.status}</Text>
       {attempt.verified ? <Text>Payment confirmed by DFCCIL's server-side Status API.</Text> : null}
       {attempt.canOpenCheckout ? <AppButton title="Open DFCCIL checkout · ₹1 real payment" disabled={busy} onPress={() => { void checkout(); }} /> : null}
-      {!attempt.verified && !attempt.canOpenCheckout ? <Text>Refresh status before paying again. If the result is unclear, contact support with this reference. Checks are limited to once every 30 seconds.</Text> : null}
+      {!attempt.verified && !attempt.canOpenCheckout ? <Text>Refresh status before paying again. If the result is unclear, contact support with this reference. Wait 30 seconds between checks.</Text> : null}
     </> : <AppButton title="Create real ₹1 payment order" disabled={busy || !statusReady} onPress={() => Alert.alert("Real ₹1 payment", "This creates a production DFCCIL order. You will enter payment details on DFCCIL checkout. Continue?", [
       { text: "Cancel", style: "cancel" }, { text: "Create ₹1 order", onPress: () => { void call("create"); } },
     ])} />}
     {!attempt && !statusReady && !busy ? <Text>Create is unavailable until your existing payment status can be checked. Resolve the error above and tap Refresh payment status.</Text> : null}
     <AppButton title="Refresh payment status" loading={busy} onPress={() => { void call("status"); }} variant="outline" />
-    <Text>Only one production test order is allowed per account. Your order is restored from the server when you reopen this screen.</Text>
+    <Text>This device retains one signed test reference for this account for up to 7 days. Do not clear app data or switch devices during the test. The payment test does not use a database ledger.</Text>
   </ScrollView>;
 }

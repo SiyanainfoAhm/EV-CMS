@@ -1,4 +1,3 @@
-import { ProductionTestStore } from "./production-test.js";
 import { authenticate, bearer, database } from "../sso/sessions.js";
 import {
   AttemptStore,
@@ -115,19 +114,10 @@ export async function returnPayment(req, res) {
     return res.status(405).send(html("Method not allowed."));
   }
   try {
-    const store = new AttemptStore(database());
-    const result = await recordReturn(req.url, {
-      reported: async (orderId, status) => {
-        try { return await store.reported(orderId, status); }
-        catch (error) {
-          if (error.status !== 404) throw error;
-          return new ProductionTestStore(database()).reported(orderId, status);
-        }
-      },
-    });
+    const result = await recordReturn(req.url, new AttemptStore(database()));
     if (!uuid.test(result.attemptId || ""))
       throw new PaymentError("Invalid payment reference", 503);
-    const target = new URL(result.productionTest ? "in.dfccil.evcms://payments/production-test/return" : RETURN_URI);
+    const target = new URL(RETURN_URI);
     target.searchParams.set("attemptId", result.attemptId);
     return res
       .status(200)
@@ -145,8 +135,9 @@ export async function returnPayment(req, res) {
       .send(
         html(
           error.status === 404
-            ? "Payment reference not found."
+            ? "This reference is not a charging-bill payment. For a standalone test, return to its test screen and refresh status."
             : "The payment return could not be processed.",
+          error.status === 404 ? "in.dfccil.evcms://payments/production-test/return" : undefined,
         ),
       );
   }

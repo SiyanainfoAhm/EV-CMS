@@ -1,26 +1,19 @@
-# Real DFCCIL production checkout: INR 1
+# Real DFCCIL INR 1 checkout without a payment database
 
-This feature creates a real standalone INR 1 payment using `https://epay.dfccil.com`. It does not simulate the gateway. The payer enters payment details on the provider's checkout; available methods and minimum amounts are determined by DFCCIL. It does not create a charging session, settle a charging bill or provide an automatic refund.
+Only the standalone payment test skips database storage. Existing SSO still uses the existing Supabase configuration. No new migration or Supabase administrative access is required. The normal charging-bill payment flow is unchanged.
 
-## Deployment
+Merge the feature branch to main, set `DFCCIL_PRODUCTION_TEST_ENABLED=true` in Vercel Production and redeploy. Keep the existing DFCCIL gateway and registered return URL. The test API uses the existing SSO signing secret with a separate token issuer/audience; do not rotate that secret during the test. Previously applied test-ledger migrations can remain; this implementation does not access that table.
 
-1. Review and apply `supabase/migrations/20261117_dfccil_production_test.sql` to the existing database. This creates a private, service-role-only test ledger and reservation/verification functions. Do not run seed scripts.
-2. Merge the feature branch to main so Vercel deploys `/api/payments/production-test` and the updated existing payment return handler. The mock and production-test URL aliases share the existing configuration handler through Vercel rewrites, keeping the deployment within 12 functions.
-3. Set `DFCCIL_PRODUCTION_TEST_ENABLED=true` in Vercel Production and redeploy. Existing SSO, service-role and DFCCIL configuration are reused. Keep the registered `DFCCIL_PAYMENT_RETURN_URL`; no new provider callback registration is needed. This dedicated flag does not enable charging-bill payments.
-4. Run the updated mobile development build, sign in with the intended DFCCIL User account, and open any charger.
+In the development app, open a charger and tap **Test real DFCCIL payment · ₹1**. Refresh status, create the order and confirm, then open checkout. Enter real payment details only in the provider checkout. This charges real money if completed, and offers no automatic refund.
 
-## Test
+Before creating the gateway order, the server signs an INR 1 test reference tied to the SSO user/Virtual ID. The app saves that reference and a creating marker before sending the create request. The resulting signed order reference is retained locally per account. Reopen the screen to restore it and refresh status. Only a matching gateway order/App ID/amount with SUCCESS and CHARGED verifies success. The unsigned return never confirms payment. If the return page stays open, close it and refresh manually. Wait 30 seconds between status checks.
 
-Tap **Test real DFCCIL payment · ₹1**. Review the real-money notice, tap **Create real ₹1 payment order**, and confirm. Then tap **Open DFCCIL checkout · ₹1 real payment**. Enter payment details only on the DFCCIL/provider checkout. The feature does not collect card numbers in EV-CMS.
+## Controlled-test limitations
 
-Return to the app and refresh payment status. If needed, wait 30 seconds between checks. Only a matching order ID, App ID, amount and `SUCCESS` / `CHARGED` from DFCCIL's authenticated server-side status lookup is shown as confirmed. The browser return alone cannot mark a test paid. If the browser stays on the gateway, close it and refresh manually.
+Signed references expire after 7 days. Do not clear app data, reinstall, switch devices or rotate the signing secret during the test. Copy the displayed gateway order ID for reconciliation. There is no server payment ledger, cross-device recovery or server-side exactly-once creation guarantee. A prepared reference can be replayed outside the app, and the backend cannot globally rate-limit checks without storage. This is not the production billing architecture.
 
-Reopening this screen restores the order from the server, including after an app restart or reinstall. The database allows only one test order per user, including failed, cancelled, ambiguous and paid attempts. Double taps or retries return that existing order. Do not delete records to retry an uncertain charge; reconcile the reference first. No real order is created by tests or deployment.
+The app prevents duplicate taps and persists a creating marker before the gateway request. An interrupted create remains blocked; do not clear local data to retry an uncertain charge. Contact support/provider to reconcile first. An order ID lost with the creation response cannot be recovered automatically. Status remains available with a valid reference when the create feature flag is disabled.
 
-Disable `DFCCIL_PRODUCTION_TEST_ENABLED` and redeploy after the controlled test. Status lookup remains available for reconciliation. Keep the test ledger for accounting/refund follow-up; it is separate from charging payment history. An administrator must arrange any refund through the provider's normal process.
+After the controlled test, disable `DFCCIL_PRODUCTION_TEST_ENABLED` and redeploy. Normal production charging payments retain their database ledger. No real gateway order is created by automated tests.
 
-## Limits
-
-DFCCIL may reject INR 1 or the standalone description under the existing EV001/nature-of-payment mapping. Do not relabel the test as a charging bill to bypass rejection. Provider acceptance, available payment methods and settlement must be confirmed by the actual checkout. No live payment has been made as part of implementation.
-
-Validation: `npm --prefix mobile run typecheck`; `node --test tests/production-payment-test.test.js tests/dfccil-payment.test.js tests/dfccil-payment-sql.test.js tests/sso.test.js tests/mobile-authorization.test.js`.
+Validation: `npm --prefix mobile run typecheck`; `node --test tests/production-payment-test.test.js tests/dfccil-payment.test.js tests/dfccil-payment-sql.test.js tests/sso.test.js tests/mobile-authorization.test.js tests/payment-mock.test.js`; `npm run check:deployment`.
