@@ -65,3 +65,21 @@ test("status rejects mismatched amount and leaves payment unverified",async()=>{
  const checked=await call(h,{action:"status",reference:created.body.reference});
  assert.equal(checked.code,502);assert.equal(checked.body.attempt.verified,false);
 });
+
+test("diagnostics only perform a GET status probe and never create an order", async () => {
+ let calls=0;
+ const h=handler({request:async(url,init)=>{
+  calls++;assert.equal(init.method,"GET");
+  assert.equal(url,"https://epay.dfccil.com/Payment/Status/EV-CMS-CONNECTIVITY-CHECK");
+  return new Response("blocked",{status:403,headers:{"Content-Type":"text/html"}});
+ }});
+ const result=await call(h,{action:"diagnose"});
+ assert.equal(result.code,200);assert.equal(result.body.diagnostics.httpStatus,403);
+ assert.equal(calls,1);assert.equal(result.body.reference,undefined);
+});
+test("diagnostics report transport codes without exposing upstream error messages", async () => {
+ const h=handler({request:async()=>{throw new TypeError("secret upstream data",{cause:{code:"CERT_HAS_EXPIRED"}});}});
+ const result=await call(h,{action:"diagnose"});
+ assert.equal(result.body.diagnostics.code,"CERT_HAS_EXPIRED");
+ assert.equal(JSON.stringify(result.body).includes("secret upstream data"),false);
+});
