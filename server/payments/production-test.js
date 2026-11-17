@@ -1,3 +1,4 @@
+import { gatewayFetch } from "./gateway-fetch.js";
 import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { authenticate, bearer, sessionKey } from "../sso/sessions.js";
@@ -5,7 +6,7 @@ import { configuration, PaymentError, publicAttempt, submitReservedPayment, veri
 
 const TOKEN_SCOPE = "ev-cms-production-payment-test";
 export function productionTestHandler({ authorize = authenticate, key = sessionKey,
-  env = () => process.env, request = fetch } = {}) {
+  env = () => process.env, request = gatewayFetch } = {}) {
   return async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
