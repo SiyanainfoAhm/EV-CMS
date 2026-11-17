@@ -1,3 +1,4 @@
+import { gatewayFetch } from "./gateway-fetch.js";
 export class PaymentError extends Error {
   constructor(message, status = 400) {
     super(message);
@@ -187,7 +188,7 @@ export async function createPayment(
   input,
   store,
   config = configuration(),
-  request = fetch,
+  request = gatewayFetch,
 ) {
   if (!config.enabled)
     throw new PaymentError("Online payments are not enabled yet.", 503);
@@ -219,7 +220,7 @@ export async function createPayment(
 }
 
 // The caller must durably reserve and validate ownership/amount before reaching the gateway.
-export async function submitReservedPayment(auth, a, store, config, request = fetch,
+export async function submitReservedPayment(auth, a, store, config, request = gatewayFetch,
   description = `EV charging bill ${a.session_id}`) {
   let orderId;
   let stage = "request";
@@ -333,7 +334,7 @@ export async function receipt(
   attemptId,
   store,
   config = configuration(),
-  request = fetch,
+  request = gatewayFetch,
 ) {
   if (!uuid.test(attemptId || ""))
     throw new PaymentError("Invalid payment reference");
@@ -380,7 +381,7 @@ export async function receipt(
 }
 
 // Only this server-to-server HTTPS response can authorize financial finalization.
-export async function verifyPaymentStatus(auth, attempt, store, config = configuration(), request = fetch) {
+export async function verifyPaymentStatus(auth, attempt, store, config = configuration(), request = gatewayFetch) {
   if (!attempt) return null;
   if (attempt.user_id !== auth.user.id) throw new PaymentError("Payment not found", 404);
   if (!attempt.order_id || attempt.resolution === "paid") return attempt;

@@ -17,3 +17,11 @@ The app prevents duplicate taps and persists a creating marker before the gatewa
 After the controlled test, disable `DFCCIL_PRODUCTION_TEST_ENABLED` and redeploy. Normal production charging payments retain their database ledger. No real gateway order is created by automated tests.
 
 Validation: `npm --prefix mobile run typecheck`; `node --test tests/production-payment-test.test.js tests/dfccil-payment.test.js tests/dfccil-payment-sql.test.js tests/sso.test.js tests/mobile-authorization.test.js tests/payment-mock.test.js`; `npm run check:deployment`.
+
+## Gateway TLS chain
+
+The gateway was observed sending only its wildcard leaf certificate on 2026-11-17. The payment transport now supplies the missing GlobalSign GCC R46 OV TLS CA 2025 intermediate only for `https://epay.dfccil.com`. It retains Node's bundled roots, normal hostname/expiry/signature checks and rejection of redirects. No global TLS settings change.
+
+The public certificate is embedded in `server/payments/globalsign-intermediate.js` to ensure serverless bundling includes it. It was obtained over verified HTTPS from `https://secure.globalsign.com/cacert/gsgccr46ovtlsca2025.crt`; its SHA-256 fingerprint and trusted-root signature are tested. It expires on 2029-06-23. Revalidate this workaround when DFCCIL rotates its chain; prefer the provider serving a complete chain.
+
+A local read-only status probe now passes TLS verification and receives HTTP 403 from Azure Application Gateway. That HTTP response is distinct from the certificate failure and does not establish how Vercel egress will be handled. After merging/deploying, use **Check gateway connection (no payment)** before attempting checkout. No real order was created to validate the TLS fix.
