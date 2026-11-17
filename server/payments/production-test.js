@@ -1,65 +1,67 @@
-import { authenticate, bearer, database } from "../sso/sessions.js";
+import { randomUUID } from "node:crypto";
+import { SignJWT, jwtVerify } from "jose";
+import { authenticate, bearer, sessionKey } from "../sso/sessions.js";
 import { configuration, PaymentError, publicAttempt, submitReservedPayment, verifyPaymentStatus, uuid } from "./dfccil.js";
 
-export class ProductionTestStore {
-  constructor(db) { this.db = db; }
-  async rpc(name, args) {
-    const { data, error } = await this.db.rpc(name, args);
-    if (error) throw new PaymentError("Production test storage is not ready. Contact support before retrying.", 503);
-    return data;
-  }
-  async latest(userId) {
-    const { data, error } = await this.db.from("EV_DfccilProductionTests").select("*").eq("user_id", userId).maybeSingle();
-    if (error) throw new PaymentError("Production test storage is not ready.", 503);
-    return data;
-  }
-  async update(id, values) {
-    const { error } = await this.db.from("EV_DfccilProductionTests").update({ ...values, updated_at: new Date().toISOString() }).eq("id", id);
-    if (error) throw new PaymentError("Could not save payment reference. Do not create another order.", 503);
-  }
-  claimStatus(auth, id) { return this.rpc("ev_dfccil_test_claim", { p_user_id: auth.user.id, p_id: id }); }
-  finalizeStatus(a, result) { return this.rpc("ev_dfccil_test_finalize", { p_id: a.id, p_token: a.status_check_token, p_result: result }); }
-  async reported(orderId, status) {
-    const { data, error } = await this.db.from("EV_DfccilProductionTests").select("id,verified_at").eq("order_id", orderId).maybeSingle();
-    if (error || !data) throw new PaymentError("Payment not found", 404);
-    // The unsigned return is navigation only. Only the status verifier may mark paid.
-    await this.update(data.id, { reported_status: status });
-    return { attemptId: data.id, verified: Boolean(data.verified_at), productionTest: true };
-  }
-}
-
-export function productionTestHandler({ authorize = authenticate, db = database,
+const TOKEN_SCOPE = "ev-cms-production-payment-test";
+export function productionTestHandler({ authorize = authenticate, key = sessionKey,
   env = () => process.env, request = fetch } = {}) {
   return async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
     let auth;
     try { auth = await authorize(bearer(req)); } catch { return res.status(401).json({ error: "Sign in again." }); }
+    let a;
+    const respond = async (status = 200, error) => {
+      const reference = a ? await new SignJWT({ attempt: a, virtualId: auth.claims.virtualId })
+        .setProtectedHeader({ alg: "HS256" }).setSubject(auth.user.id).setIssuer(TOKEN_SCOPE)
+        .setAudience(TOKEN_SCOPE).setIssuedAt().setExpirationTime("7d").sign(key()) : null;
+      return res.status(status).json({ productionTest: true, reference, attempt: publicAttempt(a), ...(error ? { error } : {}) });
+    };
     try {
       if (auth.user.role !== "User" || !uuid.test(auth.claims.virtualId || "")) throw new PaymentError("An active DFCCIL user account is required.", 403);
       const input = req.body || {};
-      if (!["create", "status"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment"].includes(k))) throw new PaymentError("Invalid request");
+      if (!["prepare", "create", "status"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "reference"].includes(k))) throw new PaymentError("Invalid request");
       const settings = env();
       const config = configuration(settings);
-      // Keep the registered return URL, but never allow this test to target another gateway.
       if (config.baseUrl !== "https://epay.dfccil.com") throw new PaymentError("Production DFCCIL gateway configuration required.", 503);
-      if (input.action === "create") {
+      if (input.reference) {
+        let payload;
+        try { ({ payload } = await jwtVerify(input.reference, key(), { algorithms: ["HS256"], issuer: TOKEN_SCOPE, audience: TOKEN_SCOPE, requiredClaims: ["sub", "exp", "iat"] })); }
+        catch { throw new PaymentError("Invalid or expired test reference. Do not create another order; reconcile the existing payment first."); }
+        if (payload.sub !== auth.user.id || payload.virtualId !== auth.claims.virtualId) throw new PaymentError("Payment reference belongs to another account.", 403);
+        const saved = payload.attempt;
+        if (!saved || saved.user_id !== auth.user.id || Number(saved.amount) !== 1 || saved.app_id !== config.appId) throw new PaymentError("Invalid test reference.");
+        a = saved;
+      }
+      if (input.action === "prepare" || input.action === "create") {
         if (settings.DFCCIL_PRODUCTION_TEST_ENABLED !== "true") throw new PaymentError("Production payment test is disabled.", 503);
         if (input.confirmRealPayment !== true) throw new PaymentError("Confirm the real ₹1 payment first.");
       }
-      const store = new ProductionTestStore(db());
-      let a;
+      if (input.action === "prepare") {
+        if (a) throw new PaymentError("A test reference already exists. Check its status before paying again.", 409);
+        a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };
+        return await respond();
+      }
+      const store = {
+        update: async (_id, values) => { a = { ...a, ...values }; },
+        claimStatus: async () => ({ check: true, attempt: a }),
+        finalizeStatus: async (_attempt, result) => {
+          a = { ...a, gateway_status: result.status, reported_status: result.status,
+            resolution: result.statusGroup === "SUCCESS" ? "paid" : result.status === "CANCELLED" ? "cancelled" : result.statusGroup === "FAILED" && result.status !== "AMOUNT_MISMATCH" ? "failed" : "open",
+            verified_at: result.statusGroup === "SUCCESS" ? new Date().toISOString() : null };
+          return a;
+        },
+      };
       if (input.action === "create") {
-        const reserved = await store.rpc("ev_dfccil_test_reserve", { p_user_id: auth.user.id, p_virtual_id: auth.claims.virtualId, p_app_id: config.appId, p_nature_id: config.natureId });
-        a = reserved?.attempt;
-        if (!a || a.user_id !== auth.user.id || Number(a.amount) !== 1) throw new PaymentError("Invalid test reservation", 503);
-        if (reserved.created) {
-          const attempt = await submitReservedPayment(auth, a, store, config, request, "EV-CMS standalone production verification payment (INR 1)");
-          return res.status(200).json({ productionTest: true, attempt });
-        }
-      } else { a = await store.latest(auth.user.id); }
-      a = await verifyPaymentStatus(auth, a, store, config, request);
-      return res.status(200).json({ productionTest: true, attempt: publicAttempt(a) });
-    } catch (e) { return res.status(e.status || 503).json({ error: e.status ? e.message : "Production test unavailable. Check status before retrying." }); }
+        if (!a || a.creation_state !== "reserved" || a.order_id) throw new PaymentError("A prepared test reference is required; do not retry an existing order.", 409);
+        // No database ledger: the client must persist its creating marker before this request.
+        a = { ...a, creation_state: "unknown" };
+        await submitReservedPayment(auth, a, store, config, request, "EV-CMS standalone production verification payment (INR 1)");
+      } else if (a) { a = await verifyPaymentStatus(auth, a, store, config, request); }
+      return await respond();
+    } catch (e) {
+      return respond(e.status || 503, e.status ? e.message : "Production test unavailable. Do not retry order creation; check the existing reference.");
+    }
   };
 }
