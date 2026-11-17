@@ -21,10 +21,26 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
     try {
       if (auth.user.role !== "User" || !uuid.test(auth.claims.virtualId || "")) throw new PaymentError("An active DFCCIL user account is required.", 403);
       const input = req.body || {};
-      if (!["prepare", "create", "status"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "reference"].includes(k))) throw new PaymentError("Invalid request");
+      if (!["prepare", "create", "status", "diagnose"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "reference"].includes(k))) throw new PaymentError("Invalid request");
       const settings = env();
       const config = configuration(settings);
       if (config.baseUrl !== "https://epay.dfccil.com") throw new PaymentError("Production DFCCIL gateway configuration required.", 503);
+      if (input.action === "diagnose") {
+        // Read-only status lookup for a deliberately invalid reference; never creates an order.
+        try {
+          const result = await request(`${config.baseUrl}/Payment/Status/EV-CMS-CONNECTIVITY-CHECK`, {
+            method: "GET", redirect: "error", signal: AbortSignal.timeout(10000), headers: { Accept: "application/json" },
+          });
+          const diagnostics = { httpStatus: result.status, contentType: result.headers.get("content-type")?.split(";")[0] || "unknown" };
+          console.info(JSON.stringify({ event: "dfccil_connectivity_probe", ...diagnostics }));
+          return res.status(200).json({ productionTest: true, diagnostics });
+        } catch (error) {
+          const code = /^[A-Z0-9_]{1,64}$/.test(error?.cause?.code || "") ? error.cause.code : "UNAVAILABLE";
+          const diagnostics = { category: error?.name === "TimeoutError" ? "timeout" : "network", code };
+          console.error(JSON.stringify({ event: "dfccil_connectivity_probe", ...diagnostics }));
+          return res.status(200).json({ productionTest: true, diagnostics });
+        }
+      }
       if (input.reference) {
         let payload;
         try { ({ payload } = await jwtVerify(input.reference, key(), { algorithms: ["HS256"], issuer: TOKEN_SCOPE, audience: TOKEN_SCOPE, requiredClaims: ["sub", "exp", "iat"] })); }

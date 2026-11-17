@@ -222,6 +222,9 @@ export async function createPayment(
 export async function submitReservedPayment(auth, a, store, config, request = fetch,
   description = `EV charging bill ${a.session_id}`) {
   let orderId;
+  let stage = "request";
+  let httpStatus;
+  let contentType;
   try {
     const response = await request(
       `${config.baseUrl}/Payment/SavePaymentData`,
@@ -241,7 +244,11 @@ export async function submitReservedPayment(auth, a, store, config, request = fe
         }),
       },
     );
+    httpStatus = response.status;
+    contentType = response.headers.get("content-type")?.split(";")[0];
+    stage = "http_response";
     if (!response.ok) {
+      console.error(JSON.stringify({ event: "dfccil_order_http_error", attemptId: a.id, httpStatus, contentType }));
       const problem = response.status === 400 && response.headers.get("content-type")?.includes("application/problem+json")
         ? await response.json().catch(() => ({})) : {};
       // Only documented pre-order validation errors are safe to retry as new orders.
@@ -259,9 +266,12 @@ export async function submitReservedPayment(auth, a, store, config, request = fe
         resolution: rejected ? "failed" : "open",
       });
     }
+    stage = "decode_response";
     const result = await response.json();
-    orderId = result.orderId;
-    const url = checkoutUrl(orderId, result.paymentUrl, config);
+    orderId = result?.orderId;
+    stage = "validate_checkout";
+    const url = checkoutUrl(orderId, result?.paymentUrl, config);
+    stage = "save_reference";
     await store.update(a.id, {
       order_id: orderId,
       checkout_url: url,
@@ -274,6 +284,10 @@ export async function submitReservedPayment(auth, a, store, config, request = fe
       creation_state: "ready",
     });
   } catch (error) {
+    const networkCode = /^[A-Z0-9_]{1,64}$/.test(error?.cause?.code || "") ? error.cause.code : undefined;
+    const category = stage === "request" ? (error?.name === "TimeoutError" ? "timeout" : "network") : stage;
+    console.error(JSON.stringify({ event: "dfccil_order_creation_unconfirmed", attemptId: a.id,
+      category, networkCode, httpStatus, contentType, hasOrderId: validOrder(orderId) }));
     try {
       await store.update(a.id, {
         creation_state: "unknown",

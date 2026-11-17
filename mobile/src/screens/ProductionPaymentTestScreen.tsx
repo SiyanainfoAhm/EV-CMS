@@ -16,10 +16,11 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
   const [attempt, setAttempt] = useState<DfccilPaymentAttempt | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const [diagnostics, setDiagnostics] = useState("");
   const [statusReady, setStatusReady] = useState(false);
   const inFlight = useRef(false);
   const storageKey = `dfccil-real-test:${requireUserId()}`;
-  const call = useCallback(async (action: "create" | "status") => {
+  const call = useCallback(async (action: "create" | "status" | "diagnose") => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setError("");
@@ -30,7 +31,7 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       const send = async (operation: string, reference?: string) => {
         const response = await fetch(backendEndpoint("sso").replace(/\/sso$/, "/payments/production-test"), {
           method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getSessionMeta()?.token || ""}` },
-          body: JSON.stringify({ action: operation, reference, ...(operation !== "status" ? { confirmRealPayment: true } : {}) }), signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({ action: operation, reference, ...(["prepare", "create"].includes(operation) ? { confirmRealPayment: true } : {}) }), signal: AbortSignal.timeout(25000),
         });
         if (response.status === 404) throw new Error("The payment test API is not deployed. Merge the backend changes, enable DFCCIL_PRODUCTION_TEST_ENABLED on Vercel and redeploy, then refresh.");
         let result;
@@ -45,6 +46,12 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
         if (!response.ok) throw new Error(result.error || "Payment request failed");
         return result;
       };
+      if (action === "diagnose") {
+        const result = await send("diagnose");
+        const d = result.diagnostics;
+        setDiagnostics(d.httpStatus ? `Gateway connectivity: HTTP ${d.httpStatus} (${d.contentType}). This read-only check used an invalid reference; it does not recover or create a payment order.` : `Gateway connectivity: ${d.category} (${d.code}). No order was created by this check.`);
+        return;
+      }
       if (action === "create") {
         if (saved) throw new Error("A test request already exists on this device. Refresh its status; do not create another order.");
         const prepared = await send("prepare");
@@ -88,6 +95,8 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
     ])} />}
     {!attempt && !statusReady && !busy ? <Text>Create is unavailable until your existing payment status can be checked. Resolve the error above and tap Refresh payment status.</Text> : null}
     <AppButton title="Refresh payment status" loading={busy} onPress={() => { void call("status"); }} variant="outline" />
+    <AppButton title="Check gateway connection (no payment)" disabled={busy} onPress={() => { void call("diagnose"); }} variant="outline" />
+    {diagnostics ? <Text selectable>{diagnostics}</Text> : null}
     <Text>This device retains one signed test reference for this account for up to 7 days. Do not clear app data or switch devices during the test. The payment test does not use a database ledger.</Text>
   </ScrollView>;
 }
