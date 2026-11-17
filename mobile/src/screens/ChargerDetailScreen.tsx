@@ -258,6 +258,19 @@ export default function ChargerDetailScreen({ navigation, route }: Props) {
               </View>
             )}
 
+            {__DEV__ ? (
+              <View style={{ marginTop: spacing.md }}>
+                <AppButton
+                  title="Test mock payment (temporary)"
+                  onPress={() => navigation.navigate("MockPayment")}
+                  disabled={busy}
+                  variant="outline"
+                />
+                <Text style={styles.placeholderBody}>
+                  Test success, failure, cancellation and pending status without a charging bill or real payment.
+                </Text>
+              </View>
+            ) : null}
             {!canCharge ? <AdminNoticeBanner /> : null}
           </>
         ) : !error ? (
