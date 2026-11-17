@@ -12,6 +12,14 @@
   "installCommand": "npm ci",
   "rewrites": [
     {
+      "source": "/api/payments/production-test",
+      "destination": "/api/payments/dfccil/config?paymentTest=production"
+    },
+    {
+      "source": "/api/payments/mock",
+      "destination": "/api/payments/dfccil/config?paymentTest=mock"
+    },
+    {
       "source": "/api/power-automate-test-email",
       "destination": "/api/power-automate-email"
     },

@@ -215,6 +215,12 @@ export async function createPayment(
   )
     throw new PaymentError("Payment reservation does not match the bill", 503);
   if (!reserved.created) return publicAttempt(a); // Never retry ambiguous or already-created external orders.
+  return submitReservedPayment(auth, a, store, config, request);
+}
+
+// The caller must durably reserve and validate ownership/amount before reaching the gateway.
+export async function submitReservedPayment(auth, a, store, config, request = fetch,
+  description = `EV charging bill ${a.session_id}`) {
   let orderId;
   try {
     const response = await request(
@@ -229,7 +235,7 @@ export async function createPayment(
           ClientId: CLIENT_ID,
           VirtualId: auth.claims.virtualId,
           Amount: Number(a.amount),
-          Description: `EV charging bill ${a.session_id}`,
+          Description: description,
           NatureOfPaymentId: String(config.natureId),
           ReturnUrl: config.returnUrl,
         }),
