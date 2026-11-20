@@ -6,7 +6,8 @@ const user = "11111111-1111-4111-8111-111111111111";
 const virtualId = "cdab677d-fa11-480b-baf7-6806ade66186";
 const key = () => new TextEncoder().encode("fixture-secret-at-least-thirty-two-bytes");
 const auth = { user: { id: user, role: "User" }, claims: { virtualId } };
-function handler(options = {}) { return productionTestHandler({ authorize: async () => auth, key, env: () => ({ DFCCIL_PRODUCTION_TEST_ENABLED: "true" }), ...options }); }
+const mobileEpayHeader = "a".repeat(64);
+function handler(options = {}) { return productionTestHandler({ authorize: async () => auth, key, env: () => ({ DFCCIL_PRODUCTION_TEST_ENABLED: "true", DFCCIL_MOBILE_EPAY_HEADER: mobileEpayHeader }), ...options }); }
 async function call(h, body) {
  const res={setHeader(){},status(code){this.code=code;return this;},json(body){this.body=body;return this;}};
  await h({method:"POST",headers:{authorization:"Bearer fixture"},body},res);return res;
@@ -27,6 +28,7 @@ test("prepare never calls gateway; real creation, restoration and verification n
   if(url.endsWith("SavePaymentData")){
    orders++;const payload=JSON.parse(init.body);assert.equal(payload.Amount,1);assert.equal(payload.VirtualId,virtualId);
    assert.equal(payload.ReturnUrl,"https://ev-cms-rho.vercel.app/api/payments/dfccil/return");
+   assert.equal(init.headers["mobile-epay"],mobileEpayHeader);
    return Response.json({orderId:"ORDER123456",paymentUrl:"https://epay.dfccil.com/Payment/Pay/ORDER123456"});
   }
   statuses++;return Response.json({orderId:"ORDER123456",appId:"EV001",amount:1,status:"CHARGED",statusGroup:"SUCCESS"});
@@ -71,11 +73,20 @@ test("diagnostics only perform a GET status probe and never create an order", as
  const h=handler({request:async(url,init)=>{
   calls++;assert.equal(init.method,"GET");
   assert.equal(url,"https://epay.dfccil.com/Payment/Status/EV-CMS-CONNECTIVITY-CHECK");
+  assert.equal(init.headers["mobile-epay"],mobileEpayHeader);
   return new Response("blocked",{status:403,headers:{"Content-Type":"text/html"}});
  }});
  const result=await call(h,{action:"diagnose"});
  assert.equal(result.code,200);assert.equal(result.body.diagnostics.httpStatus,403);
  assert.equal(calls,1);assert.equal(result.body.reference,undefined);
+});
+test("diagnostics do not call the gateway when the server-only credential is absent", async () => {
+ let calls = 0;
+ const h = handler({ env: () => ({ DFCCIL_PRODUCTION_TEST_ENABLED: "true" }), request: async () => { calls++; } });
+ const result = await call(h, { action: "diagnose" });
+ assert.equal(result.code, 503);
+ assert.match(result.body.error, /authentication is not configured/i);
+ assert.equal(calls, 0);
 });
 test("diagnostics report transport codes without exposing upstream error messages", async () => {
  const h=handler({request:async()=>{throw new TypeError("secret upstream data",{cause:{code:"CERT_HAS_EXPIRED"}});}});

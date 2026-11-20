@@ -2,7 +2,7 @@ import { gatewayFetch } from "./gateway-fetch.js";
 import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { authenticate, bearer, sessionKey } from "../sso/sessions.js";
-import { configuration, PaymentError, publicAttempt, submitReservedPayment, verifyPaymentStatus, uuid } from "./dfccil.js";
+import { configuration, gatewayHeaders, PaymentError, publicAttempt, submitReservedPayment, verifyPaymentStatus, uuid } from "./dfccil.js";
 
 const TOKEN_SCOPE = "ev-cms-production-payment-test";
 export function productionTestHandler({ authorize = authenticate, key = sessionKey,
@@ -30,12 +30,14 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
         // Read-only status lookup for a deliberately invalid reference; never creates an order.
         try {
           const result = await request(`${config.baseUrl}/Payment/Status/EV-CMS-CONNECTIVITY-CHECK`, {
-            method: "GET", redirect: "error", signal: AbortSignal.timeout(10000), headers: { Accept: "application/json" },
+            method: "GET", redirect: "error", signal: AbortSignal.timeout(10000),
+            headers: gatewayHeaders(config, { Accept: "application/json" }),
           });
           const diagnostics = { httpStatus: result.status, contentType: result.headers.get("content-type")?.split(";")[0] || "unknown" };
           console.info(JSON.stringify({ event: "dfccil_connectivity_probe", ...diagnostics }));
           return res.status(200).json({ productionTest: true, diagnostics });
         } catch (error) {
+          if (error instanceof PaymentError) throw error;
           const code = /^[A-Z0-9_]{1,64}$/.test(error?.cause?.code || "") ? error.cause.code : "UNAVAILABLE";
           const diagnostics = { category: error?.name === "TimeoutError" ? "timeout" : "network", code };
           console.error(JSON.stringify({ event: "dfccil_connectivity_probe", ...diagnostics }));

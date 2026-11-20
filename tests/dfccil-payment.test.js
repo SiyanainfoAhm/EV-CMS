@@ -8,6 +8,7 @@ import {
   recordReturn,
   receipt,
   CLIENT_ID,
+  gatewayHeaders,
   verifyPaymentStatus,
 } from "../server/payments/dfccil.js";
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -17,7 +18,8 @@ const auth = {
   user: { id: "33333333-3333-4333-8333-333333333333", role: "User" },
   claims: { virtualId, sub: "internal-user-id" },
 };
-const config = { ...configuration({}), enabled: true };
+const mobileEpayHeader = "a".repeat(64);
+const config = { ...configuration({ DFCCIL_MOBILE_EPAY_HEADER: mobileEpayHeader }), enabled: true };
 const orderId = "A1B2C3D4E5F60718293A4B5C6D7E8F";
 function storeFixture() {
   const row = {
@@ -75,6 +77,7 @@ test("payment creation uses server bill and external Virtual ID, with no persona
         ReturnUrl: config.returnUrl,
       });
       assert.equal(request.redirect, "error");
+      assert.equal(request.headers["mobile-epay"], mobileEpayHeader);
       return paidResponse();
     },
   );
@@ -180,6 +183,14 @@ test("configuration rejects non-HTTPS callback and credential-bearing URLs", () 
     }),
   );
   assert.throws(() => configuration({ DFCCIL_NATURE_OF_PAYMENT_ID: "bad" }));
+  assert.throws(() => configuration({ DFCCIL_MOBILE_EPAY_HEADER: "not-a-credential" }));
+});
+test("gateway credential is server-only, required for gateway calls, and cannot be overridden", () => {
+  assert.throws(() => gatewayHeaders(configuration({})), /not configured/);
+  assert.deepEqual(gatewayHeaders(config, { Accept: "application/json", "mobile-epay": "client-value" }), {
+    Accept: "application/json",
+    "mobile-epay": mobileEpayHeader,
+  });
 });
 test("an unsigned CHARGED report is pending, never verified or checkout-ready", async () => {
   const store = storeFixture();
@@ -253,8 +264,9 @@ test("only verified payments retrieve an official PDF from the fixed gateway", a
     resolution: "paid",
     verified_at: new Date().toISOString(),
   });
-  const pdf = await receipt(auth, attemptId, store, config, async (url) => {
+  const pdf = await receipt(auth, attemptId, store, config, async (url, options) => {
     assert.equal(url, `${config.baseUrl}/Payment/GetReceipt/${orderId}`);
+    assert.equal(options.headers["mobile-epay"], mobileEpayHeader);
     return new Response("%PDF-1.7\nfixture", {
       headers: { "Content-Type": "application/pdf" },
     });
@@ -305,6 +317,7 @@ test('server verifies status over fixed HTTPS and persists only matching gateway
  const row=await verifyPaymentStatus(auth,store.row,store,config,async(url,options)=>{
   assert.equal(url,`https://epay.dfccil.com/Payment/Status/${orderId}`);
   assert.equal(options.method,'GET');assert.equal(options.redirect,'error');
+  assert.equal(options.headers["mobile-epay"],mobileEpayHeader);
   return Response.json(statusResult);
  });
  assert.equal(row.resolution,'paid');assert.equal(store.finalized.amount,123.45);

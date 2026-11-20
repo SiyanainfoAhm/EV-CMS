@@ -11,6 +11,8 @@ export const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const validOrder = (value) =>
   typeof value === "string" && /^[A-Za-z0-9_-]{8,128}$/.test(value);
+const validMobileEpayCredential = (value) =>
+  typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 export function configuration(env = process.env) {
   const baseUrl = env.DFCCIL_PAYMENT_BASE_URL || "https://epay.dfccil.com";
   const appId = env.DFCCIL_PAYMENT_APP_ID || "EV001";
@@ -18,6 +20,7 @@ export function configuration(env = process.env) {
   const returnUrl =
     env.DFCCIL_PAYMENT_RETURN_URL ||
     "https://ev-cms-rho.vercel.app/api/payments/dfccil/return";
+  const mobileEpayHeader = env.DFCCIL_MOBILE_EPAY_HEADER?.trim();
   for (const value of [baseUrl, returnUrl]) {
     let url;
     try {
@@ -39,13 +42,23 @@ export function configuration(env = process.env) {
   }
   if (!appId || !Number.isInteger(natureId) || natureId <= 0)
     throw new PaymentError("Payment configuration is invalid", 503);
+  if (mobileEpayHeader && !validMobileEpayCredential(mobileEpayHeader))
+    throw new PaymentError("DFCCIL gateway credential is invalid", 503);
   return {
     enabled: env.DFCCIL_PAYMENTS_ENABLED === "true",
     baseUrl: baseUrl.replace(/\/$/, ""),
     appId,
     natureId,
     returnUrl,
+    mobileEpayHeader,
   };
+}
+
+// This is deliberately server-only. Do not add it to VITE_ variables or mobile config.
+export function gatewayHeaders(config, headers = {}) {
+  if (!validMobileEpayCredential(config.mobileEpayHeader))
+    throw new PaymentError("DFCCIL gateway authentication is not configured.", 503);
+  return { ...headers, "mobile-epay": config.mobileEpayHeader };
 }
 export function checkoutUrl(orderId, returnedUrl, config) {
   if (!validOrder(orderId))
@@ -231,7 +244,7 @@ export async function submitReservedPayment(auth, a, store, config, request = ga
       `${config.baseUrl}/Payment/SavePaymentData`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: gatewayHeaders(config, { "Content-Type": "application/json" }),
         redirect: "error",
         signal: AbortSignal.timeout(15000),
         body: JSON.stringify({
@@ -348,7 +361,7 @@ export async function receipt(
     );
   const result = await request(
     `${config.baseUrl}/Payment/GetReceipt/${encodeURIComponent(a.order_id)}`,
-    { redirect: "error", signal: AbortSignal.timeout(15000) },
+    { redirect: "error", signal: AbortSignal.timeout(15000), headers: gatewayHeaders(config) },
   );
   if (
     !result.ok ||
@@ -395,7 +408,8 @@ export async function verifyPaymentStatus(auth, attempt, store, config = configu
   let result;
   try {
     const response = await request(`${config.baseUrl}/Payment/Status/${encodeURIComponent(a.order_id)}`, {
-      method: "GET", redirect: "error", signal: AbortSignal.timeout(15000), headers: { Accept: "application/json" },
+      method: "GET", redirect: "error", signal: AbortSignal.timeout(15000),
+      headers: gatewayHeaders(config, { Accept: "application/json" }),
     });
     if (!response.ok) throw new Error("Status service unavailable");
     result = await response.json();
