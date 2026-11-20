@@ -2,7 +2,7 @@
 
 Only the standalone payment test skips database storage. Existing SSO still uses the existing Supabase configuration. No new migration or Supabase administrative access is required. The normal charging-bill payment flow is unchanged.
 
-Merge the feature branch to main, set `DFCCIL_PRODUCTION_TEST_ENABLED=true` in Vercel Production and redeploy. Keep the existing DFCCIL gateway and registered return URL. The test API uses the existing SSO signing secret with a separate token issuer/audience; do not rotate that secret during the test. Previously applied test-ledger migrations can remain; this implementation does not access that table.
+Merge the feature branch to main, set `DFCCIL_PRODUCTION_TEST_ENABLED=true` and the server-only `DFCCIL_MOBILE_EPAY_HEADER` credential in Vercel Production, then redeploy. Keep the existing DFCCIL gateway and registered return URL. The credential is sent as the `mobile-epay` header only by server-to-server requests; never add it to mobile configuration, `VITE_` variables, or source control. The test API uses the existing SSO signing secret with a separate token issuer/audience; do not rotate that secret during the test. Previously applied test-ledger migrations can remain; this implementation does not access that table.
 
 In the development app, open a charger and tap **Test real DFCCIL payment · ₹1**. Refresh status, create the order and confirm, then open checkout. Enter real payment details only in the provider checkout. This charges real money if completed, and offers no automatic refund.
 
