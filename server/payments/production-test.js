@@ -22,7 +22,7 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
     try {
       if (auth.user.role !== "User" || !uuid.test(auth.claims.virtualId || "")) throw new PaymentError("An active DFCCIL user account is required.", 403);
       const input = req.body || {};
-      if (!["prepare", "create", "status", "diagnose"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "reference"].includes(k))) throw new PaymentError("Invalid request");
+      if (!["prepare", "create", "retry", "status", "diagnose"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "confirmNoExistingOrder", "reference"].includes(k))) throw new PaymentError("Invalid request");
       const settings = env();
       const config = configuration(settings);
       if (config.baseUrl !== "https://epay.dfccil.com") throw new PaymentError("Production DFCCIL gateway configuration required.", 503);
@@ -53,9 +53,17 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
         if (!saved || saved.user_id !== auth.user.id || Number(saved.amount) !== 1 || saved.app_id !== config.appId) throw new PaymentError("Invalid test reference.");
         a = saved;
       }
-      if (input.action === "prepare" || input.action === "create") {
+      if (["prepare", "create", "retry"].includes(input.action)) {
         if (settings.DFCCIL_PRODUCTION_TEST_ENABLED !== "true") throw new PaymentError("Production payment test is disabled.", 503);
         if (input.confirmRealPayment !== true) throw new PaymentError("Confirm the real ₹1 payment first.");
+      }
+      if (input.action === "retry") {
+        if (!a || input.confirmNoExistingOrder !== true || a.order_id || a.verified_at || a.resolution === "paid" || !["unknown", "reserved", "rejected"].includes(a.creation_state))
+          throw new PaymentError("A fresh order can be prepared only after confirming the previous reference has no order.", 409);
+        // Preserve the old reference; retry only reserves a new attempt. The client must
+        // persist its new signed reference before the separate gateway create request.
+        a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };
+        return await respond();
       }
       if (input.action === "prepare") {
         if (a) throw new PaymentError("A test reference already exists. Check its status before paying again.", 409);
