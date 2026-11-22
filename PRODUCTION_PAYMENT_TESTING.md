@@ -14,6 +14,8 @@ Signed references expire after 7 days. Do not clear app data, reinstall, switch 
 
 The app prevents duplicate taps and persists a creating marker before the gateway request. An interrupted create remains blocked; do not clear local data to retry an uncertain charge. Contact support/provider to reconcile first. An order ID lost with the creation response cannot be recovered automatically. Status remains available with a valid reference when the create feature flag is disabled.
 
+If DFCCIL confirms that an earlier reference has no order, the test screen can preserve that reference and prepare one fresh attempt after the user explicitly confirms both the ₹1 production request and the no-order confirmation. The new signed reference is stored before the gateway create request. This does not bypass gateway rejection; checkout appears only if DFCCIL returns a valid order ID and payment URL.
+
 After the controlled test, disable `DFCCIL_PRODUCTION_TEST_ENABLED` and redeploy. Normal production charging payments retain their database ledger. No real gateway order is created by automated tests.
 
 Validation: `npm --prefix mobile run typecheck`; `node --test tests/production-payment-test.test.js tests/dfccil-payment.test.js tests/dfccil-payment-sql.test.js tests/sso.test.js tests/mobile-authorization.test.js tests/payment-mock.test.js`; `npm run check:deployment`.

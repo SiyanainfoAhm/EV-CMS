@@ -59,6 +59,32 @@ test("timeout returns signed ambiguous reference and blocks retrying it",async()
  assert.equal((await call(h,{action:"create",reference:failed.body.reference,confirmRealPayment:true})).code,409);
  assert.equal(calls,1);
 });
+test("explicitly confirmed no-order retry preserves the old reference and prepares a fresh order",async()=>{
+ let creates=0;
+ const h=handler({request:async(url)=>{
+  assert.ok(url.endsWith("/Payment/SavePaymentData"));
+  creates++;
+  if(creates===1)return new Response("forbidden",{status:403,headers:{"Content-Type":"text/html"}});
+  return Response.json({orderId:"ORDER123456",paymentUrl:"https://epay.dfccil.com/Payment/Pay/ORDER123456"});
+ }});
+ const first=await call(h,{action:"create",reference:await prepare(h),confirmRealPayment:true});
+ assert.equal(first.body.attempt.creationState,"unknown");
+ const noConfirmation=await call(h,{action:"retry",reference:first.body.reference,confirmRealPayment:true});
+ assert.equal(noConfirmation.code,409);
+ assert.equal(creates,1);
+ const prepared=await call(h,{action:"retry",reference:first.body.reference,confirmRealPayment:true,confirmNoExistingOrder:true});
+ assert.equal(prepared.code,200);
+ assert.equal(prepared.body.attempt.creationState,"reserved");
+ assert.notEqual(prepared.body.attempt.attemptId,first.body.attempt.attemptId);
+ assert.equal(creates,1);
+ const second=await call(h,{action:"create",reference:prepared.body.reference,confirmRealPayment:true});
+ assert.equal(second.code,200);
+ assert.equal(second.body.attempt.canOpenCheckout,true);
+ assert.equal(creates,2);
+ const old=await call(h,{action:"status",reference:first.body.reference});
+ assert.equal(old.body.attempt.attemptId,first.body.attempt.attemptId);
+ assert.equal(old.body.attempt.creationState,"unknown");
+});
 test("status rejects mismatched amount and leaves payment unverified",async()=>{
  let stage="create";
  const h=handler({request:async()=>stage==="create"?Response.json({orderId:"ORDER123456",paymentUrl:"https://epay.dfccil.com/Payment/Pay/ORDER123456"}):Response.json({orderId:"ORDER123456",appId:"EV001",amount:2,status:"CHARGED",statusGroup:"SUCCESS"})});
