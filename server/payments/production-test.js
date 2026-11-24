@@ -22,7 +22,7 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
     try {
       if (auth.user.role !== "User" || !uuid.test(auth.claims.virtualId || "")) throw new PaymentError("An active DFCCIL user account is required.", 403);
       const input = req.body || {};
-      if (!["prepare", "create", "retry", "status", "diagnose"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "confirmNoExistingOrder", "reference"].includes(k))) throw new PaymentError("Invalid request");
+      if (!["prepare", "create", "retry", "repeat", "status", "diagnose"].includes(input.action) || Object.keys(input).some(k => !["action", "confirmRealPayment", "confirmNoExistingOrder", "reference"].includes(k))) throw new PaymentError("Invalid request");
       const settings = env();
       const config = configuration(settings);
       if (config.baseUrl !== "https://epay.dfccil.com") throw new PaymentError("Production DFCCIL gateway configuration required.", 503);
@@ -53,7 +53,7 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
         if (!saved || saved.user_id !== auth.user.id || Number(saved.amount) !== 1 || saved.app_id !== config.appId) throw new PaymentError("Invalid test reference.");
         a = saved;
       }
-      if (["prepare", "create", "retry"].includes(input.action)) {
+      if (["prepare", "create", "retry", "repeat"].includes(input.action)) {
         if (settings.DFCCIL_PRODUCTION_TEST_ENABLED !== "true") throw new PaymentError("Production payment test is disabled.", 503);
         if (input.confirmRealPayment !== true) throw new PaymentError("Confirm the real ₹1 payment first.");
       }
@@ -72,17 +72,22 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
           return a;
         },
       };
-      if (input.action === "retry") {
-        if (!a || a.verified_at || a.resolution === "paid")
-          throw new PaymentError("An unpaid test reference is required to start a new order.", 409);
-        if (a.order_id) {
-          if (a.resolution !== "failed")
-            throw new PaymentError("The previous order must show a confirmed failure before retrying.", 409);
-          a = await verifyPaymentStatus(auth, a, store, config, request);
-          if (a.resolution !== "failed")
-            throw new PaymentError("The previous order status changed. Review it before paying again.", 409);
-        } else if (input.confirmNoExistingOrder !== true || !["unknown", "reserved", "rejected"].includes(a.creation_state)) {
-          throw new PaymentError("Confirm that the previous reference has no order before retrying.", 409);
+      if (input.action === "retry" || input.action === "repeat") {
+        if (input.action === "repeat") {
+          if (!a?.order_id || !publicAttempt(a).verified)
+            throw new PaymentError("A verified paid order is required to start another test.", 409);
+        } else {
+          if (!a || a.verified_at || a.resolution === "paid")
+            throw new PaymentError("An unpaid test reference is required to start a new order.", 409);
+          if (a.order_id) {
+            if (a.resolution !== "failed")
+              throw new PaymentError("The previous order must show a confirmed failure before retrying.", 409);
+            a = await verifyPaymentStatus(auth, a, store, config, request);
+            if (a.resolution !== "failed")
+              throw new PaymentError("The previous order status changed. Review it before paying again.", 409);
+          } else if (input.confirmNoExistingOrder !== true || !["unknown", "reserved", "rejected"].includes(a.creation_state)) {
+            throw new PaymentError("Confirm that the previous reference has no order before retrying.", 409);
+          }
         }
         // The client saves the previous reference and persists the new one before creation.
         a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };

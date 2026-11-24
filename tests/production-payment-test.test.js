@@ -41,6 +41,14 @@ test("prepare never calls gateway; real creation, restoration and verification n
  assert.equal(paid.body.attempt.verified,true);assert.equal(statuses,1);assert.equal(orders,1);
  const restored=await call(h,{action:"status",reference:paid.body.reference});
  assert.equal(restored.body.attempt.verified,true);assert.equal(statuses,1);
+ const premature = await call(h, { action: "repeat", reference: created.body.reference, confirmRealPayment: true });
+ assert.equal(premature.code, 409);
+ const repeated = await call(h, { action: "repeat", reference: paid.body.reference, confirmRealPayment: true });
+ assert.equal(repeated.code, 200);
+ assert.equal(repeated.body.attempt.creationState, "reserved");
+ assert.notEqual(repeated.body.attempt.attemptId, paid.body.attempt.attemptId);
+ assert.equal(orders, 1);
+ assert.equal(statuses, 1);
 });
 test("signed reference is scoped to owner and cannot be forged with an SSO token",async()=>{
  const reference=await prepare(handler());

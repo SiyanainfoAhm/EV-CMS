@@ -22,11 +22,11 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
   const inFlight = useRef(false);
   const storageKey = `dfccil-real-test:${requireUserId()}`;
   const historyKey = `${storageKey}:history`;
-  const call = useCallback(async (action: "create" | "retry" | "status" | "diagnose", confirmNoExistingOrder = false) => {
+  const call = useCallback(async (action: "create" | "retry" | "repeat" | "status" | "diagnose", confirmNoExistingOrder = false) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setError("");
-    if (action === "status" || action === "retry") setStatusReady(false);
+    if (action === "status" || action === "retry" || action === "repeat") setStatusReady(false);
     if (action !== "diagnose") setLastStatusRefresh(null);
     try {
       const raw = await AsyncStorage.getItem(storageKey);
@@ -34,7 +34,7 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       const send = async (operation: string, reference?: string) => {
         const response = await fetch(backendEndpoint("sso").replace(/\/sso$/, "/payments/production-test"), {
           method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getSessionMeta()?.token || ""}` },
-          body: JSON.stringify({ action: operation, reference, ...(["prepare", "create", "retry"].includes(operation) ? { confirmRealPayment: true } : {}), ...(operation === "retry" && confirmNoExistingOrder ? { confirmNoExistingOrder: true } : {}) }), signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({ action: operation, reference, ...(["prepare", "create", "retry", "repeat"].includes(operation) ? { confirmRealPayment: true } : {}), ...(operation === "retry" && confirmNoExistingOrder ? { confirmNoExistingOrder: true } : {}) }), signal: AbortSignal.timeout(25000),
         });
         if (response.status === 404) throw new Error("The payment test API is not deployed. Merge the backend changes, enable DFCCIL_PRODUCTION_TEST_ENABLED on Vercel and redeploy, then refresh.");
         let result;
@@ -60,12 +60,12 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
         const prepared = await send("prepare");
         // send() persists the signed reference and creating marker BEFORE the gateway request.
         await send("create", prepared.reference);
-      } else if (action === "retry") {
+      } else if (action === "retry" || action === "repeat") {
         if (!saved) throw new Error("No previous payment reference was found. Refresh status before starting an order.");
         const history = await AsyncStorage.getItem(historyKey);
         const prior = history ? JSON.parse(history) as Array<{ reference: string; savedAt: string }> : [];
         await AsyncStorage.setItem(historyKey, JSON.stringify([...prior, { reference: saved.reference, savedAt: new Date().toISOString() }]));
-        const prepared = await send("retry", saved.reference);
+        const prepared = await send(action, saved.reference);
         await send("create", prepared.reference);
       } else {
         const result = await send("status", saved?.reference);
@@ -99,6 +99,14 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       <Text selectable>Reference: {attempt.orderId || attempt.attemptId}</Text>
       <Text>₹{attempt.amount.toFixed(2)} · {attempt.status}</Text>
       {attempt.verified ? <Text>Payment confirmed by DFCCIL's server-side Status API.</Text> : null}
+      {attempt.verified && statusReady ? <AppButton title="Start another ₹1 test" disabled={busy} onPress={() => Alert.alert(
+        "Start another real ₹1 test?",
+        "Your previous payment is confirmed and its reference will be kept on this device. This creates a new order. Completing checkout will charge ₹1 again.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Create new order", onPress: () => { void call("repeat"); } },
+        ],
+      )} variant="outline" /> : null}
       {attempt.canOpenCheckout ? <AppButton title="Open DFCCIL checkout · ₹1 real payment" disabled={busy} onPress={() => { void checkout(); }} /> : null}
       {!attempt.verified && statusReady && (!attempt.orderId || attempt.status === "failed") ?
         <AppButton title="Try creating a new ₹1 order" disabled={busy} onPress={() => Alert.alert(
