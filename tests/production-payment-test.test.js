@@ -120,3 +120,33 @@ test("diagnostics report transport codes without exposing upstream error message
  assert.equal(result.body.diagnostics.code,"CERT_HAS_EXPIRED");
  assert.equal(JSON.stringify(result.body).includes("secret upstream data"),false);
 });
+
+test("retry rechecks a failed order before preparing a new one", async () => {
+ let creates = 0;
+ let gatewayStatus = { status: "FAILED", statusGroup: "FAILED" };
+ const orderId = "ORDER123456";
+ const h = handler({ request: async (url) => {
+  if (url.endsWith("/Payment/SavePaymentData")) {
+   creates++;
+   return Response.json({ orderId, paymentUrl: `https://epay.dfccil.com/Payment/Pay/${orderId}` });
+  }
+  assert.ok(url.endsWith(`/Payment/Status/${orderId}`));
+  return Response.json({ orderId, appId: "EV001", amount: 1, ...gatewayStatus });
+ } });
+ const created = await call(h, { action: "create", reference: await prepare(h), confirmRealPayment: true });
+ const failed = await call(h, { action: "status", reference: created.body.reference });
+ assert.equal(failed.body.attempt.status, "failed");
+ const retry = () => call(h, { action: "retry", reference: failed.body.reference, confirmRealPayment: true });
+ const prepared = await retry();
+ assert.equal(prepared.code, 200);
+ assert.equal(prepared.body.attempt.creationState, "reserved");
+ assert.notEqual(prepared.body.attempt.attemptId, failed.body.attempt.attemptId);
+ assert.equal(creates, 1);
+
+ gatewayStatus = { status: "CHARGED", statusGroup: "SUCCESS" };
+ const changed = await retry();
+ assert.equal(changed.code, 409);
+ assert.equal(changed.body.attempt.orderId, orderId);
+ assert.equal(changed.body.attempt.verified, true);
+ assert.equal(creates, 1);
+});

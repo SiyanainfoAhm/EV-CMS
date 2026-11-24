@@ -57,14 +57,6 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
         if (settings.DFCCIL_PRODUCTION_TEST_ENABLED !== "true") throw new PaymentError("Production payment test is disabled.", 503);
         if (input.confirmRealPayment !== true) throw new PaymentError("Confirm the real ₹1 payment first.");
       }
-      if (input.action === "retry") {
-        if (!a || input.confirmNoExistingOrder !== true || a.order_id || a.verified_at || a.resolution === "paid" || !["unknown", "reserved", "rejected"].includes(a.creation_state))
-          throw new PaymentError("A fresh order can be prepared only after confirming the previous reference has no order.", 409);
-        // Preserve the old reference; retry only reserves a new attempt. The client must
-        // persist its new signed reference before the separate gateway create request.
-        a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };
-        return await respond();
-      }
       if (input.action === "prepare") {
         if (a) throw new PaymentError("A test reference already exists. Check its status before paying again.", 409);
         a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };
@@ -80,6 +72,22 @@ export function productionTestHandler({ authorize = authenticate, key = sessionK
           return a;
         },
       };
+      if (input.action === "retry") {
+        if (!a || a.verified_at || a.resolution === "paid")
+          throw new PaymentError("An unpaid test reference is required to start a new order.", 409);
+        if (a.order_id) {
+          if (a.resolution !== "failed")
+            throw new PaymentError("The previous order must show a confirmed failure before retrying.", 409);
+          a = await verifyPaymentStatus(auth, a, store, config, request);
+          if (a.resolution !== "failed")
+            throw new PaymentError("The previous order status changed. Review it before paying again.", 409);
+        } else if (input.confirmNoExistingOrder !== true || !["unknown", "reserved", "rejected"].includes(a.creation_state)) {
+          throw new PaymentError("Confirm that the previous reference has no order before retrying.", 409);
+        }
+        // The client saves the previous reference and persists the new one before creation.
+        a = { id: randomUUID(), user_id: auth.user.id, app_id: config.appId, amount: 1, creation_state: "reserved", resolution: "open", created_at: new Date().toISOString() };
+        return await respond();
+      }
       if (input.action === "create") {
         if (!a || a.creation_state !== "reserved" || a.order_id) throw new PaymentError("A prepared test reference is required; do not retry an existing order.", 409);
         // No database ledger: the client must persist its creating marker before this request.

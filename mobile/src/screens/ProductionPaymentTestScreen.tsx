@@ -18,21 +18,23 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
   const [error, setError] = useState("");
   const [diagnostics, setDiagnostics] = useState("");
   const [statusReady, setStatusReady] = useState(false);
+  const [lastStatusRefresh, setLastStatusRefresh] = useState<Date | null>(null);
   const inFlight = useRef(false);
   const storageKey = `dfccil-real-test:${requireUserId()}`;
   const historyKey = `${storageKey}:history`;
-  const call = useCallback(async (action: "create" | "retry" | "status" | "diagnose") => {
+  const call = useCallback(async (action: "create" | "retry" | "status" | "diagnose", confirmNoExistingOrder = false) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setError("");
-    if (action === "status") setStatusReady(false);
+    if (action === "status" || action === "retry") setStatusReady(false);
+    if (action !== "diagnose") setLastStatusRefresh(null);
     try {
       const raw = await AsyncStorage.getItem(storageKey);
       const saved = raw ? JSON.parse(raw) as { reference: string; phase: string } : null;
       const send = async (operation: string, reference?: string) => {
         const response = await fetch(backendEndpoint("sso").replace(/\/sso$/, "/payments/production-test"), {
           method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getSessionMeta()?.token || ""}` },
-          body: JSON.stringify({ action: operation, reference, ...(["prepare", "create", "retry"].includes(operation) ? { confirmRealPayment: true } : {}), ...(operation === "retry" ? { confirmNoExistingOrder: true } : {}) }), signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({ action: operation, reference, ...(["prepare", "create", "retry"].includes(operation) ? { confirmRealPayment: true } : {}), ...(operation === "retry" && confirmNoExistingOrder ? { confirmNoExistingOrder: true } : {}) }), signal: AbortSignal.timeout(25000),
         });
         if (response.status === 404) throw new Error("The payment test API is not deployed. Merge the backend changes, enable DFCCIL_PRODUCTION_TEST_ENABLED on Vercel and redeploy, then refresh.");
         let result;
@@ -68,9 +70,10 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       } else {
         const result = await send("status", saved?.reference);
         setAttempt(result.attempt);
-        if (saved?.phase === "creating" && result.attempt?.creation_state === "reserved") {
+        if (saved?.phase === "creating" && result.attempt?.creationState === "reserved") {
           throw new Error("Order creation may have been interrupted. Do not retry or clear app data. Reconcile with support before another payment.");
         }
+        setLastStatusRefresh(new Date());
       }
       setStatusReady(true);
     } catch (e) { setError(e instanceof Error ? e.message : "Payment request failed"); }
@@ -97,15 +100,26 @@ export default function ProductionPaymentTestScreen({ navigation }: Props) {
       <Text>₹{attempt.amount.toFixed(2)} · {attempt.status}</Text>
       {attempt.verified ? <Text>Payment confirmed by DFCCIL's server-side Status API.</Text> : null}
       {attempt.canOpenCheckout ? <AppButton title="Open DFCCIL checkout · ₹1 real payment" disabled={busy} onPress={() => { void checkout(); }} /> : null}
-      {!attempt.verified && !attempt.orderId && statusReady ? <AppButton title="Try creating a new ₹1 order" disabled={busy} onPress={() => Alert.alert("Create a new real ₹1 order?", "You confirmed DFCCIL has no order for the previous reference. This submits one new production order request. If accepted, you can continue to DFCCIL checkout and choose whether to pay ₹1.", [
-        { text: "Cancel", style: "cancel" }, { text: "Submit new order", onPress: () => { void call("retry"); } },
-      ])} variant="outline" /> : null}
+      {!attempt.verified && statusReady && (!attempt.orderId || attempt.status === "failed") ?
+        <AppButton title="Try creating a new ₹1 order" disabled={busy} onPress={() => Alert.alert(
+          "Create a new real ₹1 order?",
+          attempt.orderId
+            ? "DFCCIL reported the previous payment as failed. The app will check that order again before creating a new one."
+            : "Confirm that DFCCIL has no order for the previous reference before submitting a new production order request.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Submit new order", onPress: () => { void call("retry", !attempt.orderId); } },
+          ],
+        )} variant="outline" /> : null}
       {!attempt.verified && !attempt.canOpenCheckout ? <Text>Refresh status before paying again. If the result is unclear, contact support with this reference. Wait 30 seconds between checks.</Text> : null}
     </> : <AppButton title="Create real ₹1 payment order" disabled={busy || !statusReady} onPress={() => Alert.alert("Real ₹1 payment", "This creates a production DFCCIL order. You will enter payment details on DFCCIL checkout. Continue?", [
       { text: "Cancel", style: "cancel" }, { text: "Create ₹1 order", onPress: () => { void call("create"); } },
     ])} />}
     {!attempt && !statusReady && !busy ? <Text>Create is unavailable until your existing payment status can be checked. Resolve the error above and tap Refresh payment status.</Text> : null}
     <AppButton title="Refresh payment status" loading={busy} onPress={() => { void call("status"); }} variant="outline" />
+    {lastStatusRefresh ? <Text accessibilityLiveRegion="polite">
+      Status refreshed at {lastStatusRefresh.toLocaleTimeString()}.
+    </Text> : null}
     <AppButton title="Check gateway connection (no payment)" disabled={busy} onPress={() => { void call("diagnose"); }} variant="outline" />
     {diagnostics ? <Text selectable>{diagnostics}</Text> : null}
     <Text>This device retains one signed test reference for this account for up to 7 days. Do not clear app data or switch devices during the test. The payment test does not use a database ledger.</Text>
